@@ -1,0 +1,180 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AnalysisLevel>6.0-recommended</AnalysisLevel>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishReadyToRun>true</PublishReadyToRun>
+    <PublishSingleFile>true</PublishSingleFile>
+    <UseAppHost>true</UseAppHost>
+    <OutputPath>$(MSBuildProjectDirectory)\obj\Host\bin</OutputPath>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>TikTokHelper_Electron</RootNamespace>
+    <TypeScriptToolsVersion>5.0</TypeScriptToolsVersion>
+    <ApplicationIcon>wwwroot\favicon.ico</ApplicationIcon>
+    <!-- Добавлено свойство TypeScriptToolsVersion -->
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <Optimize>False</Optimize>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <Optimize>True</Optimize>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="Converters\**" />
+    <Compile Remove="Extensions\**" />
+    <Compile Remove="Libs\**" />
+    <Compile Remove="obj\**" />
+    <Content Remove="Converters\**" />
+    <Content Remove="Extensions\**" />
+    <Content Remove="Libs\**" />
+    <Content Remove="obj\**" />
+    <EmbeddedResource Remove="Converters\**" />
+    <EmbeddedResource Remove="Extensions\**" />
+    <EmbeddedResource Remove="Libs\**" />
+    <EmbeddedResource Remove="obj\**" />
+    <None Remove="Converters\**" />
+    <None Remove="Extensions\**" />
+    <None Remove="Libs\**" />
+    <None Remove="obj\**" />
+    <TypeScriptCompile Remove="Converters\**" />
+    <TypeScriptCompile Remove="Extensions\**" />
+    <TypeScriptCompile Remove="Libs\**" />
+    <TypeScriptCompile Remove="node_modules\**" />
+    <TypeScriptCompile Remove="obj\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="Models\SettingsViewModel.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Flurl.Http" Version="4.0.2" />
+    <PackageReference Include="jQuery.Validation" Version="1.21.0" />
+    <PackageReference Include="MediatR" Version="12.4.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity" Version="2.3.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.UI" Version="9.0.3" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.3" />
+    <PackageReference Include="Microsoft.Identity.Web" Version="3.8.2" />
+    <PackageReference Include="Microsoft.Identity.Web.TokenAcquisition" Version="3.8.2" />
+    <PackageReference Include="Microsoft.Identity.Web.UI" Version="3.8.2" />
+    <PackageReference Include="Microsoft.jQuery.Unobtrusive.Validation" Version="4.0.0" />
+    <PackageReference Include="Microsoft.TypeScript.MSBuild" Version="5.8.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.VisualStudio.Web.CodeGeneration.Design" Version="9.0.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NLog" Version="5.4.0" />
+    <PackageReference Include="NLog.Extensions.Logging" Version="5.4.0" />
+    <PackageReference Include="System.Speech" Version="9.0.3" />
+    <PackageReference Include="System.Text.Json" Version="9.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Razor.RuntimeCompilation" Version="6.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="CommandQueries\" />
+    <Folder Include="Logging\" />
+    <Folder Include="Notify\" />
+    <Folder Include="wwwroot\lib\bootstrap\css\" />
+  </ItemGroup>
+
+
+  <ItemGroup>
+    <None Include="wwwroot\Assets\Sounds\-tik-tok-.wav" />
+    <None Include="wwwroot\Assets\Sounds\benny-hill%28Смех%29.wav" />
+    <None Include="wwwroot\Assets\Sounds\edinstvennoe-chto-myi-mojem-tut-poluchit-eto.wav" />
+    <None Include="wwwroot\Assets\Sounds\eralash.wav" />
+    <None Include="wwwroot\Assets\Sounds\go-go.wav" />
+    <None Include="wwwroot\Assets\Sounds\Heartbeat. Стук сердца звук.wav" />
+    <None Include="wwwroot\Assets\Sounds\icq.wav" />
+    <None Include="wwwroot\Assets\Sounds\Scooter - Fire.wav" />
+    <None Include="wwwroot\Assets\Sounds\Very hot  potato.wav" />
+    <None Include="wwwroot\Assets\Sounds\vot-eto-povorot.wav" />
+    <None Include="wwwroot\Assets\Sounds\winnner.wav" />
+    <None Include="wwwroot\Assets\Sounds\Аплодисменты.wav" />
+    <None Include="wwwroot\Assets\Sounds\Ах.wav" />
+    <None Include="wwwroot\Assets\Sounds\Бай-бай.wav" />
+    <None Include="wwwroot\Assets\Sounds\Брутальный звук для доната.wav" />
+    <None Include="wwwroot\Assets\Sounds\Бульки.wav" />
+    <None Include="wwwroot\Assets\Sounds\Винил.wav" />
+    <None Include="wwwroot\Assets\Sounds\Все хуйня.wav" />
+    <None Include="wwwroot\Assets\Sounds\где наши деньги.wav" />
+    <None Include="wwwroot\Assets\Sounds\Гром %28одиночный удар%29.wav" />
+    <None Include="wwwroot\Assets\Sounds\Гуси.wav" />
+    <None Include="wwwroot\Assets\Sounds\ГЫ гы.wav" />
+    <None Include="wwwroot\Assets\Sounds\Давай мясо.wav" />
+    <None Include="wwwroot\Assets\Sounds\Дич.wav" />
+    <None Include="wwwroot\Assets\Sounds\Для крутого момента.wav" />
+    <None Include="wwwroot\Assets\Sounds\Заварю ка кофейку%28min%29.WAV" />
+    <None Include="wwwroot\Assets\Sounds\Звук для доната 1.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук для доната 2%28говорит девушка%29.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук доната 3.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук леопарда.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук меча 2.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук меча.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук паровоза.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук раскат грома, грозы %283%29.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звук самолета.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звуки кита.wav" />
+    <None Include="wwwroot\Assets\Sounds\Звуки фиерверка.wav" />
+    <None Include="wwwroot\Assets\Sounds\Китайское брыньчанье.wav" />
+    <None Include="wwwroot\Assets\Sounds\Ковбой.wav" />
+    <None Include="wwwroot\Assets\Sounds\Кожаный ублюдок.wav" />
+    <None Include="wwwroot\Assets\Sounds\Коза.wav" />
+    <None Include="wwwroot\Assets\Sounds\Комета.wav" />
+    <None Include="wwwroot\Assets\Sounds\Котенок.wav" />
+    <None Include="wwwroot\Assets\Sounds\Крик короткий.wav" />
+    <None Include="wwwroot\Assets\Sounds\Кто как обзывается%28путин%29.wav" />
+    <None Include="wwwroot\Assets\Sounds\Нахуй я сюда пришел.wav" />
+    <None Include="wwwroot\Assets\Sounds\Не то чтобы по вкусу вкусно.wav" />
+    <None Include="wwwroot\Assets\Sounds\ня.wav" />
+    <None Include="wwwroot\Assets\Sounds\О курва.wav" />
+    <None Include="wwwroot\Assets\Sounds\О, кепочка.wav" />
+    <None Include="wwwroot\Assets\Sounds\Орный смех.wav" />
+    <None Include="wwwroot\Assets\Sounds\Отрыжка.wav" />
+    <None Include="wwwroot\Assets\Sounds\Ох.wav" />
+    <None Include="wwwroot\Assets\Sounds\Пердеж.wav" />
+    <None Include="wwwroot\Assets\Sounds\Подарок получен%28звук%29.wav" />
+    <None Include="wwwroot\Assets\Sounds\Пончик.wav" />
+    <None Include="wwwroot\Assets\Sounds\Пососи петушка.wav" />
+    <None Include="wwwroot\Assets\Sounds\Праздник к нам приходит.wav" />
+    <None Include="wwwroot\Assets\Sounds\Прикольный звук на гитаре.wav" />
+    <None Include="wwwroot\Assets\Sounds\Пример малолетнего дибила.wav" />
+    <None Include="wwwroot\Assets\Sounds\Пук.wav" />
+    <None Include="wwwroot\Assets\Sounds\Разгон и торможение машины.wav" />
+    <None Include="wwwroot\Assets\Sounds\сверчки.wav" />
+    <None Include="wwwroot\Assets\Sounds\Техно.wav" />
+    <None Include="wwwroot\Assets\Sounds\Ублюдок мать твою.WAV" />
+    <None Include="wwwroot\Assets\Sounds\УТКА КРЯКВА.wav" />
+    <None Include="wwwroot\Assets\Sounds\Уточка.wav" />
+    <None Include="wwwroot\Assets\Sounds\Хуя.wav" />
+    <None Include="wwwroot\Assets\Sounds\Что народ погнали!.wav" />
+    <None Include="wwwroot\Assets\Sounds\шизофрения.wav" />
+    <None Include="wwwroot\Assets\Sounds\Шлепок.wav" />
+    <None Include="wwwroot\Assets\Sounds\Ямоде кудасай.wav" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="electron.manifest.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+    <Content Update="wwwroot\js\server.js">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

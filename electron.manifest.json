@@ -1,0 +1,35 @@
+{
+  "executable": "TikTokHelper_Electron",
+  "splashscreen": {
+    "imageFile": "./Assets/splashscreen.png",
+    "loadingText": "Loading..."
+  },
+  "name": "TikTokHelper_Electron",
+  "author": "IvanLeonidivich",
+  "singleInstance": false,
+  "build": {
+    "appId": "com.TikTokHelper_Electron.app",
+    "productName": "TikTokHelper_Electron",
+    "copyright": "Copyright © 2024",
+    "buildVersion": "1.0.0",
+    "compression": "maximum",
+    "directories": {
+      "output": "./obj/Host/bin"
+    },
+    "extraResources": [
+      {
+        "from": "./wwwroot",
+        "to": "wwwroot",
+        "filter": ["**/*"]
+      }
+    ],
+    "files": [
+      {
+        "from": "./node_modules",
+        "to": "./obj/Host/node_modules",
+        "filter": [ "**/*" ]
+      },
+      "**/*"
+    ]
+  }
+}

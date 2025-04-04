@@ -1,0 +1,262 @@
+﻿@page
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@model TikTokHelper_Electron.Pages.Settings.IndexModel
+@{
+    ViewData["Title"] = "Настройки озвучки событий";
+}
+
+<div class="container settings-page">
+    <main role="main" class="pb-3">
+        <h1 class="display-4 mb-4">@ViewData["Title"]</h1>
+
+        <!-- Основные настройки голоса -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Настройки голоса</h5>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="voiceLanguage" class="form-label">Язык озвучки</label>
+                            <select class="form-select" id="voiceLanguage">
+                                <option value="ru-RU">Русский</option>
+                                <option value="en-US">Английский</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="voiceName" class="form-label">Голос</label>
+                            <select class="form-select" id="voiceName">
+                                <option value="">Системный по умолчанию</option>
+                                <!-- Голоса будут загружены через JavaScript -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="voiceRate" class="form-label">Скорость произношения</label>
+                            <input type="range" class="form-range" min="0.5" max="2" step="0.1" id="voiceRate">
+                            <div class="text-muted small" id="voiceRateValue">1.0</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="voicePitch" class="form-label">Высота тона</label>
+                            <input type="range" class="form-range" min="0.5" max="2" step="0.1" id="voicePitch">
+                            <div class="text-muted small" id="voicePitchValue">1.0</div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="voiceVolume" class="form-label">Громкость</label>
+                            <input type="range" class="form-range" min="0" max="1" step="0.1" id="voiceVolume">
+                            <div class="text-muted small" id="voiceVolumeValue">1.0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="testVoiceBtn" class="btn btn-outline-primary mt-2">
+                    <i class="bi bi-volume-up"></i> Тестировать голос
+                </button>
+            </div>
+        </div>
+
+        <!-- Настройки событий -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Настройки озвучки событий</h5>
+
+                <div class="row g-3">
+                    <!-- Лайки -->
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded bg-light">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input event-toggle" type="checkbox"
+                                       id="eventLikesEnabled" data-event="likes" data-setting="enabled">
+                                <label class="form-check-label fw-bold" for="eventLikesEnabled">
+                                    <i class="bi bi-heart-fill text-danger"></i> Лайки
+                                </label>
+                            </div>
+
+                            <div class="ms-4">
+                                <div class="mb-3">
+                                    <label for="eventLikesMin" class="form-label small">Минимальное количество:</label>
+                                    <input type="number" class="form-control form-control-sm"
+                                           id="eventLikesMin" data-event="likes" data-setting="minCount" min="1" value="10">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small">Шаблон сообщения:</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text">@@username</span>
+                                        <input type="text" class="form-control"
+                                               id="eventLikesTemplate" data-event="likes" data-setting="template"
+                                               value="поставил {count} лайков">
+                                    </div>
+                                    <small class="text-muted">Используйте {count} для количества лайков</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Подарки -->
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded bg-light">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input event-toggle" type="checkbox"
+                                       id="eventGiftsEnabled" data-event="gifts" data-setting="enabled">
+                                <label class="form-check-label fw-bold" for="eventGiftsEnabled">
+                                    <i class="bi bi-gift-fill text-warning"></i> Подарки
+                                </label>
+                            </div>
+
+                            <div class="ms-4">
+                                <div class="mb-3">
+                                    <label class="form-label small">Шаблон для одиночных:</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text">@@username</span>
+                                        <input type="text" class="form-control"
+                                               id="eventGiftsTemplate" data-event="gifts" data-setting="template"
+                                               value="отправил {gift}">
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small">Шаблон для серий:</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text">@@username</span>
+                                        <input type="text" class="form-control"
+                                               id="eventGiftsStreakTemplate" data-event="gifts" data-setting="streakTemplate"
+                                               value="отправил серию {count} {gift}">
+                                    </div>
+                                    <small class="text-muted">{gift} - название, {count} - количество</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Сообщения -->
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded bg-light mt-3">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input event-toggle" type="checkbox"
+                                       id="eventMessagesEnabled" data-event="messages" data-setting="enabled">
+                                <label class="form-check-label fw-bold" for="eventMessagesEnabled">
+                                    <i class="bi bi-chat-left-text-fill text-primary"></i> Сообщения
+                                </label>
+                            </div>
+
+                            <div class="ms-4">
+                                <div class="mb-3">
+                                    <label for="eventMessagesMinLen" class="form-label small">Минимальная длина:</label>
+                                    <input type="number" class="form-control form-control-sm"
+                                           id="eventMessagesMinLen" data-event="messages" data-setting="minLength" min="0" value="30">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="eventMessagesKeywords" class="form-label small">Ключевые слова:</label>
+                                    <input type="text" class="form-control form-control-sm"
+                                           id="eventMessagesKeywords" data-event="messages" data-setting="keywords"
+                                           placeholder="спасибо, благодарю, thanks">
+                                    <small class="text-muted">Через запятую, сообщения с этими словами будут озвучены</small>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small">Шаблон сообщения:</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text">@@username</span>
+                                        <input type="text" class="form-control"
+                                               id="eventMessagesTemplate" data-event="messages" data-setting="template"
+                                               value="пишет: {message}">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Подключения -->
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded bg-light mt-3">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input event-toggle" type="checkbox"
+                                       id="eventJoinsEnabled" data-event="joins" data-setting="enabled">
+                                <label class="form-check-label fw-bold" for="eventJoinsEnabled">
+                                    <i class="bi bi-person-plus-fill text-success"></i> Подключения
+                                </label>
+                            </div>
+
+                            <div class="ms-4">
+                                <div class="mb-3">
+                                    <label class="form-label small">Шаблон сообщения:</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text">@@username</span>
+                                        <input type="text" class="form-control"
+                                               id="eventJoinsTemplate" data-event="joins" data-setting="template"
+                                               value="присоединился к трансляции">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Подписки -->
+                    <div class="col-md-6">
+                        <div class="p-3 border rounded bg-light mt-3">
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input event-toggle" type="checkbox"
+                                       id="eventFollowsEnabled" data-event="follows" data-setting="enabled">
+                                <label class="form-check-label fw-bold" for="eventFollowsEnabled">
+                                    <i class="bi bi-star-fill text-warning"></i> Подписки
+                                </label>
+                            </div>
+
+                            <div class="ms-4">
+                                <div class="mb-3">
+                                    <label class="form-label small">Шаблон сообщения:</label>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text">@@username</span>
+                                        <input type="text" class="form-control"
+                                               id="eventFollowsTemplate" data-event="follows" data-setting="template"
+                                               value="подписался на канал!">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Дополнительные настройки -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Дополнительные настройки</h5>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="eventCooldown" class="form-label">Задержка между сообщениями (мс)</label>
+                            <input type="number" class="form-control" id="eventCooldown" min="500" value="3000">
+                        </div>
+                    </div>
+
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="maxQueueSize" class="form-label">Максимальный размер очереди</label>
+                            <input type="number" class="form-control" id="maxQueueSize" min="1" max="10" value="5">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between mt-4">
+            <button id="resetSettingsBtn" class="btn btn-outline-danger">
+                <i class="bi bi-arrow-counterclockwise"></i> Сбросить настройки
+            </button>
+            <button id="saveSettingsBtn" class="btn btn-primary">
+                <i class="bi bi-save"></i> Сохранить настройки
+            </button>
+        </div>
+    </main>
+</div>

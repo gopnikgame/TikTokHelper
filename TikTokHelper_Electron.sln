@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35913.81
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TikTokHelper_Electron", "TikTokHelper_Electron.csproj", "{A2C3B8CD-8E52-EF3C-8EAE-2E32F0E8F67B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A2C3B8CD-8E52-EF3C-8EAE-2E32F0E8F67B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A2C3B8CD-8E52-EF3C-8EAE-2E32F0E8F67B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A2C3B8CD-8E52-EF3C-8EAE-2E32F0E8F67B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A2C3B8CD-8E52-EF3C-8EAE-2E32F0E8F67B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EF921F4F-6906-4B57-B18B-7EC55CBE4126}
+	EndGlobalSection
+EndGlobal

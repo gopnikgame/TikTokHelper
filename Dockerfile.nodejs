@@ -1,0 +1,21 @@
+FROM node:18-alpine AS base
+
+WORKDIR /app
+
+# Копируем зависимости и package.json
+COPY ["wwwroot/js/package.json", "wwwroot/js/package-lock.json", "./"]
+
+# Устанавливаем зависимости
+RUN npm ci --only=production
+
+# Копируем исходный код
+COPY ["wwwroot/js/server.js", "./"]
+
+# Настраиваем среду
+ENV HOST=0.0.0.0
+ENV PORT=3000
+ENV NODE_ENV=production
+
+EXPOSE 3000
+
+CMD ["node", "server.js"]

@@ -1,0 +1,16 @@
+{
+  "name": "tiktok-helper-server",
+  "version": "1.0.0",
+  "description": "TikTok Helper WebSocket Server",
+  "main": "server.js",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "4.21.2",
+    "socket.io": "4.8.1",
+    "tiktok-live-connector": "^1.2.3"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
+   

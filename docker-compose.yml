@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tiktokhelper-webapp
+    restart: unless-stopped
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - NodeJsService__WebSocketServerHost=nodejs
+      - NodeJsService__WebSocketServerPort=3000
+      - AppConfig__BaseDomain=monitoring.tik-talk.ru
+      - AppConfig__EnableHTTPS=true
+      - DataDirectory=/app/data
+    volumes:
+      - app_data:/app/data
+    depends_on:
+      - nodejs
+    networks:
+      - app-network
+    env_file:
+      - .env
+
+  nodejs:
+    build:
+      context: .
+      dockerfile: Dockerfile.nodejs
+    container_name: tiktokhelper-nodejs
+    restart: unless-stopped
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - NODE_ENV=production
+    networks:
+      - app-network
+    env_file:
+      - .env
+
+  nginx:
+    image: nginx:alpine
+    container_name: tiktokhelper-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      - webapp
+      - nodejs
+    networks:
+      - app-network
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+
+  certbot:
+    image: certbot/certbot
+    container_name: tiktokhelper-certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    depends_on:
+      - nginx
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  app_data:
+    driver: local

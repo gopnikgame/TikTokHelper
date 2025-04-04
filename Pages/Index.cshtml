@@ -1,0 +1,153 @@
+﻿@page
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@model TikTokHelper_Electron.Pages.IndexModel
+@{
+    ViewData["Title"] = "Мониторинг";
+}
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - TikTokHelper</title>
+    <link rel="stylesheet" href="~/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body>
+    <header>
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+            <div class="container">
+                <a class="navbar-brand" asp-page="/Index">TikTokHelper</a>
+                <!-- Навигация -->
+            </div>
+        </nav>
+    </header>
+
+    <div class="container mt-4 mb-5">
+        <!-- Панель подключения -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Подключение к TikTok LIVE</h5>
+                <div class="connection-controls">
+                    <div class="form-group">
+                        <label for="tiktokUsernameInput">Username стримера:</label>
+                        <input type="text" class="form-control" id="tiktokUsernameInput"
+                               placeholder="например, officialgeilegisela">
+                    </div>
+                    <button id="tiktokConnectButton" class="btn btn-primary">Подключиться</button>
+                    <div id="tiktokConnectionStatus" class="connection-status disconnected">
+                        Не подключено
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="tiktokAutoConnectCheckbox">
+                        <label class="form-check-label" for="tiktokAutoConnectCheckbox">Автоподключение</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Компактный контейнер управления отображением -->
+        <div id="tiktok-controls" class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title mb-3">Настройки отображения</h5>
+
+                <!-- Компактная группа чекбоксов -->
+                <div class="d-flex flex-wrap gap-3 mb-3">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="showMessagesCheckbox" checked>
+                        <label class="form-check-label" for="showMessagesCheckbox">Сообщения чата</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="showEventsCheckbox" checked>
+                        <label class="form-check-label" for="showEventsCheckbox">События (лайки, подарки)</label>
+                    </div>
+                </div>
+
+                <!-- Компактный блок обновления подарков -->
+                <div class="d-flex align-items-center gap-3 mb-3">
+                    <h6 class="mb-0">Обновление подарков:</h6>
+                    <button id="refreshGiftsButton" class="btn btn-sm btn-outline-secondary py-1">
+                        <i class="bi bi-arrow-clockwise"></i> Обновить
+                    </button>
+                </div>
+                <div class="card mb-3">
+                    <div class="card-body">
+                        <h6 class="card-title">Озвучка событий</h6>
+
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="voiceAnnouncerMasterToggle">
+                            <label class="form-check-label" for="voiceAnnouncerMasterToggle">Включить озвучку</label>
+                        </div>
+
+                        <div class="ms-3" id="voiceEventsControls" style="display: none;">
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input event-toggle" type="checkbox" id="quickToggleLikes">
+                                <label class="form-check-label" for="quickToggleLikes">Лайки</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input event-toggle" type="checkbox" id="quickToggleGifts">
+                                <label class="form-check-label" for="quickToggleGifts">Подарки</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input event-toggle" type="checkbox" id="quickToggleMessages">
+                                <label class="form-check-label" for="quickToggleMessages">Сообщения</label>
+                            </div>
+                            <div class="form-check form-check-inline">
+                                <input class="form-check-input event-toggle" type="checkbox" id="quickToggleFollows">
+                                <label class="form-check-label" for="quickToggleFollows">Подписки</label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-3 mt-3">
+                    <label for="soundQueueSlider" class="form-label mb-0 small">
+                        Задержка: <span id="soundQueueValue">0</span>%
+                    </label>
+                    <input type="range" class="form-range flex-grow-1" min="0" max="100" step="1" id="soundQueueSlider" value="0">
+                </div>
+            </div>
+        </div>
+
+        <!-- Контейнер статистики -->
+        <div id="tiktok-stats-container" class="tiktok-stats-container mb-4">
+            <div class="tiktok-stat-card stat-card">
+                <div class="tiktok-stat-label">❤️ Лайки</div>
+                <div id="tiktok-like-counter" class="tiktok-stat-value">0</div>
+            </div>
+            <div class="tiktok-stat-card stat-card">
+                <div class="tiktok-stat-label">🎁 Подарки</div>
+                <div id="tiktok-gift-counter" class="tiktok-stat-value">0</div>
+            </div>
+            <div class="tiktok-stat-card stat-card">
+                <div class="tiktok-stat-label">💬 Сообщения</div>
+                <div id="tiktok-message-counter" class="tiktok-stat-value">0</div>
+            </div>
+            <div class="tiktok-stat-card stat-card">
+                <div class="tiktok-stat-label">👥 Зрители</div>
+                <div id="tiktok-viewer-counter" class="tiktok-stat-value">0</div>
+            </div>
+        </div>
+
+        <!-- Основные контейнеры для чата и событий -->
+        <!-- Чат на всю ширину -->
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Чат</span>
+                <span class="badge bg-primary" id="chat-counter">0</span>
+            </div>
+            <div id="tiktok-chat-container" class="card-body event-container">
+                <!-- Сообщения будут добавляться здесь -->
+            </div>
+        </div>
+    </div>
+    <!-- Контейнер для уведомлений -->
+    <div id="tiktok-notifications-container"></div>
+    <footer class="footer text-white bg-dark">
+        <div class="container text-center">
+            &copy; 2023 - TikTokHelper
+        </div>
+    </footer>
+</body>
+</html>

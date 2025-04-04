@@ -1,0 +1,62 @@
+﻿@page
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@model TikTokHelper_Electron.Pages.Sound.IndexModel
+@{
+    ViewData["Title"] = "Донат эффекты";
+}
+
+<div class="container sound-page">
+    <main role="main" class="pb-3">
+        <h1 class="display-4 mb-4">Донат эффекты</h1>
+
+        <!-- Форма загрузки звукового файла -->
+        <div class="card sound-upload-card">
+            <div class="card-body">
+                <h5 class="sound-upload-title">Загрузить звуковой файл</h5>
+                <form method="post" enctype="multipart/form-data" id="soundUploadForm">
+                    <div class="input-group mb-3">
+                        <input type="file" class="form-control" name="soundFile" accept="audio/*" id="soundFileInput" required>
+                        <button class="btn btn-primary" type="submit" asp-page-handler="UploadSound">
+                            <i class="bi bi-upload"></i> Загрузить
+                        </button>
+                    </div>
+                    <small class="form-text text-muted">Поддерживаемые форматы: MP3, WAV, OGG (макс. 5MB)</small>
+                </form>
+            </div>
+        </div>
+
+        <!-- Настройка задержки звуков -->
+        <div class="sound-delay-container">
+            <div class="sound-delay-title">
+                Задержка между звуками: <span class="sound-delay-value" id="soundQueueValue">0</span> мс
+            </div>
+            <input type="range" class="sound-delay-slider" id="soundQueueSlider" min="0" max="100" value="0">
+            <div class="sound-delay-description">
+                Регулирует минимальное время между воспроизведением звуковых эффектов (0-макс задержка мс)
+            </div>
+            <div class="sound-max-delay mt-3">
+                <label for="soundDelayMaxInput">Максимальная задержка (мс):</label>
+                <input type="number" id="soundDelayMaxInput" class="form-control" value="1000" min="100" step="10">
+            </div>
+        </div>
+
+
+        <!-- Список звуковых эффектов -->
+        <h5 class="mt-4 mb-3">Привязка звуков к подаркам</h5>
+        <div class="alert alert-info" id="loadingSoundsAlert">
+            <i class="bi bi-arrow-repeat"></i> Загрузка списка звуков...
+        </div>
+        <ul class="sound-list" id="soundList" style="display: none;">
+            <!-- Элементы списка будут добавлены через JavaScript -->
+        </ul>
+
+        <!-- Примечание -->
+        <div class="sound-note">
+            <p>
+                <strong>Примечание:</strong> Загруженные аудиофайлы сохраняются в папку Assets/Sounds приложения.
+                Для тестирования звука нажмите кнопку "Тест" рядом с выбранным подарком.
+            </p>
+        </div>
+    </main>
+</div>
