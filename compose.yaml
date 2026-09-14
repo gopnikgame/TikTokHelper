@@ -42,7 +42,7 @@ services:
       POSTGRES_USER: tiktok_helper
     secrets: [db_password]
     ports:
-      - "3000:3000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
       - media_data:/app/data/media
     healthcheck:

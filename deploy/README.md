@@ -1,6 +1,6 @@
 # Production foundation
 
-This Compose model is an interim single-VM foundation. The app publishes port 3000 on the VM so Caddy on the Proxmox host can reach it; PostgreSQL has no host port. Restrict port 3000 to the trusted LAN at the VM or Proxmox firewall before public routing. Runtime secrets belong in `secrets/`, which is ignored by Git.
+This Compose model is an interim single-VM foundation. The app binds to loopback by default; set `APP_BIND_ADDRESS` in the VM-only `.env` to its trusted LAN address when Caddy runs on another host. PostgreSQL has no host port. Restrict port 3000 to the trusted LAN at the VM or Proxmox firewall before public routing. Runtime secrets belong in `secrets/`, which is ignored by Git.
 
 ```bash
 docker compose config --quiet
