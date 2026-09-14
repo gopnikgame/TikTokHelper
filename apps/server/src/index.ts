@@ -1,15 +1,26 @@
 import { sql } from 'drizzle-orm';
+import { readdir } from 'node:fs/promises';
 import { buildApp } from './app.js';
 import { createDatabase } from './db/client.js';
 import { createSettingsRepository } from './settings/repository.js';
 import { createTikTokConnector } from './tiktok/live-connector.js';
 import { TikTokSessionManager } from './tiktok/session-manager.js';
 import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
+import { createSoundRepository } from './sounds/repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
 
 const { client, db } = createDatabase(databaseUrl);
+const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? 'primary';
+const soundRoot = process.env.SOUND_ROOT;
+const soundRepository = createSoundRepository(db);
+if (soundRoot) {
+  const files = (await readdir(soundRoot)).filter((name) => /\.wav$/i.test(name));
+  await soundRepository.seed(workspaceId, files.map((storageKey) => ({
+    storageKey, displayName: storageKey.replace(/\.wav$/i, ''),
+  })));
+}
 const realtimeRef: { current?: RealtimeServer } = {};
 const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
   realtimeRef.current?.publish(workspaceId, event);
@@ -19,11 +30,13 @@ const app = buildApp({
     try { await db.execute(sql`select 1`); return true; } catch { return false; }
   },
   settingsRepository: createSettingsRepository(db),
+  soundRepository,
+  soundRoot,
   tiktokManager,
   staticRoot: process.env.WEB_ROOT,
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
-  authorizeWorkspace: (workspaceId) => workspaceId === (process.env.DEFAULT_WORKSPACE_ID ?? 'primary'),
+  authorizeWorkspace: (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
 });
 app.addHook('preClose', async () => realtimeRef.current?.close());
 app.addHook('onClose', async () => client.end());

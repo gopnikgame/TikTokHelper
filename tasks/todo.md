@@ -149,12 +149,12 @@
 **Description:** Deliver the first usable React interface for connection control, status, event feed, mappings, sound playback, and speech.
 
 **Acceptance criteria:**
-- [ ] Audio activation and unavailable voice/output states are explicit.
-- [ ] Connection, offline, reconnecting, failed, and stopped states are understandable.
-- [ ] Settings and mappings are usable on desktop and the agreed mobile sizes.
+- [x] Audio activation and unavailable output states are explicit; text-to-speech remains deferred by the accepted workflow.
+- [x] Connection, offline, reconnecting, failed, and stopped states are understandable.
+- [x] Settings and mappings are usable on desktop and the agreed mobile sizes.
 
 **Verification:**
-- [ ] Component tests cover queues and error states.
+- [x] Component tests cover queues and error states.
 - [ ] Playwright covers initial load, activation, events, reload/reconnect, and responsive layout with a fake source.
 - [ ] A manual browser check confirms actual speech and sound output.
 

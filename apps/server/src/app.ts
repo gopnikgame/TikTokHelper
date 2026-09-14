@@ -8,6 +8,8 @@ import {
 } from '@tiktok-helper/contracts';
 import { settingsRoutes } from './settings/routes.js';
 import type { SettingsRepository } from './settings/repository.js';
+import { soundRoutes } from './sounds/routes.js';
+import type { SoundRepository } from './sounds/repository.js';
 import { tiktokRoutes } from './tiktok/routes.js';
 import type { TikTokSessionManager } from './tiktok/session-manager.js';
 
@@ -16,6 +18,8 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   readinessCheck?: ReadinessCheck;
   settingsRepository?: SettingsRepository;
+  soundRepository?: SoundRepository;
+  soundRoot?: string;
   tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
 }
@@ -131,6 +135,17 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   if (options.tiktokManager) {
     app.register(tiktokRoutes, { manager: options.tiktokManager });
     app.addHook('onClose', async () => options.tiktokManager?.close());
+  }
+
+  if (options.soundRepository) {
+    app.register(soundRoutes, { repository: options.soundRepository });
+  }
+
+  if (options.soundRoot) {
+    app.register(fastifyStatic, {
+      root: options.soundRoot, prefix: '/sounds/', decorateReply: false,
+      cacheControl: true, maxAge: '1d', immutable: false,
+    });
   }
 
   if (options.staticRoot) {

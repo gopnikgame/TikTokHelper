@@ -119,6 +119,10 @@ Chat text, likes, joins, and complete raw TikTok payloads are not retained perma
 ## Open product decisions
 
 1. Which tested overlap percentage and maximum concurrency produce the desired mild cacophony for the actual sound library?
-2. Should the short chat buffer survive an application restart, or only a browser reload while the server process remains alive?
-3. Are the existing archived sounds the initial library, and may the operator upload new files in the first release?
-4. Should gift events appear inline with chat or in a separate compact column?
+
+## Decisions implemented in the first operator UI
+
+- The short chat buffer survives browser reload/reconnect while the server process remains alive; persistence across application restarts is deferred.
+- The existing archived WAV files are the initial sound library. Uploading new files is deferred until the operator needs it.
+- Gift events appear in a separate compact column so chat remains the primary reading surface.
+- Controlled overlap starts at 25% with at most four simultaneous sounds. These are safe provisional defaults, not final operator-tested values.
