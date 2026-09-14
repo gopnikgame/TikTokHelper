@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import type { GiftSoundMapping, SoundAsset, UpdateGiftSoundMapping } from '@tiktok-helper/contracts';
 import type { Database } from '../db/client.js';
 import { giftSoundRules, soundAssets, workspaces } from '../db/schema.js';
+import type { GiftCatalogRepository } from '../gifts/repository.js';
 
 export interface BuiltInSound { displayName: string; storageKey: string }
 export interface SoundRepository {
@@ -13,7 +14,7 @@ export interface SoundRepository {
 
 const soundUrl = (storageKey: string) => `/sounds/${encodeURIComponent(storageKey)}`;
 
-export function createSoundRepository(db: Database): SoundRepository {
+export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRepository): SoundRepository {
   return {
     async seed(workspaceId, sounds) {
       if (sounds.length === 0) return;
@@ -38,6 +39,7 @@ export function createSoundRepository(db: Database): SoundRepository {
       return rows.map((row) => ({ ...row, soundUrl: soundUrl(row.storageKey) }));
     },
     async saveMapping(workspaceId, input) {
+      if (giftCatalog && !await giftCatalog.exists(workspaceId, input.giftId)) return null;
       const [owned] = await db.select({ id: soundAssets.id, displayName: soundAssets.displayName, storageKey: soundAssets.storageKey })
         .from(soundAssets).where(and(eq(soundAssets.workspaceId, workspaceId), eq(soundAssets.id, input.soundAssetId))).limit(1);
       if (!owned) return null;

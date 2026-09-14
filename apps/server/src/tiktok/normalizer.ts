@@ -18,6 +18,31 @@ function positiveInteger(value: unknown): number | undefined {
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function nonNegativeInteger(value: unknown): number | undefined {
+  const parsed = typeof value === 'bigint' ? Number(value) : Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function httpUrl(value: unknown): string | undefined {
+  const candidate = text(value);
+  if (!candidate || candidate.length > 2048) return undefined;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : undefined;
+  } catch { return undefined; }
+}
+
+function firstImageUrl(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const image = record(value);
+    const urls = image?.urlList ?? image?.url_list;
+    if (Array.isArray(urls)) {
+      for (const item of urls) { const url = httpUrl(item); if (url) return url; }
+    }
+  }
+  return undefined;
+}
+
 function eventId(raw: UnknownRecord, parts: string[]): string {
   const common = record(raw.common);
   const supplied = text(common?.msgId) ?? text(raw.msgId);
@@ -55,6 +80,8 @@ export function normalizeGift(rawValue: unknown, generation: number, sequence: n
   if (!raw) return undefined;
   const author = sender(raw);
   const giftDetails = record(raw.giftDetails);
+  const gift = record(raw.gift);
+  const extendedGift = record(raw.extendedGiftInfo);
   const giftId = text(raw.giftId);
   const repeatCount = positiveInteger(raw.repeatCount) ?? 1;
   if (!author || !giftId) return undefined;
@@ -62,8 +89,10 @@ export function normalizeGift(rawValue: unknown, generation: number, sequence: n
   return {
     type: 'gift.received', generation, sequence,
     eventId: eventId(raw, ['gift', author.username, giftId, String(repeatCount), String(Boolean(raw.repeatEnd))]),
-    giftId, giftName: text(giftDetails?.giftName) ?? text(record(raw.extendedGiftInfo)?.name) ?? giftId,
+    giftId, giftName: text(gift?.name) ?? text(giftDetails?.giftName) ?? text(extendedGift?.name) ?? giftId,
     senderDisplayName: author.displayName, repeatCount,
+    imageUrl: firstImageUrl(gift?.image, gift?.icon, gift?.previewImage, giftDetails?.giftImage, extendedGift?.image),
+    diamondCount: nonNegativeInteger(gift?.diamondCount ?? giftDetails?.diamondCount ?? raw.diamondCount),
     repeatEnd: Boolean(raw.repeatEnd), streakable,
   };
 }

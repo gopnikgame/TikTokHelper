@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import type { GiftEvent, GiftSoundMapping, SoundAsset, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
+import type { GiftEvent, GiftSoundMapping, ObservedGift, SoundAsset, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
 import { AudioOwnership, SoundPlaybackQueue } from './audio/playback.js';
 import { operatorEventCount } from './event-model.js';
 import { createRealtimeClient, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
@@ -15,13 +15,14 @@ export function App() {
   const [realtime, setRealtime] = useState<RealtimeViewState>(INITIAL_REALTIME_STATE);
   const [sounds, setSounds] = useState<SoundAsset[]>([]);
   const [mappings, setMappings] = useState<GiftSoundMapping[]>([]);
+  const [gifts, setGifts] = useState<ObservedGift[]>([]);
   const [giftId, setGiftId] = useState('');
   const [selectedSoundId, setSelectedSoundId] = useState('');
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [followChat, setFollowChat] = useState(true);
   const realtimeClient = useRef<RealtimeClient | null>(null);
   const chatFeed = useRef<HTMLUListElement | null>(null);
-  const mappingInput = useRef<HTMLInputElement | null>(null);
+  const mappingInput = useRef<HTMLSelectElement | null>(null);
   const lastPlayedSequence = useRef(0);
   const player = useRef(new SoundPlaybackQueue(undefined, () => setNotice('Браузер не смог воспроизвести звук')));
   const ownership = useRef<AudioOwnership | null>(null);
@@ -32,10 +33,12 @@ export function App() {
       fetch(`/api/workspaces/${WORKSPACE_ID}/settings`, { signal: controller.signal }),
       fetch(`/api/workspaces/${WORKSPACE_ID}/sounds`, { signal: controller.signal }),
       fetch(`/api/workspaces/${WORKSPACE_ID}/gift-mappings`, { signal: controller.signal }),
-    ]).then(async ([settingsResponse, soundsResponse, mappingsResponse]) => {
+      fetch(`/api/workspaces/${WORKSPACE_ID}/gifts`, { signal: controller.signal }),
+    ]).then(async ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse]) => {
       if (settingsResponse.ok) setSettings(await settingsResponse.json() as WorkspaceSettings);
       if (soundsResponse.ok) { const loaded = await soundsResponse.json() as SoundAsset[]; setSounds(loaded); setSelectedSoundId(loaded[0]?.id ?? ''); }
       if (mappingsResponse.ok) setMappings(await mappingsResponse.json() as GiftSoundMapping[]);
+      if (giftsResponse.ok) { const loaded = await giftsResponse.json() as ObservedGift[]; setGifts(loaded); setGiftId(loaded[0]?.giftId ?? ''); }
       setNotice('Готово к работе');
     }).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === 'AbortError')) setNotice('Не удалось загрузить настройки'); });
     return () => controller.abort();
@@ -47,6 +50,20 @@ export function App() {
   const mappingByGift = useMemo(() => new Map(mappings.filter((item) => item.isEnabled).map((item) => [item.giftId, item])), [mappings]);
   const chatEvents = useMemo(() => realtime.events.filter((event) => event.type === 'chat.message'), [realtime.events]);
   const giftEvents = useMemo(() => realtime.events.filter((event): event is GiftEvent => event.type === 'gift.received'), [realtime.events]);
+  const observedGifts = useMemo(() => {
+    const now = new Date().toISOString();
+    const catalogue = new Map(gifts.map((gift) => [gift.giftId, gift]));
+    for (const event of giftEvents) {
+      const known = catalogue.get(event.giftId);
+      catalogue.set(event.giftId, {
+        giftId: event.giftId, giftName: event.giftName,
+        imageUrl: event.imageUrl ?? known?.imageUrl ?? null,
+        diamondCount: event.diamondCount ?? known?.diamondCount ?? null,
+        firstSeenAt: known?.firstSeenAt ?? now, lastSeenAt: now,
+      });
+    }
+    return [...catalogue.values()].sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
+  }, [giftEvents, gifts]);
 
   useEffect(() => {
     if (!audioEnabled) return;
@@ -73,10 +90,10 @@ export function App() {
   async function disconnectLive() { const result = await realtimeClient.current?.disconnectLive(); setNotice(result?.ok ? 'Подключение остановлено' : 'Не удалось остановить подключение'); }
   function enableAudio() { lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim(); setAudioEnabled(true); setNotice('Звук включён в этой вкладке'); const preview = sounds.find((sound) => sound.id === selectedSoundId); if (preview) player.current.enqueue(preview.url, 1, settings); }
   async function saveMapping(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!giftId.trim() || !selectedSoundId) { setNotice('Укажите ID подарка и выберите звук'); return; }
-    const response = await fetch(`/api/workspaces/${WORKSPACE_ID}/gift-mappings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giftId: giftId.trim(), soundAssetId: selectedSoundId, isEnabled: true }) });
+    event.preventDefault(); if (!giftId || !selectedSoundId) { setNotice('Выберите замеченный подарок и звук'); return; }
+    const response = await fetch(`/api/workspaces/${WORKSPACE_ID}/gift-mappings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giftId, soundAssetId: selectedSoundId, isEnabled: true }) });
     if (!response.ok) { setNotice('Не удалось сохранить привязку'); return; }
-    const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setGiftId(''); setNotice(`Подарок ${saved.giftId} привязан к звуку`);
+    const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setNotice(`Подарок ${observedGifts.find((gift) => gift.giftId === saved.giftId)?.giftName ?? saved.giftId} привязан к звуку`);
   }
   function previewSound() { const sound = sounds.find((item) => item.id === selectedSoundId); if (!sound) return; lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim(); setAudioEnabled(true); player.current.enqueue(sound.url, 1, settings); }
   function selectGiftForMapping(id: string) { setGiftId(id); mappingInput.current?.focus(); mappingInput.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
@@ -92,11 +109,11 @@ export function App() {
     </section>
     <div className="feed-grid">
       <section className="feed-panel chat-panel" aria-labelledby="chat-title"><header><div><p className="section-kicker">Прямой эфир</p><h2 id="chat-title">Чат</h2></div>{!followChat ? <button type="button" className="quiet" onClick={() => setFollowChat(true)}>К новым сообщениям</button> : null}</header><ul ref={chatFeed} className="chat-list" aria-live="polite" onScroll={(event) => { const target = event.currentTarget; setFollowChat(target.scrollHeight - target.scrollTop - target.clientHeight < 56); }}>{chatEvents.length === 0 ? <li className="empty-state"><strong>Сообщений пока нет</strong><span>После подключения новые реплики появятся здесь крупным текстом.</span></li> : chatEvents.map((message) => <li key={message.eventId} className="chat-message"><div><strong>{message.senderDisplayName}</strong><span>@{message.senderUsername}</span></div><p>{message.text}</p></li>)}</ul></section>
-      <aside className="feed-panel gift-panel" aria-labelledby="gift-title"><header><div><p className="section-kicker">Реакции</p><h2 id="gift-title">Подарки</h2></div></header><ul className="gift-list">{giftEvents.length === 0 ? <li className="empty-state"><strong>Ждём первый подарок</strong><span>Серии будут показаны по реально добавленному количеству.</span></li> : giftEvents.slice(-30).toReversed().map((gift) => <li key={gift.eventId}><span className="gift-count">×{gift.repeatCount}</span><div><strong>{gift.giftName}</strong><span>{gift.senderDisplayName}</span></div><small>{mappingByGift.has(gift.giftId) ? 'звук назначен' : `ID ${gift.giftId} · без звука`}</small><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>)}</ul></aside>
+      <aside className="feed-panel gift-panel" aria-labelledby="gift-title"><header><div><p className="section-kicker">Реакции</p><h2 id="gift-title">Подарки</h2></div></header><ul className="gift-list">{giftEvents.length === 0 ? <li className="empty-state"><strong>Ждём первый подарок</strong><span>Серии будут показаны по реально добавленному количеству.</span></li> : giftEvents.slice(-30).toReversed().map((gift) => <li key={gift.eventId}>{gift.imageUrl ? <img className="gift-image" src={gift.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="gift-count">×{gift.repeatCount}</span>}<div><strong>{gift.giftName} ×{gift.repeatCount}</strong><span>{gift.senderDisplayName}</span></div><small>{mappingByGift.has(gift.giftId) ? 'звук назначен' : `ID ${gift.giftId} · без звука`}</small><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>)}</ul></aside>
     </div>
     <section className="control-grid" aria-label="Настройки звука">
       <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? 'Подарки озвучиваются здесь.' : 'Браузеру нужно разрешить звук одним нажатием.'}</p><div className="actions"><button type="button" onClick={enableAudio}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
-      <form className="control-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>ID подарка<input ref={mappingInput} value={giftId} placeholder="Например: 5655" onChange={(event) => setGiftId(event.target.value)} /></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit">Сохранить привязку</button></div><p className="helper">Сохранено привязок: {mappings.length}</p></form>
+      <form className="control-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
       <form className="control-card settings-card" onSubmit={(event) => void saveSettings(event)}><p className="section-kicker">Поведение серии</p><h2>Наложение</h2><label>Режим<select value={settings.playbackMode} onChange={(event) => setSettings((current) => ({ ...current, playbackMode: event.target.value as UpdateWorkspaceSettings['playbackMode'] }))}><option value="controlled_overlap">Умеренное наложение</option><option value="sequential">Последовательно</option><option value="strong_overlap">Сильное наложение</option></select></label><label>Перекрытие звука <output>{settings.overlapPercent}%</output><input type="range" min="0" max="100" value={settings.overlapPercent} onChange={(event) => setSettings((current) => ({ ...current, overlapPercent: event.target.valueAsNumber }))} /></label><div className="two-fields"><label>Одновременно<input type="number" min="1" max="32" value={settings.maxConcurrentSounds} onChange={(event) => setSettings((current) => ({ ...current, maxConcurrentSounds: event.target.valueAsNumber }))} /></label><label>Громкость <output>{settings.volumePercent}%</output><input type="range" min="0" max="100" value={settings.volumePercent} onChange={(event) => setSettings((current) => ({ ...current, volumePercent: event.target.valueAsNumber }))} /></label></div><button type="submit">Сохранить настройки</button></form>
     </section>
     <footer><span>Короткая история чата хранится только в памяти сервера.</span><a href="https://github.com/gopnikgame/TikTokHelper_ASP.NET/tree/rewrite/typescript">Исходный код сервера</a></footer>

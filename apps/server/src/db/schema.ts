@@ -55,6 +55,21 @@ export const soundAssets = pgTable('sound_assets', {
   check('sound_assets_duration_chk', sql`${table.durationMs} is null or ${table.durationMs} > 0`),
 ]);
 
+export const observedGifts = pgTable('observed_gifts', {
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  giftId: varchar('gift_id', { length: 80 }).notNull(),
+  giftName: varchar('gift_name', { length: 160 }).notNull(),
+  imageUrl: text('image_url'),
+  diamondCount: integer('diamond_count'),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.workspaceId, table.giftId] }),
+  index('observed_gifts_workspace_last_seen_idx').on(table.workspaceId, table.lastSeenAt),
+  check('observed_gifts_diamond_count_chk', sql`${table.diamondCount} is null or ${table.diamondCount} >= 0`),
+]);
+
 export const giftSoundRules = pgTable('gift_sound_rules', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: varchar('workspace_id', { length: 64 }).notNull()

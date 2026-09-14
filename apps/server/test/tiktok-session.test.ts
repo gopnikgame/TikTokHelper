@@ -73,6 +73,22 @@ describe('TikTok session manager', () => {
     expect(events.filter((event) => event.type === 'gift.received').map((event) => event.repeatCount)).toEqual([1, 2]);
   });
 
+  it('extracts current connector gift metadata without the optional catalogue request', async () => {
+    const connector = new FakeConnector();
+    const events: RealtimeEvent[] = [];
+    const manager = new TikTokSessionManager(() => connector, (_workspace, event) => events.push(event));
+    await manager.start('family', 'streamer');
+    connector.emit('gift', {
+      common: { msgId: 'gift-current-1' }, user: { displayId: 'viewer', nickname: 'Viewer' },
+      giftId: '5655', repeatCount: 1, repeatEnd: 1,
+      gift: { name: 'Rose', diamondCount: 1, image: { urlList: ['https://cdn.example/rose.png'] } },
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'gift.received', giftId: '5655', giftName: 'Rose', diamondCount: 1,
+      imageUrl: 'https://cdn.example/rose.png',
+    }));
+  });
+
   it('reconnects after disconnect and manual stop cancels a pending reconnect', async () => {
     const first = new FakeConnector();
     const second = new FakeConnector();

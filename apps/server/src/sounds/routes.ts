@@ -21,7 +21,7 @@ export const soundRoutes: FastifyPluginAsync<SoundRoutesOptions> = async (app, o
   }, async (request, reply) => {
     const mapping = await options.repository.saveMapping(request.params.workspaceId, request.body);
     return mapping ?? reply.code(404).send({ error: {
-      code: 'SOUND_NOT_FOUND', message: 'Sound not found', requestId: request.id,
+      code: 'GIFT_OR_SOUND_NOT_FOUND', message: 'Observed gift or sound not found', requestId: request.id,
     } });
   });
 };

@@ -90,6 +90,7 @@ export interface ChatEvent {
 export interface GiftEvent {
   type: 'gift.received'; generation: number; sequence: number; eventId: string;
   giftId: string; giftName: string; senderDisplayName: string; repeatCount: number;
+  imageUrl?: string; diamondCount?: number;
 }
 export type RealtimeEvent = ConnectionStateEvent | ChatEvent | GiftEvent;
 export interface RealtimeSnapshot {

@@ -7,6 +7,7 @@ import { createTikTokConnector } from './tiktok/live-connector.js';
 import { TikTokSessionManager } from './tiktok/session-manager.js';
 import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
 import { createSoundRepository } from './sounds/repository.js';
+import { createGiftCatalogRepository } from './gifts/repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -14,7 +15,8 @@ if (!databaseUrl) throw new Error('DATABASE_URL is required');
 const { client, db } = createDatabase(databaseUrl);
 const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? 'primary';
 const soundRoot = process.env.SOUND_ROOT;
-const soundRepository = createSoundRepository(db);
+const giftCatalogRepository = createGiftCatalogRepository(db);
+const soundRepository = createSoundRepository(db, giftCatalogRepository);
 if (soundRoot) {
   const files = (await readdir(soundRoot)).filter((name) => /\.wav$/i.test(name));
   await soundRepository.seed(workspaceId, files.map((storageKey) => ({
@@ -23,6 +25,14 @@ if (soundRoot) {
 }
 const realtimeRef: { current?: RealtimeServer } = {};
 const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
+  if (event.type === 'gift.received') {
+    void giftCatalogRepository.observe(workspaceId, event).catch((error: unknown) => {
+      process.stderr.write(`${JSON.stringify({
+        level: 'error', component: 'gift_catalog', event: 'gift_observe_failed',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      })}\n`);
+    });
+  }
   realtimeRef.current?.publish(workspaceId, event);
 }, undefined, (entry) => process.stderr.write(`${JSON.stringify({ level: 'error', component: 'tiktok', ...entry })}\n`));
 const app = buildApp({
@@ -31,6 +41,7 @@ const app = buildApp({
   },
   settingsRepository: createSettingsRepository(db),
   soundRepository,
+  giftCatalogRepository,
   soundRoot,
   tiktokManager,
   staticRoot: process.env.WEB_ROOT,
