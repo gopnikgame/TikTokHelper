@@ -5,6 +5,7 @@
 .env
 .env.*
 !.env.example
+secrets/
 # User-specific files
 *.rsuser
 *.suo

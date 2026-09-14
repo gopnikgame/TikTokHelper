@@ -1,15 +1,20 @@
 import { randomUUID } from 'node:crypto';
 
+import fastifyStatic from '@fastify/static';
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import {
   apiErrorSchema, healthResponseSchema, readinessResponseSchema,
   type ApiErrorResponse, type HealthResponse, type ReadinessResponse,
 } from '@tiktok-helper/contracts';
+import { settingsRoutes } from './settings/routes.js';
+import type { SettingsRepository } from './settings/repository.js';
 
 export type ReadinessCheck = () => boolean | Promise<boolean>;
 export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   readinessCheck?: ReadinessCheck;
+  settingsRepository?: SettingsRepository;
+  staticRoot?: string;
 }
 
 export const LOG_REDACTION_PATHS = [
@@ -115,6 +120,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       ? { status: 'ready' }
       : reply.code(503).send({ status: 'not_ready' });
   });
+
+  if (options.settingsRepository) {
+    app.register(settingsRoutes, { repository: options.settingsRepository });
+  }
+
+  if (options.staticRoot) {
+    app.register(fastifyStatic, { root: options.staticRoot, wildcard: false });
+  }
 
   return app;
 }

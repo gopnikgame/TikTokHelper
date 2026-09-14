@@ -1,26 +1,22 @@
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+FROM node:24.18.0-bookworm-slim AS build
+WORKDIR /workspace
+RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json eslint.config.mjs ./
+COPY apps ./apps
+COPY packages ./packages
+RUN pnpm install --frozen-lockfile
+RUN pnpm run build
+
+FROM node:24.18.0-bookworm-slim AS runtime
+ENV HOST=0.0.0.0 PORT=3000 WEB_ROOT=/app/apps/web/dist
 WORKDIR /app
-EXPOSE 80
-
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-WORKDIR /src
-COPY ["TikTokHelper_Electron.csproj", "."]
-RUN dotnet restore "TikTokHelper_Electron.csproj"
-COPY . .
-WORKDIR "/src"
-RUN dotnet build "TikTokHelper_Electron.csproj" -c Release -o /app/build
-
-FROM build AS publish
-RUN dotnet publish "TikTokHelper_Electron.csproj" -c Release -o /app/publish /p:UseAppHost=false
-
-FROM base AS final
-WORKDIR /app
-COPY --from=publish /app/publish .
-
-# Создаем директорию для данных
-RUN mkdir -p /app/data/logs
-
-# По умолчанию значение переменной DataDirectory это /app/data
-ENV DataDirectory=/app/data
-
-ENTRYPOINT ["dotnet", "TikTokHelper_Electron.dll"]
+COPY --from=build --chown=node:node /workspace/package.json /workspace/pnpm-lock.yaml /workspace/pnpm-workspace.yaml ./
+COPY --from=build --chown=node:node /workspace/node_modules ./node_modules
+COPY --from=build --chown=node:node /workspace/apps ./apps
+COPY --from=build --chown=node:node /workspace/packages ./packages
+COPY --chown=node:node deploy/entrypoint.sh /usr/local/bin/tiktok-helper-entrypoint
+RUN chmod 0555 /usr/local/bin/tiktok-helper-entrypoint
+USER node
+EXPOSE 3000
+ENTRYPOINT ["tiktok-helper-entrypoint"]
+CMD ["node", "apps/server/dist/index.js"]

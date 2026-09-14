@@ -1,0 +1,61 @@
+name: tiktok-helper
+
+services:
+  db:
+    image: postgres:18.1-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tiktok_helper
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_USER: tiktok_helper
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    secrets: [db_password]
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+  migrate:
+    build: .
+    command: ["node", "apps/server/dist/db/migrate.js"]
+    profiles: [tools]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: tiktok_helper
+      POSTGRES_USER: tiktok_helper
+    secrets: [db_password]
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      LOG_LEVEL: info
+      POSTGRES_DB: tiktok_helper
+      POSTGRES_USER: tiktok_helper
+    secrets: [db_password]
+    ports:
+      - "3000:3000"
+    volumes:
+      - media_data:/app/data/media
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+secrets:
+  db_password:
+    file: ./secrets/db_password
+
+volumes:
+  media_data:
+  postgres_data:

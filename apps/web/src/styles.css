@@ -17,6 +17,13 @@ main {
   padding: 18vh 0 4rem;
 }
 
+form { display: grid; gap: 1.25rem; max-width: 34rem; }
+label { display: grid; gap: .5rem; font-weight: 650; }
+input, select, button { font: inherit; border-radius: .65rem; padding: .75rem; }
+input, select { color: inherit; background: #211d1a; border: 1px solid #49413b; }
+button { width: fit-content; border: 0; background: #ff496e; color: #180d11; font-weight: 800; cursor: pointer; }
+.status { color: #bcb4aa; }
+
 .eyebrow {
   color: #ff496e;
   font-weight: 700;
