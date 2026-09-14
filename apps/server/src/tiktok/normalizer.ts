@@ -27,7 +27,7 @@ function eventId(raw: UnknownRecord, parts: string[]): string {
 
 function sender(raw: UnknownRecord): { displayName: string; username: string } | undefined {
   const user = record(raw.user);
-  const username = text(user?.uniqueId);
+  const username = text(user?.uniqueId) ?? text(user?.displayId) ?? text(user?.idStr) ?? text(user?.id);
   if (!username) return undefined;
   return { displayName: text(user?.nickname) ?? username, username };
 }
@@ -36,7 +36,7 @@ export function normalizeChat(rawValue: unknown, generation: number, sequence: n
   const raw = record(rawValue);
   if (!raw) return undefined;
   const author = sender(raw);
-  const comment = text(raw.comment);
+  const comment = text(raw.comment) ?? text(raw.content);
   if (!author || !comment) return undefined;
   return {
     type: 'chat.message', generation, sequence,

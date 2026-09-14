@@ -46,6 +46,21 @@ describe('TikTok session manager', () => {
     expect(manager.status('family')).toMatchObject({ state: 'live', tiktokUsername: 'streamer' });
   });
 
+  it('normalizes the current connector chat shape', async () => {
+    const connector = new FakeConnector();
+    const events: RealtimeEvent[] = [];
+    const manager = new TikTokSessionManager(() => connector, (_workspace, event) => events.push(event));
+    await manager.start('family', 'streamer');
+    connector.emit('chat', {
+      common: { msgId: 'chat-current-1' },
+      user: { id: '42', displayId: 'current_viewer', nickname: 'Current Viewer' },
+      content: 'Current message',
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'chat.message', senderUsername: 'current_viewer', text: 'Current message',
+    }));
+  });
+
   it('turns a gift streak into incremental playback counts without double counting the final event', async () => {
     const connector = new FakeConnector();
     const events: RealtimeEvent[] = [];
