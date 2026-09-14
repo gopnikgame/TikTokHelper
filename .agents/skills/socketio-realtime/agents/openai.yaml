@@ -1,0 +1,3 @@
+interface:
+  display_name: "Socket.IO Realtime"
+  short_description: "Maintain typed realtime delivery and recovery"

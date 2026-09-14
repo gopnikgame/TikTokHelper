@@ -1,28 +1,27 @@
 {
-  "name": "tiktokhelper_electron",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "name": "tiktok-helper",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": ">=24.0.0"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.1",
-    "axios": "^1.8.4",
-    "cors": "^2.8.5",
-    "dotenv": "^16.4.7",
-    "express": "^4.21.2",
-    "http-proxy-agent": "^7.0.2",
-    "protobufjs": "^7.4.0",
-    "socket.io": "^4.8.1",
-    "socket.io-client": "^4.8.1",
-    "tiktok-live-connector": "^1.2.3"
+  "scripts": {
+    "build": "pnpm --recursive --if-present run build",
+    "dev": "pnpm --parallel --filter @tiktok-helper/server --filter @tiktok-helper/web run dev",
+    "lint": "eslint apps packages --max-warnings 0",
+    "test": "pnpm --recursive --if-present run test",
+    "typecheck": "pnpm --filter @tiktok-helper/contracts run build && pnpm --recursive --if-present run typecheck",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build"
   },
   "devDependencies": {
-    "eslint": "^9.22.0"
+    "@eslint/js": "10.0.1",
+    "eslint": "10.10.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.6",
+    "globals": "17.12.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0"
   }
 }

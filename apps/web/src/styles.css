@@ -1,0 +1,32 @@
+:root {
+  color: #f6f3ea;
+  background: #14110f;
+  font-family: Inter, system-ui, sans-serif;
+  font-synthesis: none;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+main {
+  width: min(54rem, calc(100% - 3rem));
+  margin: 0 auto;
+  padding: 18vh 0 4rem;
+}
+
+.eyebrow {
+  color: #ff496e;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1 {
+  max-width: 18ch;
+  margin: 0 0 1.5rem;
+  font-size: clamp(2.5rem, 8vw, 5.5rem);
+  line-height: 0.95;
+}

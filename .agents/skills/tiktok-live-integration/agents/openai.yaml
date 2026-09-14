@@ -1,0 +1,3 @@
+interface:
+  display_name: "TikTok LIVE Integration"
+  short_description: "Maintain TikTokHelper's isolated LIVE event adapter"
