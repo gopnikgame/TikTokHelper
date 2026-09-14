@@ -117,7 +117,7 @@
 
 **Verification:**
 - [x] Fixture tests cover normal, malformed, duplicate, offline, reconnect, and shutdown paths.
-- [ ] A separately approved real LIVE smoke test confirms current connector compatibility.
+- [x] A separately approved real LIVE smoke test confirms current connector compatibility.
 
 **Dependencies:** Tasks 1, 4, 5
 
