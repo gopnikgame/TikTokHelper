@@ -16,7 +16,9 @@ export class TikTokConnector implements LiveConnector {
   constructor(username: string, proxyUrl?: string) {
     const proxyAgent = proxyUrl ? new ProxyAgent({ getProxyForUrl: () => proxyUrl }) : undefined;
     const options = {
-      enableExtendedGiftInfo: true,
+      // The signed extended gift-catalogue request is optional and can fail even while
+      // the LIVE WebSocket is available. Gift events still carry their own identifiers.
+      enableExtendedGiftInfo: false,
       processInitialData: false,
       ...(proxyAgent ? {
         webClientOptions: { agent: { http: proxyAgent, https: proxyAgent, http2: proxyAgent }, http2: false },
