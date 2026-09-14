@@ -87,4 +87,15 @@ describe('TikTok session manager', () => {
     expect(connector.disconnect).toHaveBeenCalled();
     expect(scheduler.callbacks).toHaveLength(0);
   });
+
+  it('reports only bounded technical error metadata to diagnostics', async () => {
+    const connector = new FakeConnector();
+    const diagnostics: unknown[] = [];
+    const error = Object.assign(new Error('secret response body'), { code: 'ECONNRESET', statusCode: 502 });
+    connector.connect.mockRejectedValueOnce(error);
+    const manager = new TikTokSessionManager(() => connector, () => undefined, new FakeScheduler(), (entry) => diagnostics.push(entry));
+    await manager.start('family', 'streamer');
+    expect(diagnostics).toEqual([{ event: 'connect_failed', errorName: 'Error', code: 'ECONNRESET', statusCode: 502 }]);
+    expect(JSON.stringify(diagnostics)).not.toContain('secret response body');
+  });
 });

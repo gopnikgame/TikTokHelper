@@ -24,7 +24,7 @@ if (soundRoot) {
 const realtimeRef: { current?: RealtimeServer } = {};
 const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
   realtimeRef.current?.publish(workspaceId, event);
-});
+}, undefined, (entry) => process.stderr.write(`${JSON.stringify({ level: 'error', component: 'tiktok', ...entry })}\n`));
 const app = buildApp({
   readinessCheck: async () => {
     try { await db.execute(sql`select 1`); return true; } catch { return false; }

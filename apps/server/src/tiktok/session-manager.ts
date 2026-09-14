@@ -27,6 +27,24 @@ interface Session {
   giftStreakCounts: Map<string, number>;
 }
 
+export interface TikTokDiagnostic {
+  event: 'connect_failed' | 'connector_error' | 'disconnected';
+  errorName?: string;
+  code?: string | number;
+  statusCode?: number;
+}
+
+function diagnostic(error: unknown, event: TikTokDiagnostic['event']): TikTokDiagnostic {
+  if (typeof error !== 'object' || error === null) return { event };
+  const value = error as { name?: unknown; code?: unknown; statusCode?: unknown };
+  return {
+    event,
+    ...(typeof value.name === 'string' ? { errorName: value.name.slice(0, 80) } : {}),
+    ...(['string', 'number'].includes(typeof value.code) ? { code: value.code as string | number } : {}),
+    ...(typeof value.statusCode === 'number' ? { statusCode: value.statusCode } : {}),
+  };
+}
+
 export class TikTokSessionManager {
   readonly #sessions = new Map<string, Session>();
 
@@ -34,6 +52,7 @@ export class TikTokSessionManager {
     private readonly connectorFactory: LiveConnectorFactory,
     private readonly sink: RealtimeEventSink = () => undefined,
     private readonly scheduler: Scheduler = systemScheduler,
+    private readonly diagnostics: (entry: TikTokDiagnostic) => void = () => undefined,
   ) {}
 
   async start(workspaceId: string, username: string): Promise<LiveSessionSnapshot> {
@@ -87,14 +106,15 @@ export class TikTokSessionManager {
     connector.on('chat', (raw) => this.#onChat(workspaceId, session, raw));
     connector.on('gift', (raw) => this.#onGift(workspaceId, session, raw));
     connector.on('streamEnd', () => { void this.#goOffline(workspaceId, session); });
-    connector.on('disconnected', () => this.#scheduleReconnect(workspaceId, session));
-    connector.on('error', () => this.#scheduleReconnect(workspaceId, session));
+    connector.on('disconnected', (event) => { this.diagnostics(diagnostic(event, 'disconnected')); this.#scheduleReconnect(workspaceId, session); });
+    connector.on('error', (error) => { this.diagnostics(diagnostic(error, 'connector_error')); this.#scheduleReconnect(workspaceId, session); });
     try {
       await connector.connect();
       if (session.stopped || session.connector !== connector) return;
       session.reconnectAttempt = 0;
       this.#transition(workspaceId, session, 'live');
     } catch (error) {
+      this.diagnostics(diagnostic(error, 'connect_failed'));
       connector.removeAllListeners();
       await connector.disconnect().catch(() => undefined);
       session.connector = null;
