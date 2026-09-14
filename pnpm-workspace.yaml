@@ -5,6 +5,9 @@ packages:
 allowBuilds:
   esbuild: true
 
+catalog:
+  ajv: 8.20.0
+
 catalogMode: strict
 cleanupUnusedCatalogs: true
 linkWorkspacePackages: true

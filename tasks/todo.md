@@ -67,13 +67,13 @@
 **Description:** Establish runtime-validated HTTP/event contracts, application construction, health/readiness, and redacted structured logging.
 
 **Acceptance criteria:**
-- [ ] App construction is separate from process startup.
-- [ ] Inbound API and Socket.IO payloads have shared runtime schemas.
-- [ ] Health, readiness, error shape, and log-redaction behavior are tested.
+- [x] App construction is separate from process startup.
+- [x] Inbound API and Socket.IO payloads have shared runtime schemas.
+- [x] Health, readiness, error shape, and log-redaction behavior are tested.
 
 **Verification:**
-- [ ] `fastify.inject()` tests pass without opening a network port.
-- [ ] Representative secrets and chat text do not appear in captured logs.
+- [x] `fastify.inject()` tests pass without opening a network port.
+- [x] Representative secrets and chat text do not appear in captured logs.
 
 **Dependencies:** Task 3
 
