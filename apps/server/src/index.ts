@@ -4,13 +4,15 @@ import { createDatabase } from './db/client.js';
 import { createSettingsRepository } from './settings/repository.js';
 import { createTikTokConnector } from './tiktok/live-connector.js';
 import { TikTokSessionManager } from './tiktok/session-manager.js';
+import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
 
 const { client, db } = createDatabase(databaseUrl);
+const realtimeRef: { current?: RealtimeServer } = {};
 const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
-  app.log.info({ event: 'tiktok_event_normalized', eventType: event.type, workspaceId }, 'TikTok event normalized');
+  realtimeRef.current?.publish(workspaceId, event);
 });
 const app = buildApp({
   readinessCheck: async () => {
@@ -20,6 +22,10 @@ const app = buildApp({
   tiktokManager,
   staticRoot: process.env.WEB_ROOT,
 });
+realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
+  authorizeWorkspace: (workspaceId) => workspaceId === (process.env.DEFAULT_WORKSPACE_ID ?? 'primary'),
+});
+app.addHook('preClose', async () => realtimeRef.current?.close());
 app.addHook('onClose', async () => client.end());
 
 try {

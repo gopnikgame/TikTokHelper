@@ -22,7 +22,10 @@ label { display: grid; gap: .5rem; font-weight: 650; }
 input, select, button { font: inherit; border-radius: .65rem; padding: .75rem; }
 input, select { color: inherit; background: #211d1a; border: 1px solid #49413b; }
 button { width: fit-content; border: 0; background: #ff496e; color: #180d11; font-weight: 800; cursor: pointer; }
+.actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+button.secondary { color: #f6f3ea; background: #49413b; }
 .status { color: #bcb4aa; }
+.live-status { display: flex; flex-wrap: wrap; gap: .75rem 1.5rem; margin: 0 0 2rem; color: #ddd5ca; }
 
 .eyebrow {
   color: #ff496e;
@@ -37,3 +40,6 @@ h1 {
   font-size: clamp(2.5rem, 8vw, 5.5rem);
   line-height: 0.95;
 }
+
+footer { margin-top: 3rem; }
+footer a { color: #bcb4aa; }

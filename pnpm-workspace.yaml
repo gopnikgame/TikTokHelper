@@ -12,6 +12,8 @@ catalog:
   drizzle-orm: 0.45.2
   postgres: 3.4.9
   proxy-agent: 6.5.0
+  socket.io: 4.8.3
+  socket.io-client: 4.8.3
   tiktok-live-connector: 2.4.4
 
 catalogMode: strict

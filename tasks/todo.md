@@ -130,13 +130,13 @@
 **Description:** Connect backend state to browsers with typed Socket.IO rooms, snapshot-first recovery, bounded buffers, acknowledgements, and authorization boundaries.
 
 **Acceptance criteria:**
-- [ ] Room membership is derived and authorized server-side.
-- [ ] Reconnect sends a snapshot before live deltas and rejects stale generations.
-- [ ] High-rate low-value updates are coalesced rather than queued without bounds.
+- [x] Room membership is derived and authorized server-side.
+- [x] Reconnect sends a snapshot before live deltas and rejects stale generations.
+- [x] High-rate low-value updates are coalesced rather than queued without bounds.
 
 **Verification:**
-- [ ] Integration tests cover unauthorized rooms, sequence gaps, duplicate commands, reconnect, and slow clients.
-- [ ] Repeated page reconnects do not duplicate server listeners or TikTok connectors.
+- [x] Integration tests cover unauthorized rooms, sequence gaps, duplicate commands, reconnect, and slow clients.
+- [x] Repeated page reconnects do not duplicate server listeners or TikTok connectors.
 
 **Dependencies:** Tasks 4 and 6
 

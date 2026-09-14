@@ -33,7 +33,7 @@ This is a conservative engineering decision, not a substitute for jurisdiction-s
 
 ## Implementation boundary
 
-- The connector is imported only by `apps/server/src/tiktok/adapter`.
+- The connector is imported only by `apps/server/src/tiktok/live-connector.ts`.
 - `packages/contracts` contains only TikTokHelper-owned normalized contracts and no copied upstream schemas or generated bindings.
 - Browser clients never receive connector-native objects.
 - Deterministic tests use minimal sanitized fixtures created for this project, not copied upstream test suites.

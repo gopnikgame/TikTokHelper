@@ -37,11 +37,16 @@ export class TikTokSessionManager {
   ) {}
 
   async start(workspaceId: string, username: string): Promise<LiveSessionSnapshot> {
+    const normalizedUsername = username.replace(/^@/, '');
+    const current = this.#sessions.get(workspaceId);
+    if (current && !current.stopped && current.tiktokUsername === normalizedUsername) {
+      return this.status(workspaceId);
+    }
     await this.stop(workspaceId);
     const session: Session = {
       connector: null, generation: (this.#sessions.get(workspaceId)?.generation ?? 0) + 1,
       sequence: 0, state: 'stopped', stopped: false, reconnectAttempt: 0,
-      tiktokUsername: username.replace(/^@/, ''), seenEventIds: new Set(), giftStreakCounts: new Map(),
+      tiktokUsername: normalizedUsername, seenEventIds: new Set(), giftStreakCounts: new Map(),
     };
     this.#sessions.set(workspaceId, session);
     await this.#connect(workspaceId, session, false);

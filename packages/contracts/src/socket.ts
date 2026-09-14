@@ -10,7 +10,12 @@ const commandProperties = {
 
 export const subscribeWorkspaceCommandSchema = {
   $id: 'SubscribeWorkspaceCommand', type: 'object', additionalProperties: false,
-  required: ['commandId', 'workspaceId'], properties: commandProperties,
+  required: ['commandId', 'workspaceId'],
+  properties: {
+    ...commandProperties,
+    generation: { type: 'integer', minimum: 0 },
+    lastSequence: { type: 'integer', minimum: 0 },
+  },
 } as const;
 
 export const connectLiveCommandSchema = {
@@ -26,14 +31,17 @@ export const disconnectLiveCommandSchema = {
 
 export interface WorkspaceCommand { commandId: string; workspaceId: string; }
 export interface ConnectLiveCommand extends WorkspaceCommand { tiktokUsername: string; }
-export type SubscribeWorkspaceCommand = WorkspaceCommand;
+export interface SubscribeWorkspaceCommand extends WorkspaceCommand {
+  generation?: number;
+  lastSequence?: number;
+}
 export type DisconnectLiveCommand = WorkspaceCommand;
 
 export interface CommandError {
   code: 'FORBIDDEN' | 'INVALID_COMMAND' | 'NOT_READY' | 'INTERNAL_ERROR';
   message: string;
 }
-export type CommandAcknowledgement = { ok: true } | { ok: false; error: CommandError };
+export type CommandAcknowledgement = { ok: true; duplicate?: boolean } | { ok: false; error: CommandError };
 
 export interface ClientToServerEvents {
   'workspace:subscribe': (payload: SubscribeWorkspaceCommand, acknowledge: (result: CommandAcknowledgement) => void) => void;
@@ -87,6 +95,8 @@ export type RealtimeEvent = ConnectionStateEvent | ChatEvent | GiftEvent;
 export interface RealtimeSnapshot {
   workspaceId: string; generation: number; lastSequence: number;
   connectionState: ConnectionStateEvent['state'];
+  replay: RealtimeEvent[];
+  requiresFullRefresh: boolean;
 }
 export interface ServerToClientEvents {
   snapshot: (snapshot: RealtimeSnapshot) => void;
