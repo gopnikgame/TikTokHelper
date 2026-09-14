@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import type { RealtimeSnapshot } from '@tiktok-helper/contracts';
-import { RealtimeStateModel } from './client.js';
+import { describe, expect, it, vi } from 'vitest';
+import type { ClientToServerEvents, RealtimeSnapshot, ServerToClientEvents } from '@tiktok-helper/contracts';
+import type { Socket } from 'socket.io-client';
+import { createRealtimeClient, RealtimeStateModel } from './client.js';
 
 const snapshot = (overrides: Partial<RealtimeSnapshot> = {}): RealtimeSnapshot => ({
   workspaceId: 'primary', generation: 2, lastSequence: 3, connectionState: 'live',
@@ -37,5 +38,24 @@ describe('RealtimeStateModel', () => {
     model.applyEvent({ type: 'connection.state', generation: 2, sequence: 1, state: 'live' });
     model.applySnapshot(snapshot({ generation: 3, lastSequence: 9, requiresFullRefresh: true }));
     expect(model.state.events).toEqual([]);
+  });
+});
+
+describe('realtime client commands', () => {
+  it('resubscribes after a successful live connection changes the event generation', async () => {
+    const handlers = new Map<string, () => void>();
+    const emitted: string[] = [];
+    const socket = {
+      on(eventName: string, handler: () => void) { handlers.set(eventName, handler); return this; },
+      emit(eventName: string, _payload: unknown, acknowledge?: (result: { ok: true }) => void) {
+        emitted.push(eventName); acknowledge?.({ ok: true }); return this;
+      },
+      close: vi.fn(),
+    } as unknown as Socket<ServerToClientEvents, ClientToServerEvents>;
+    const client = createRealtimeClient('primary', () => undefined, socket);
+    handlers.get('connect')?.();
+    expect(emitted.filter((eventName) => eventName === 'workspace:subscribe')).toHaveLength(1);
+    await client.connectLive('streamer');
+    expect(emitted.filter((eventName) => eventName === 'workspace:subscribe')).toHaveLength(2);
   });
 });

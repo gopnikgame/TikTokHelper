@@ -113,8 +113,7 @@ export function App() {
   async function enableAudio() {
     lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim();
     const preview = sounds.find((sound) => sound.id === selectedSoundId);
-    const urls = [...mappings.filter((mapping) => mapping.isEnabled).map((mapping) => mapping.soundUrl), ...(preview ? [preview.url] : [])];
-    await player.current.unlock(urls, settings.maxConcurrentSounds);
+    await player.current.unlock(settings.maxConcurrentSounds);
     setAudioEnabled(true); setNotice('Звук включён в этой вкладке');
     if (preview) player.current.enqueue(preview.url, 1, settings);
   }
@@ -124,7 +123,7 @@ export function App() {
     if (!response.ok) { setNotice('Не удалось сохранить привязку'); return; }
     const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setNotice(`Подарок ${observedGifts.find((gift) => gift.giftId === saved.giftId)?.giftName ?? saved.giftId} привязан к звуку`);
   }
-  async function previewSound() { const sound = sounds.find((item) => item.id === selectedSoundId); if (!sound) return; lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim(); await player.current.unlock([sound.url], settings.maxConcurrentSounds); setAudioEnabled(true); player.current.enqueue(sound.url, 1, settings); }
+  async function previewSound() { const sound = sounds.find((item) => item.id === selectedSoundId); if (!sound) return; lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim(); await player.current.unlock(settings.maxConcurrentSounds); setAudioEnabled(true); player.current.enqueue(sound.url, 1, settings); }
   function selectGiftForMapping(id: string) {
     setGiftId(id);
     const mapping = mappingByGift.get(id);

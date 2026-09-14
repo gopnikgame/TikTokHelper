@@ -10,6 +10,7 @@ export interface PlaybackSettings {
 export interface AudioLike {
   currentTime: number;
   duration: number;
+  src: string;
   volume: number;
   addEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void, options?: { once?: boolean }): void;
   removeEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void): void;
@@ -20,10 +21,12 @@ export interface AudioLike {
 
 interface Job { url: string; settings: PlaybackSettings }
 
+const SILENT_AUDIO_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
 export class SoundPlaybackQueue {
   readonly #queue: Job[] = [];
   readonly #active = new Set<AudioLike>();
-  readonly #unlocked = new Map<string, AudioLike[]>();
+  readonly #unlocked: AudioLike[] = [];
   #launchTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -34,20 +37,16 @@ export class SoundPlaybackQueue {
   get pending(): number { return this.#queue.length; }
   get active(): number { return this.#active.size; }
 
-  async unlock(urls: string[], instancesPerUrl: number): Promise<void> {
-    const count = Math.min(8, Math.max(1, Math.trunc(instancesPerUrl)));
+  async unlock(instances: number): Promise<void> {
+    const count = Math.min(8, Math.max(1, Math.trunc(instances)));
     const attempts: Promise<void>[] = [];
-    for (const url of new Set(urls)) {
-      const pool = this.#unlocked.get(url) ?? [];
-      this.#unlocked.set(url, pool);
-      for (let index = pool.length; index < count; index += 1) {
-        const audio = this.createAudio(url);
-        audio.volume = 0;
-        audio.load();
-        attempts.push(audio.play().then(() => {
-          audio.pause(); audio.currentTime = 0; pool.push(audio);
-        }).catch(() => this.onError()));
-      }
+    for (let index = this.#unlocked.length; index < count; index += 1) {
+      const audio = this.createAudio(SILENT_AUDIO_DATA_URL);
+      audio.volume = 0;
+      audio.load();
+      attempts.push(audio.play().then(() => {
+        audio.pause(); audio.currentTime = 0; this.#unlocked.push(audio);
+      }).catch(() => this.onError()));
     }
     await Promise.all(attempts);
   }
@@ -71,7 +70,8 @@ export class SoundPlaybackQueue {
     const next = this.#queue[0];
     if (!next || this.#active.size >= next.settings.maxConcurrentSounds) return;
     this.#queue.shift();
-    const audio = this.#unlocked.get(next.url)?.shift() ?? this.createAudio(next.url);
+    const audio = this.#unlocked.shift() ?? this.createAudio(next.url);
+    audio.src = next.url;
     audio.volume = next.settings.volumePercent / 100;
     this.#active.add(audio);
     let finished = false;
@@ -83,7 +83,7 @@ export class SoundPlaybackQueue {
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onPlaybackError);
       this.#active.delete(audio);
-      if (reusable) { audio.currentTime = 0; this.#unlocked.get(next.url)?.push(audio); }
+      if (reusable) { audio.currentTime = 0; this.#unlocked.push(audio); }
       this.#pump();
     };
     audio.addEventListener('ended', onEnded, { once: true });

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { SoundPlaybackQueue, type AudioLike } from './playback.js';
 
 class FakeAudio implements AudioLike {
-  currentTime = 0; duration = 2; volume = 1;
+  currentTime = 0; duration = 2; src: string; volume = 1;
+  constructor(src = '') { this.src = src; }
   listeners = new Map<string, () => void>();
   addEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void): void { this.listeners.set(type, listener); }
   removeEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void): void {
@@ -17,20 +18,22 @@ class FakeAudio implements AudioLike {
 describe('SoundPlaybackQueue', () => {
   it('reuses audio elements unlocked by a user action for later gift playback', async () => {
     const sounds: FakeAudio[] = [];
-    const queue = new SoundPlaybackQueue(() => { const sound = new FakeAudio(); sounds.push(sound); return sound; });
-    await queue.unlock(['/rose.wav'], 1);
+    const queue = new SoundPlaybackQueue((url) => { const sound = new FakeAudio(url); sounds.push(sound); return sound; });
+    await queue.unlock(1);
     expect(sounds).toHaveLength(1);
+    expect(sounds[0]?.src).toMatch(/^data:audio\/wav/);
     expect(sounds[0]?.pause).toHaveBeenCalledOnce();
     queue.enqueue('/rose.wav', 1, { playbackMode: 'sequential', overlapPercent: 0, maxConcurrentSounds: 1, volumePercent: 80 });
     expect(sounds).toHaveLength(1);
     expect(sounds[0]?.play).toHaveBeenCalledTimes(2);
+    expect(sounds[0]?.src).toBe('/rose.wav');
     expect(sounds[0]?.volume).toBe(.8);
   });
 
   it('queues one playback for every counted gift and applies volume', () => {
     vi.useFakeTimers();
     const sounds: FakeAudio[] = [];
-    const queue = new SoundPlaybackQueue(() => { const sound = new FakeAudio(); sounds.push(sound); return sound; });
+    const queue = new SoundPlaybackQueue((url) => { const sound = new FakeAudio(url); sounds.push(sound); return sound; });
     queue.enqueue('/rose.wav', 3, { playbackMode: 'controlled_overlap', overlapPercent: 25, maxConcurrentSounds: 4, volumePercent: 80 });
     expect(sounds).toHaveLength(1);
     expect(sounds[0]?.volume).toBe(.8);
@@ -43,7 +46,7 @@ describe('SoundPlaybackQueue', () => {
 
   it('clears pending and active sounds immediately', () => {
     const sounds: FakeAudio[] = [];
-    const queue = new SoundPlaybackQueue(() => { const sound = new FakeAudio(); sounds.push(sound); return sound; });
+    const queue = new SoundPlaybackQueue((url) => { const sound = new FakeAudio(url); sounds.push(sound); return sound; });
     queue.enqueue('/rose.wav', 3, { playbackMode: 'sequential', overlapPercent: 90, maxConcurrentSounds: 1, volumePercent: 100 });
     queue.stopAll();
     expect(queue.pending).toBe(0);

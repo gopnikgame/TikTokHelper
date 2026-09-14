@@ -74,9 +74,10 @@ export interface RealtimeClient {
 export function createRealtimeClient(
   workspaceId: string,
   onState: (state: RealtimeViewState) => void,
+  socketOverride?: Socket<ServerToClientEvents, ClientToServerEvents>,
 ): RealtimeClient {
   const model = new RealtimeStateModel();
-  const socket: Socket<ServerToClientEvents, ClientToServerEvents> = io({
+  const socket: Socket<ServerToClientEvents, ClientToServerEvents> = socketOverride ?? io({
     autoConnect: true,
     transports: ['websocket'],
   });
@@ -106,9 +107,13 @@ export function createRealtimeClient(
   });
 
   return {
-    connectLive: (tiktokUsername) => command('live:connect', {
-      commandId: crypto.randomUUID(), workspaceId, tiktokUsername,
-    }),
+    connectLive: async (tiktokUsername) => {
+      const result = await command('live:connect', {
+        commandId: crypto.randomUUID(), workspaceId, tiktokUsername,
+      });
+      if (result.ok) subscribe();
+      return result;
+    },
     disconnectLive: () => command('live:disconnect', { commandId: crypto.randomUUID(), workspaceId }),
     close: () => socket.close(),
   };
