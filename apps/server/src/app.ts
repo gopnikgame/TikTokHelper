@@ -8,12 +8,15 @@ import {
 } from '@tiktok-helper/contracts';
 import { settingsRoutes } from './settings/routes.js';
 import type { SettingsRepository } from './settings/repository.js';
+import { tiktokRoutes } from './tiktok/routes.js';
+import type { TikTokSessionManager } from './tiktok/session-manager.js';
 
 export type ReadinessCheck = () => boolean | Promise<boolean>;
 export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   readinessCheck?: ReadinessCheck;
   settingsRepository?: SettingsRepository;
+  tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
 }
 
@@ -123,6 +126,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.settingsRepository) {
     app.register(settingsRoutes, { repository: options.settingsRepository });
+  }
+
+  if (options.tiktokManager) {
+    app.register(tiktokRoutes, { manager: options.tiktokManager });
+    app.addHook('onClose', async () => options.tiktokManager?.close());
   }
 
   if (options.staticRoot) {

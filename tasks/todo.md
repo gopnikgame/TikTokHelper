@@ -86,14 +86,14 @@
 **Description:** Introduce Drizzle, the initial schema and migration, then deliver settings persistence from database through API to browser.
 
 **Acceptance criteria:**
-- [ ] Workspace-scoped schema covers channels, rules, sounds, preferences, and minimal idempotency records.
-- [ ] Migration SQL is generated and reviewed rather than using destructive schema push.
-- [ ] Settings survive browser and application restart.
+- [x] Workspace-scoped schema covers channels, rules, sounds, preferences, and minimal idempotency records.
+- [x] Migration SQL is generated and reviewed rather than using destructive schema push.
+- [x] Settings survive browser and application restart.
 
 **Verification:**
-- [ ] Integration tests pass against an isolated PostgreSQL database.
-- [ ] Empty-database migration and backup/restore procedure are verified.
-- [ ] Cross-workspace repository tests reject leakage.
+- [x] Integration tests pass against an isolated PostgreSQL database.
+- [x] Empty-database migration and backup/restore procedure are verified.
+- [x] Cross-workspace repository tests reject leakage.
 
 **Dependencies:** Task 4
 
@@ -103,20 +103,20 @@
 
 ## Checkpoint: persisted foundation
 
-- [ ] Tasks 3-5 pass all focused and full checks.
-- [ ] Settings work end to end before adding a live external dependency.
+- [x] Tasks 3-5 pass all focused and full checks.
+- [x] Settings work end to end before adding a live external dependency.
 
 ## Task 6: Implement the TikTok adapter
 
 **Description:** Add the isolated connector, lifecycle state machine, normalization, gift handling, reconnect, and cleanup using sanitized fixtures.
 
 **Acceptance criteria:**
-- [ ] Only project-owned event contracts leave the adapter.
-- [ ] One connector exists per workspace/channel and manual stop cancels reconnect.
-- [ ] Gift streaks and state-changing events are idempotent.
+- [x] Only project-owned event contracts leave the adapter.
+- [x] One connector exists per workspace/channel and manual stop cancels reconnect.
+- [x] Gift streaks and state-changing events are idempotent.
 
 **Verification:**
-- [ ] Fixture tests cover normal, malformed, duplicate, offline, reconnect, and shutdown paths.
+- [x] Fixture tests cover normal, malformed, duplicate, offline, reconnect, and shutdown paths.
 - [ ] A separately approved real LIVE smoke test confirms current connector compatibility.
 
 **Dependencies:** Tasks 1, 4, 5

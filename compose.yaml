@@ -40,6 +40,9 @@ services:
       LOG_LEVEL: info
       POSTGRES_DB: tiktok_helper
       POSTGRES_USER: tiktok_helper
+      TIKTOK_PROXY_URL: ${TIKTOK_PROXY_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     secrets: [db_password]
     ports:
       - "${APP_BIND_ADDRESS:-127.0.0.1}:3000:3000"

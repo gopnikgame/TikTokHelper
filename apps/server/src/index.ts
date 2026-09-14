@@ -2,16 +2,22 @@ import { sql } from 'drizzle-orm';
 import { buildApp } from './app.js';
 import { createDatabase } from './db/client.js';
 import { createSettingsRepository } from './settings/repository.js';
+import { createTikTokConnector } from './tiktok/live-connector.js';
+import { TikTokSessionManager } from './tiktok/session-manager.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
 
 const { client, db } = createDatabase(databaseUrl);
+const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
+  app.log.info({ event: 'tiktok_event_normalized', eventType: event.type, workspaceId }, 'TikTok event normalized');
+});
 const app = buildApp({
   readinessCheck: async () => {
     try { await db.execute(sql`select 1`); return true; } catch { return false; }
   },
   settingsRepository: createSettingsRepository(db),
+  tiktokManager,
   staticRoot: process.env.WEB_ROOT,
 });
 app.addHook('onClose', async () => client.end());
