@@ -125,7 +125,13 @@ export function App() {
     const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setNotice(`Подарок ${observedGifts.find((gift) => gift.giftId === saved.giftId)?.giftName ?? saved.giftId} привязан к звуку`);
   }
   async function previewSound() { const sound = sounds.find((item) => item.id === selectedSoundId); if (!sound) return; lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim(); await player.current.unlock([sound.url], settings.maxConcurrentSounds); setAudioEnabled(true); player.current.enqueue(sound.url, 1, settings); }
-  function selectGiftForMapping(id: string) { setGiftId(id); mappingInput.current?.focus(); mappingInput.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  function selectGiftForMapping(id: string) {
+    setGiftId(id);
+    const mapping = mappingByGift.get(id);
+    if (mapping) setSelectedSoundId(mapping.soundAssetId);
+    mappingInput.current?.focus();
+    mappingInput.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 
   return <main className="console-shell">
     <header className="topbar"><div><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1></div><div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div></header>

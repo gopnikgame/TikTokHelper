@@ -2,10 +2,13 @@ FROM node:24.18.0-bookworm-slim AS build
 WORKDIR /workspace
 RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json eslint.config.mjs ./
-COPY apps ./apps
-COPY packages ./packages
+COPY apps/server/package.json ./apps/server/package.json
+COPY apps/web/package.json ./apps/web/package.json
+COPY packages/contracts/package.json ./packages/contracts/package.json
 RUN --mount=type=cache,id=tiktok-helper-pnpm,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile --network-concurrency=4 --fetch-timeout=60000
+COPY apps ./apps
+COPY packages ./packages
 RUN pnpm run build
 
 FROM node:24.18.0-bookworm-slim AS runtime
