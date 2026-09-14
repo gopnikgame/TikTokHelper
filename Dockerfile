@@ -4,7 +4,8 @@ RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json eslint.config.mjs ./
 COPY apps ./apps
 COPY packages ./packages
-RUN pnpm install --frozen-lockfile
+RUN --mount=type=cache,id=tiktok-helper-pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --network-concurrency=4 --fetch-timeout=60000
 RUN pnpm run build
 
 FROM node:24.18.0-bookworm-slim AS runtime
