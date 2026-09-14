@@ -19,7 +19,9 @@ export class TikTokConnector implements LiveConnector {
       // The signed extended gift-catalogue request is optional and can fail even while
       // the LIVE WebSocket is available. Gift events still carry their own identifiers.
       enableExtendedGiftInfo: false,
-      processInitialData: false,
+      // Show the recent chat context returned during connection instead of waiting
+      // for the next message after the operator opens the dashboard.
+      processInitialData: true,
       ...(proxyAgent ? {
         webClientOptions: { agent: { http: proxyAgent, https: proxyAgent, http2: proxyAgent }, http2: false },
         wsClientOptions: { agent: proxyAgent },
