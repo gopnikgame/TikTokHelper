@@ -31,6 +31,7 @@ CREATE TABLE "sound_assets" (
 	"mime_type" varchar(100) NOT NULL,
 	"duration_ms" integer,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "sound_assets_workspace_id_unique" UNIQUE("workspace_id","id"),
 	CONSTRAINT "sound_assets_duration_chk" CHECK ("sound_assets"."duration_ms" is null or "sound_assets"."duration_ms" > 0)
 );
 --> statement-breakpoint
@@ -68,5 +69,4 @@ CREATE INDEX "gift_sound_rules_workspace_idx" ON "gift_sound_rules" USING btree 
 CREATE INDEX "gift_sound_rules_sound_asset_idx" ON "gift_sound_rules" USING btree ("sound_asset_id");--> statement-breakpoint
 CREATE INDEX "processed_gift_events_expiry_idx" ON "processed_gift_events" USING btree ("expires_at");--> statement-breakpoint
 CREATE UNIQUE INDEX "sound_assets_workspace_storage_uidx" ON "sound_assets" USING btree ("workspace_id","storage_key");--> statement-breakpoint
-CREATE UNIQUE INDEX "sound_assets_workspace_id_uidx" ON "sound_assets" USING btree ("workspace_id","id");--> statement-breakpoint
 CREATE INDEX "sound_assets_workspace_idx" ON "sound_assets" USING btree ("workspace_id");

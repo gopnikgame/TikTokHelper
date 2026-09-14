@@ -1,5 +1,5 @@
 {
-  "id": "57c93304-9908-4beb-bf53-d7124983f279",
+  "id": "43e392dc-3d5d-4e93-ae10-4f7731e6b31d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -375,27 +375,6 @@
           "method": "btree",
           "with": {}
         },
-        "sound_assets_workspace_id_uidx": {
-          "name": "sound_assets_workspace_id_uidx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "sound_assets_workspace_idx": {
           "name": "sound_assets_workspace_idx",
           "columns": [
@@ -428,7 +407,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "sound_assets_workspace_id_unique": {
+          "name": "sound_assets_workspace_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "workspace_id",
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "sound_assets_duration_chk": {

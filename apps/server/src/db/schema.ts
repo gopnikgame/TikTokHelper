@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean, check, foreignKey, index, integer, pgTable, primaryKey, smallint, text,
-  timestamp, uniqueIndex, uuid, varchar,
+  timestamp, unique, uniqueIndex, uuid, varchar,
 } from 'drizzle-orm/pg-core';
 
 export const workspaces = pgTable('workspaces', {
@@ -50,7 +50,7 @@ export const soundAssets = pgTable('sound_assets', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex('sound_assets_workspace_storage_uidx').on(table.workspaceId, table.storageKey),
-  uniqueIndex('sound_assets_workspace_id_uidx').on(table.workspaceId, table.id),
+  unique('sound_assets_workspace_id_unique').on(table.workspaceId, table.id),
   index('sound_assets_workspace_idx').on(table.workspaceId),
   check('sound_assets_duration_chk', sql`${table.durationMs} is null or ${table.durationMs} > 0`),
 ]);
