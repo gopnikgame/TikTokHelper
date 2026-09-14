@@ -61,6 +61,20 @@ describe('TikTok session manager', () => {
     }));
   });
 
+  it('keeps current connector emote images in the project chat contract', async () => {
+    const connector = new FakeConnector();
+    const events: RealtimeEvent[] = [];
+    const manager = new TikTokSessionManager(() => connector, (_workspace, event) => events.push(event));
+    await manager.start('family', 'streamer');
+    connector.emit('chat', {
+      common: { msgId: 'chat-emote-1' }, user: { displayId: 'viewer' }, content: '[thanks]',
+      emotes: [{ index: 0, emote: { emoteId: 'thanks', image: { urlList: ['https://cdn.example/thanks.png'] } } }],
+    });
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'chat.message', emotes: [{ emoteId: 'thanks', imageUrl: 'https://cdn.example/thanks.png', position: 0 }],
+    }));
+  });
+
   it('turns a gift streak into incremental playback counts without double counting the final event', async () => {
     const connector = new FakeConnector();
     const events: RealtimeEvent[] = [];

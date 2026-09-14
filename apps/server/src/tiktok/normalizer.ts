@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ChatEvent, GiftEvent } from '@tiktok-helper/contracts';
+import type { ChatEmote, ChatEvent, GiftEvent } from '@tiktok-helper/contracts';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -21,6 +21,18 @@ function positiveInteger(value: unknown): number | undefined {
 function nonNegativeInteger(value: unknown): number | undefined {
   const parsed = typeof value === 'bigint' ? Number(value) : Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function chatEmotes(value: unknown): ChatEmote[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((itemValue) => {
+    const item = record(itemValue);
+    const emote = record(item?.emote);
+    const emoteId = text(emote?.emoteId) ?? text(item?.emoteId);
+    const imageUrl = firstImageUrl(emote?.image) ?? httpUrl(item?.emoteImageUrl);
+    const position = nonNegativeInteger(item?.index ?? item?.placeInComment);
+    return emoteId && imageUrl && position !== undefined ? [{ emoteId, imageUrl, position }] : [];
+  }).slice(0, 50);
 }
 
 function httpUrl(value: unknown): string | undefined {
@@ -63,10 +75,12 @@ export function normalizeChat(rawValue: unknown, generation: number, sequence: n
   const author = sender(raw);
   const comment = text(raw.comment) ?? text(raw.content);
   if (!author || !comment) return undefined;
+  const emotes = chatEmotes(raw.emotes);
   return {
     type: 'chat.message', generation, sequence,
     eventId: eventId(raw, ['chat', author.username, comment]),
     senderDisplayName: author.displayName, senderUsername: author.username, text: comment,
+    ...(emotes.length > 0 ? { emotes } : {}),
   };
 }
 

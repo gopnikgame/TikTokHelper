@@ -12,6 +12,7 @@ export interface AudioLike {
   duration: number;
   volume: number;
   addEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void, options?: { once?: boolean }): void;
+  removeEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void): void;
   load(): void;
   pause(): void;
   play(): Promise<void>;
@@ -22,6 +23,7 @@ interface Job { url: string; settings: PlaybackSettings }
 export class SoundPlaybackQueue {
   readonly #queue: Job[] = [];
   readonly #active = new Set<AudioLike>();
+  readonly #unlocked = new Map<string, AudioLike[]>();
   #launchTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
@@ -31,6 +33,24 @@ export class SoundPlaybackQueue {
 
   get pending(): number { return this.#queue.length; }
   get active(): number { return this.#active.size; }
+
+  async unlock(urls: string[], instancesPerUrl: number): Promise<void> {
+    const count = Math.min(8, Math.max(1, Math.trunc(instancesPerUrl)));
+    const attempts: Promise<void>[] = [];
+    for (const url of new Set(urls)) {
+      const pool = this.#unlocked.get(url) ?? [];
+      this.#unlocked.set(url, pool);
+      for (let index = pool.length; index < count; index += 1) {
+        const audio = this.createAudio(url);
+        audio.volume = 0;
+        audio.load();
+        attempts.push(audio.play().then(() => {
+          audio.pause(); audio.currentTime = 0; pool.push(audio);
+        }).catch(() => this.onError()));
+      }
+    }
+    await Promise.all(attempts);
+  }
 
   enqueue(url: string, count: number, settings: PlaybackSettings): void {
     const safeCount = Math.min(5_000, Math.max(0, Math.trunc(count)));
@@ -51,13 +71,23 @@ export class SoundPlaybackQueue {
     const next = this.#queue[0];
     if (!next || this.#active.size >= next.settings.maxConcurrentSounds) return;
     this.#queue.shift();
-    const audio = this.createAudio(next.url);
+    const audio = this.#unlocked.get(next.url)?.shift() ?? this.createAudio(next.url);
     audio.volume = next.settings.volumePercent / 100;
     this.#active.add(audio);
     let finished = false;
-    const finish = () => { if (finished) return; finished = true; this.#active.delete(audio); this.#pump(); };
-    audio.addEventListener('ended', finish, { once: true });
-    audio.addEventListener('error', () => { this.onError(); finish(); }, { once: true });
+    const onEnded = () => finish(true);
+    const onPlaybackError = () => { this.onError(); finish(false); };
+    const finish = (reusable: boolean) => {
+      if (finished) return;
+      finished = true;
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('error', onPlaybackError);
+      this.#active.delete(audio);
+      if (reusable) { audio.currentTime = 0; this.#unlocked.get(next.url)?.push(audio); }
+      this.#pump();
+    };
+    audio.addEventListener('ended', onEnded, { once: true });
+    audio.addEventListener('error', onPlaybackError, { once: true });
     audio.addEventListener('loadedmetadata', () => {
       const durationMs = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration * 1_000 : 1_000;
       const overlap = next.settings.playbackMode === 'sequential'
@@ -69,7 +99,7 @@ export class SoundPlaybackQueue {
       this.#launchTimer = setTimeout(() => { this.#launchTimer = undefined; this.#pump(); }, delay);
     }, { once: true });
     audio.load();
-    void audio.play().catch(() => { this.onError(); finish(); });
+    void audio.play().catch(() => { this.onError(); finish(false); });
   }
 }
 

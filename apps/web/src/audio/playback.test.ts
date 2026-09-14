@@ -5,6 +5,9 @@ class FakeAudio implements AudioLike {
   currentTime = 0; duration = 2; volume = 1;
   listeners = new Map<string, () => void>();
   addEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void): void { this.listeners.set(type, listener); }
+  removeEventListener(type: 'ended' | 'error' | 'loadedmetadata', listener: () => void): void {
+    if (this.listeners.get(type) === listener) this.listeners.delete(type);
+  }
   load(): void { this.listeners.get('loadedmetadata')?.(); }
   pause = vi.fn();
   play = vi.fn(async () => undefined);
@@ -12,6 +15,18 @@ class FakeAudio implements AudioLike {
 }
 
 describe('SoundPlaybackQueue', () => {
+  it('reuses audio elements unlocked by a user action for later gift playback', async () => {
+    const sounds: FakeAudio[] = [];
+    const queue = new SoundPlaybackQueue(() => { const sound = new FakeAudio(); sounds.push(sound); return sound; });
+    await queue.unlock(['/rose.wav'], 1);
+    expect(sounds).toHaveLength(1);
+    expect(sounds[0]?.pause).toHaveBeenCalledOnce();
+    queue.enqueue('/rose.wav', 1, { playbackMode: 'sequential', overlapPercent: 0, maxConcurrentSounds: 1, volumePercent: 80 });
+    expect(sounds).toHaveLength(1);
+    expect(sounds[0]?.play).toHaveBeenCalledTimes(2);
+    expect(sounds[0]?.volume).toBe(.8);
+  });
+
   it('queues one playback for every counted gift and applies volume', () => {
     vi.useFakeTimers();
     const sounds: FakeAudio[] = [];

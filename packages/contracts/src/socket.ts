@@ -86,7 +86,9 @@ export interface ConnectionStateEvent {
 export interface ChatEvent {
   type: 'chat.message'; generation: number; sequence: number; eventId: string;
   senderDisplayName: string; senderUsername: string; text: string;
+  emotes?: ChatEmote[];
 }
+export interface ChatEmote { emoteId: string; imageUrl: string; position: number; }
 export interface GiftEvent {
   type: 'gift.received'; generation: number; sequence: number; eventId: string;
   giftId: string; giftName: string; senderDisplayName: string; repeatCount: number;
