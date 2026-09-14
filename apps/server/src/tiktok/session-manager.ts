@@ -53,10 +53,12 @@ export class TikTokSessionManager {
     private readonly sink: RealtimeEventSink = () => undefined,
     private readonly scheduler: Scheduler = systemScheduler,
     private readonly diagnostics: (entry: TikTokDiagnostic) => void = () => undefined,
+    private readonly connectionRequested: (workspaceId: string, username: string) => void = () => undefined,
   ) {}
 
   async start(workspaceId: string, username: string): Promise<LiveSessionSnapshot> {
     const normalizedUsername = username.replace(/^@/, '');
+    this.connectionRequested(workspaceId, normalizedUsername);
     const current = this.#sessions.get(workspaceId);
     if (current && !current.stopped && current.tiktokUsername === normalizedUsername) {
       return this.status(workspaceId);

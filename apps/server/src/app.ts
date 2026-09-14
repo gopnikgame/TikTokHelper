@@ -14,6 +14,8 @@ import { tiktokRoutes } from './tiktok/routes.js';
 import type { TikTokSessionManager } from './tiktok/session-manager.js';
 import { giftRoutes } from './gifts/routes.js';
 import type { GiftCatalogRepository } from './gifts/repository.js';
+import { recentChannelRoutes } from './channels/routes.js';
+import type { RecentChannelRepository } from './channels/repository.js';
 
 export type ReadinessCheck = () => boolean | Promise<boolean>;
 export interface BuildAppOptions {
@@ -22,6 +24,7 @@ export interface BuildAppOptions {
   settingsRepository?: SettingsRepository;
   soundRepository?: SoundRepository;
   giftCatalogRepository?: GiftCatalogRepository;
+  recentChannelRepository?: RecentChannelRepository;
   soundRoot?: string;
   tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
@@ -146,6 +149,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.giftCatalogRepository) {
     app.register(giftRoutes, { repository: options.giftCatalogRepository });
+  }
+
+  if (options.recentChannelRepository) {
+    app.register(recentChannelRoutes, { repository: options.recentChannelRepository });
   }
 
   if (options.soundRoot) {

@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import type { GiftEvent, GiftSoundMapping, ObservedGift, SoundAsset, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
+import type { GiftEvent, GiftSoundMapping, ObservedGift, RecentChannel, SoundAsset, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
 import { AudioOwnership, SoundPlaybackQueue } from './audio/playback.js';
 import { operatorEventCount } from './event-model.js';
 import { createRealtimeClient, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
@@ -17,6 +17,8 @@ export function App() {
   const [sounds, setSounds] = useState<SoundAsset[]>([]);
   const [mappings, setMappings] = useState<GiftSoundMapping[]>([]);
   const [gifts, setGifts] = useState<ObservedGift[]>([]);
+  const [recentChannels, setRecentChannels] = useState<RecentChannel[]>([]);
+  const [catalogQuery, setCatalogQuery] = useState('');
   const [giftId, setGiftId] = useState('');
   const [selectedSoundId, setSelectedSoundId] = useState('');
   const [audioEnabled, setAudioEnabled] = useState(false);
@@ -35,11 +37,13 @@ export function App() {
       fetch(`/api/workspaces/${WORKSPACE_ID}/sounds`, { signal: controller.signal }),
       fetch(`/api/workspaces/${WORKSPACE_ID}/gift-mappings`, { signal: controller.signal }),
       fetch(`/api/workspaces/${WORKSPACE_ID}/gifts`, { signal: controller.signal }),
-    ]).then(async ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse]) => {
+      fetch(`/api/workspaces/${WORKSPACE_ID}/recent-channels`, { signal: controller.signal }),
+    ]).then(async ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse, recentChannelsResponse]) => {
       if (settingsResponse.ok) setSettings(await settingsResponse.json() as WorkspaceSettings);
       if (soundsResponse.ok) { const loaded = await soundsResponse.json() as SoundAsset[]; setSounds(loaded); setSelectedSoundId(loaded[0]?.id ?? ''); }
       if (mappingsResponse.ok) setMappings(await mappingsResponse.json() as GiftSoundMapping[]);
       if (giftsResponse.ok) { const loaded = await giftsResponse.json() as ObservedGift[]; setGifts(loaded); setGiftId(loaded[0]?.giftId ?? ''); }
+      if (recentChannelsResponse.ok) setRecentChannels(await recentChannelsResponse.json() as RecentChannel[]);
       setNotice('Готово к работе');
     }).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === 'AbortError')) setNotice('Не удалось загрузить настройки'); });
     return () => controller.abort();
@@ -65,6 +69,14 @@ export function App() {
     }
     return [...catalogue.values()].sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
   }, [giftEvents, gifts]);
+  const filteredGifts = useMemo(() => {
+    const query = catalogQuery.trim().toLocaleLowerCase();
+    if (!query) return observedGifts;
+    return observedGifts.filter((gift) => {
+      const mapping = mappingByGift.get(gift.giftId);
+      return [gift.giftName, gift.giftId, mapping?.soundDisplayName].some((value) => value?.toLocaleLowerCase().includes(query));
+    });
+  }, [catalogQuery, mappingByGift, observedGifts]);
 
   useEffect(() => {
     if (!audioEnabled) return;
@@ -86,6 +98,15 @@ export function App() {
   async function connectLive() {
     const username = settings.tiktokUsername.trim(); if (!username) { setNotice('Введите TikTok ID'); return; }
     setNotice('Ищем активную трансляцию…'); const result = await realtimeClient.current?.connectLive(username);
+    if (result?.ok) {
+      const normalized = username.replace(/^@/, '').toLocaleLowerCase();
+      const now = new Date().toISOString();
+      setRecentChannels((current) => [{
+        tiktokUsername: normalized,
+        connectionCount: (current.find((item) => item.tiktokUsername === normalized)?.connectionCount ?? 0) + 1,
+        lastConnectedAt: now,
+      }, ...current.filter((item) => item.tiktokUsername !== normalized)].slice(0, 20));
+    }
     setNotice(result?.ok ? 'Команда отправлена — ждём ответ TikTok' : 'Сервер не принял команду подключения');
   }
   async function disconnectLive() { const result = await realtimeClient.current?.disconnectLive(); setNotice(result?.ok ? 'Подключение остановлено' : 'Не удалось остановить подключение'); }
@@ -111,7 +132,7 @@ export function App() {
     <p className="notice" role="status" aria-live="polite">{notice}</p>
     <section className="connection-panel" aria-labelledby="connection-title">
       <div><h2 id="connection-title">Подключение</h2><p>TikTokHelper читает уже запущенный эфир — сам эфир запускается на телефоне.</p></div>
-      <label className="username-field"><span>TikTok ID</span><input required value={settings.tiktokUsername} placeholder="@username" onChange={(event) => setSettings((current) => ({ ...current, tiktokUsername: event.target.value }))} /></label>
+      <div className="username-field"><label><span>TikTok ID</span><input required value={settings.tiktokUsername} placeholder="@username" onChange={(event) => setSettings((current) => ({ ...current, tiktokUsername: event.target.value }))} /></label>{recentChannels.length > 0 ? <div className="recent-channels" aria-label="Недавние TikTok ID">{recentChannels.slice(0, 8).map((channel) => <button type="button" className="channel-chip" key={channel.tiktokUsername} onClick={() => setSettings((current) => ({ ...current, tiktokUsername: `@${channel.tiktokUsername}` }))}>@{channel.tiktokUsername}</button>)}</div> : <span className="field-hint">История появится после первого подключения.</span>}</div>
       <div className="actions"><button type="button" onClick={() => void connectLive()} disabled={!realtime.isTransportConnected}>Подключить эфир</button><button type="button" className="secondary" onClick={() => void disconnectLive()}>Остановить</button></div>
       <div className="connection-facts"><span>Браузер <b>{realtime.isTransportConnected ? 'на связи' : 'без связи'}</b></span><span>Чат и подарки <b>{operatorEventCount(realtime.events)}</b></span></div>
     </section>
@@ -119,6 +140,11 @@ export function App() {
       <section className="feed-panel chat-panel" aria-labelledby="chat-title"><header><div><p className="section-kicker">Прямой эфир</p><h2 id="chat-title">Чат</h2></div>{!followChat ? <button type="button" className="quiet" onClick={() => setFollowChat(true)}>К новым сообщениям</button> : null}</header><ul ref={chatFeed} className="chat-list" aria-live="polite" onScroll={(event) => { const target = event.currentTarget; setFollowChat(target.scrollHeight - target.scrollTop - target.clientHeight < 56); }}>{chatEvents.length === 0 ? <li className="empty-state"><strong>Сообщений пока нет</strong><span>После подключения новые реплики появятся здесь крупным текстом.</span></li> : chatEvents.map((message) => <li key={message.eventId} className="chat-message"><div><strong>{message.senderDisplayName}</strong><span>@{message.senderUsername}</span></div><p>{chatContentParts(message.text, message.emotes).map((part, index) => part.type === 'text' ? part.value : <img key={`${part.value.emoteId}-${index}`} className="chat-emote" src={part.value.imageUrl} alt={`:${part.value.emoteId}:`} loading="lazy" referrerPolicy="no-referrer" />)}</p></li>)}</ul></section>
       <aside className="feed-panel gift-panel" aria-labelledby="gift-title"><header><div><p className="section-kicker">Реакции</p><h2 id="gift-title">Подарки</h2></div></header><ul className="gift-list">{giftEvents.length === 0 ? <li className="empty-state"><strong>Ждём первый подарок</strong><span>Серии будут показаны по реально добавленному количеству.</span></li> : giftEvents.slice(-30).toReversed().map((gift) => <li key={gift.eventId}>{gift.imageUrl ? <img className="gift-image" src={gift.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="gift-count">×{gift.repeatCount}</span>}<div><strong>{gift.giftName} ×{gift.repeatCount}</strong><span>{gift.senderDisplayName}</span></div><small>{mappingByGift.has(gift.giftId) ? 'звук назначен' : `ID ${gift.giftId} · без звука`}</small><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>)}</ul></aside>
     </div>
+    <details className="catalog-panel">
+      <summary><span><b>Каталог подарков и звуков</b><small>{observedGifts.length} подарков · {mappings.length} привязок</small></span><span aria-hidden="true">Развернуть</span></summary>
+      <div className="catalog-tools"><label>Поиск по названию, ID или звуку<input type="search" value={catalogQuery} placeholder="Например: Rose, 5655 или Пук" onChange={(event) => setCatalogQuery(event.target.value)} /></label></div>
+      {filteredGifts.length === 0 ? <p className="catalog-empty">Ничего не найдено. Измените запрос или дождитесь новых подарков в эфире.</p> : <ul className="catalog-list">{filteredGifts.map((gift) => { const mapping = mappingByGift.get(gift.giftId); return <li key={gift.giftId}>{gift.imageUrl ? <img src={gift.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="catalog-placeholder" aria-hidden="true">🎁</span>}<div><strong>{gift.giftName}</strong><code>ID {gift.giftId}</code></div><div className={mapping ? 'mapping-state assigned' : 'mapping-state'}><span>{mapping ? 'Назначен звук' : 'Без звука'}</span><b>{mapping?.soundDisplayName ?? 'Выберите реакцию'}</b></div><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>; })}</ul>}
+    </details>
     <section className="control-grid" aria-label="Настройки звука">
       <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? 'Подарки озвучиваются здесь.' : 'Браузеру нужно разрешить звук одним нажатием.'}</p><div className="actions"><button type="button" onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
       <form className="control-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="actions"><button type="button" className="secondary" onClick={() => void previewSound()}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>

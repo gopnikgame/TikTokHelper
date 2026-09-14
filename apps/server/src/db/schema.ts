@@ -22,6 +22,19 @@ export const channels = pgTable('channels', {
   index('channels_workspace_idx').on(table.workspaceId),
 ]);
 
+export const recentChannels = pgTable('recent_channels', {
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  tiktokUsername: varchar('tiktok_username', { length: 24 }).notNull(),
+  connectionCount: integer('connection_count').notNull().default(1),
+  firstConnectedAt: timestamp('first_connected_at', { withTimezone: true }).notNull().defaultNow(),
+  lastConnectedAt: timestamp('last_connected_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.workspaceId, table.tiktokUsername] }),
+  index('recent_channels_workspace_last_connected_idx').on(table.workspaceId, table.lastConnectedAt),
+  check('recent_channels_connection_count_chk', sql`${table.connectionCount} >= 1`),
+]);
+
 export const workspacePreferences = pgTable('workspace_preferences', {
   workspaceId: varchar('workspace_id', { length: 64 }).primaryKey()
     .references(() => workspaces.id, { onDelete: 'cascade' }),

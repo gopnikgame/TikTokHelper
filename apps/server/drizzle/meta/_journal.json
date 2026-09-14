@@ -15,6 +15,13 @@
       "when": 1789412815575,
       "tag": "0001_milky_clint_barton",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789418042675,
+      "tag": "0002_milky_captain_stacy",
+      "breakpoints": true
     }
   ]
 }

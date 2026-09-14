@@ -8,6 +8,7 @@ import { TikTokSessionManager } from './tiktok/session-manager.js';
 import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
 import { createSoundRepository } from './sounds/repository.js';
 import { createGiftCatalogRepository } from './gifts/repository.js';
+import { createRecentChannelRepository } from './channels/repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -16,6 +17,7 @@ const { client, db } = createDatabase(databaseUrl);
 const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? 'primary';
 const soundRoot = process.env.SOUND_ROOT;
 const giftCatalogRepository = createGiftCatalogRepository(db);
+const recentChannelRepository = createRecentChannelRepository(db);
 const soundRepository = createSoundRepository(db, giftCatalogRepository);
 if (soundRoot) {
   const files = (await readdir(soundRoot)).filter((name) => /\.wav$/i.test(name));
@@ -34,7 +36,14 @@ const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspace
     });
   }
   realtimeRef.current?.publish(workspaceId, event);
-}, undefined, (entry) => process.stderr.write(`${JSON.stringify({ level: 'error', component: 'tiktok', ...entry })}\n`));
+}, undefined, (entry) => process.stderr.write(`${JSON.stringify({ level: 'error', component: 'tiktok', ...entry })}\n`), (workspaceId, username) => {
+  void recentChannelRepository.record(workspaceId, username).catch((error: unknown) => {
+    process.stderr.write(`${JSON.stringify({
+      level: 'error', component: 'recent_channels', event: 'connection_record_failed',
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    })}\n`);
+  });
+});
 const app = buildApp({
   readinessCheck: async () => {
     try { await db.execute(sql`select 1`); return true; } catch { return false; }
@@ -42,6 +51,7 @@ const app = buildApp({
   settingsRepository: createSettingsRepository(db),
   soundRepository,
   giftCatalogRepository,
+  recentChannelRepository,
   soundRoot,
   tiktokManager,
   staticRoot: process.env.WEB_ROOT,

@@ -32,6 +32,20 @@ const gift = (repeatCount: number, repeatEnd: boolean, msgId: string) => ({
 });
 
 describe('TikTok session manager', () => {
+  it('records each normalized channel selected for a connection attempt', async () => {
+    const connector = new FakeConnector();
+    const requested: Array<[string, string]> = [];
+    const manager = new TikTokSessionManager(
+      () => connector,
+      () => undefined,
+      new FakeScheduler(),
+      () => undefined,
+      (workspaceId, username) => requested.push([workspaceId, username]),
+    );
+    await manager.start('family', '@Streamer.Name');
+    expect(requested).toEqual([['family', 'Streamer.Name']]);
+  });
+
   it('normalizes valid events and rejects malformed and duplicate input', async () => {
     const connector = new FakeConnector();
     const events: RealtimeEvent[] = [];

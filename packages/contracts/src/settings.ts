@@ -43,3 +43,20 @@ export const workspaceParamsSchema = {
 } as const;
 
 export interface WorkspaceParams { workspaceId: string; }
+
+export interface RecentChannel {
+  tiktokUsername: string;
+  connectionCount: number;
+  lastConnectedAt: string;
+}
+
+export const recentChannelSchema = {
+  type: 'object', additionalProperties: false,
+  required: ['tiktokUsername', 'connectionCount', 'lastConnectedAt'],
+  properties: {
+    tiktokUsername: { type: 'string', pattern: '^@?[A-Za-z0-9._]{2,24}$' },
+    connectionCount: { type: 'integer', minimum: 1 },
+    lastConnectedAt: { type: 'string', format: 'date-time' },
+  },
+} as const;
+export const recentChannelsSchema = { type: 'array', maxItems: 50, items: recentChannelSchema } as const;
