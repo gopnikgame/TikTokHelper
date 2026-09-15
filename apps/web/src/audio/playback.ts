@@ -21,7 +21,7 @@ export interface AudioLike {
 
 interface Job { url: string; settings: PlaybackSettings }
 
-const SILENT_AUDIO_DATA_URL = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+const SILENT_AUDIO_DATA_URL = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
 
 export class SoundPlaybackQueue {
   readonly #queue: Job[] = [];
@@ -37,11 +37,11 @@ export class SoundPlaybackQueue {
   get pending(): number { return this.#queue.length; }
   get active(): number { return this.#active.size; }
 
-  async unlock(instances: number): Promise<void> {
+  async unlock(instances: number, warmupUrl?: string): Promise<void> {
     const count = Math.min(8, Math.max(1, Math.trunc(instances)));
     const attempts: Promise<void>[] = [];
     for (let index = this.#unlocked.length; index < count; index += 1) {
-      const audio = this.createAudio(SILENT_AUDIO_DATA_URL);
+      const audio = this.createAudio(warmupUrl ?? SILENT_AUDIO_DATA_URL);
       audio.volume = 0;
       audio.load();
       attempts.push(audio.play().then(() => {
@@ -49,6 +49,20 @@ export class SoundPlaybackQueue {
       }).catch(() => this.onError()));
     }
     await Promise.all(attempts);
+    if (this.#unlocked.length === 0) throw new Error('audio playback was not unlocked');
+  }
+
+  preview(url: string, volumePercent: number): Promise<void> {
+    const audio = this.createAudio(url);
+    audio.volume = volumePercent / 100;
+    audio.load();
+    this.#active.add(audio);
+    const release = () => { this.#active.delete(audio); };
+    audio.addEventListener('ended', release, { once: true });
+    audio.addEventListener('error', release, { once: true });
+    const playback = audio.play();
+    void playback.catch(() => { this.onError(); release(); });
+    return playback;
   }
 
   enqueue(url: string, count: number, settings: PlaybackSettings): void {

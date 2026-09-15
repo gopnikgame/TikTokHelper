@@ -9,6 +9,7 @@ import { beginLogin, endSession, loadSession } from './auth-client.js';
 
 const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', events: [], generation: 0, lastSequence: 0, isTransportConnected: false };
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
+const CONNECTION_NOTICE = { live: 'Эфир подключён — принимаем чат и подарки', reconnecting: 'Связь прервалась — подключаемся снова…', offline: 'Эфир завершён или аккаунт сейчас не в эфире', failed: 'Не удалось подключиться к эфиру' } as const;
 type SessionState = { status: 'loading' } | { status: 'anonymous' } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
 
 export function App() {
@@ -95,7 +96,20 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     return () => controller.abort();
   }, [onLoggedOut, workspaceId]);
 
-  useEffect(() => { const client = createRealtimeClient(workspaceId, setRealtime); realtimeClient.current = client; return () => { realtimeClient.current = null; client.close(); }; }, [workspaceId]);
+  useEffect(() => {
+    let previousState = INITIAL_REALTIME_STATE.connectionState;
+    const client = createRealtimeClient(workspaceId, (next) => {
+      if (next.connectionState !== previousState) {
+        previousState = next.connectionState;
+        if (next.connectionState in CONNECTION_NOTICE) {
+          setNotice(CONNECTION_NOTICE[next.connectionState as keyof typeof CONNECTION_NOTICE]);
+        }
+      }
+      setRealtime(next);
+    });
+    realtimeClient.current = client;
+    return () => { realtimeClient.current = null; client.close(); };
+  }, [workspaceId]);
   useEffect(() => { const playback = player.current; const owner = new AudioOwnership(() => { setAudioEnabled(false); playback.stopAll(); setNotice('Звук включён в другой вкладке'); }); ownership.current = owner; return () => { owner.close(); playback.stopAll(); }; }, []);
 
   const mappingByGift = useMemo(() => new Map(mappings.filter((item) => item.isEnabled).map((item) => [item.giftId, item])), [mappings]);
@@ -155,15 +169,18 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
         lastConnectedAt: now,
       }, ...current.filter((item) => item.tiktokUsername !== normalized)].slice(0, 20));
     }
-    setNotice(result?.ok ? 'Команда отправлена — ждём ответ TikTok' : 'Сервер не принял команду подключения');
+    setNotice(result?.ok ? 'Команда принята — подключаемся…' : 'Сервер не принял команду подключения');
   }
   async function disconnectLive() { const result = await realtimeClient.current?.disconnectLive(); setNotice(result?.ok ? 'Подключение остановлено' : 'Не удалось остановить подключение'); }
   async function enableAudio() {
     lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim();
     const preview = sounds.find((sound) => sound.id === selectedSoundId);
-    await player.current.unlock(settings.maxConcurrentSounds);
-    setAudioEnabled(true); setNotice('Звук включён в этой вкладке');
-    if (preview) player.current.enqueue(preview.url, 1, settings);
+    try {
+      await player.current.unlock(settings.maxConcurrentSounds, preview?.url);
+      setAudioEnabled(true); setNotice('Звук включён в этой вкладке');
+    } catch {
+      setAudioEnabled(false); setNotice('Браузер не разрешил звук. Нажмите ещё раз.');
+    }
   }
   async function saveMapping(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!giftId || !selectedSoundId) { setNotice('Выберите замеченный подарок и звук'); return; }
@@ -171,7 +188,13 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     if (!response.ok) { setNotice('Не удалось сохранить привязку'); return; }
     const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setNotice(`Подарок ${observedGifts.find((gift) => gift.giftId === saved.giftId)?.giftName ?? saved.giftId} привязан к звуку`);
   }
-  async function previewSound() { const sound = sounds.find((item) => item.id === selectedSoundId); if (!sound) return; lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim(); await player.current.unlock(settings.maxConcurrentSounds); setAudioEnabled(true); player.current.enqueue(sound.url, 1, settings); }
+  function previewSound() {
+    const sound = sounds.find((item) => item.id === selectedSoundId); if (!sound) return;
+    lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim();
+    void player.current.preview(sound.url, settings.volumePercent).then(() => {
+      setAudioEnabled(true); setNotice('Проверочный звук воспроизводится');
+    }).catch(() => { setAudioEnabled(false); });
+  }
   async function uploadSound() {
     if (!soundFile || isUploadingSound) return;
     setIsUploadingSound(true); setNotice(`Загружаем «${soundFile.name}»…`);
@@ -228,7 +251,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     </details>
     <section className="control-grid" aria-label="Настройки звука">
       <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? 'Подарки озвучиваются здесь.' : 'Браузеру нужно разрешить звук одним нажатием.'}</p><div className="actions"><button type="button" onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
-      <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={() => void previewSound()}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
+      <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
       <form className="control-card settings-card" onSubmit={(event) => void saveSettings(event)}><p className="section-kicker">Поведение серии</p><h2>Наложение</h2><label>Режим<select value={settings.playbackMode} onChange={(event) => setSettings((current) => ({ ...current, playbackMode: event.target.value as UpdateWorkspaceSettings['playbackMode'] }))}><option value="controlled_overlap">Умеренное наложение</option><option value="sequential">Последовательно</option><option value="strong_overlap">Сильное наложение</option></select></label><label>Перекрытие звука <output>{settings.overlapPercent}%</output><input type="range" min="0" max="100" value={settings.overlapPercent} onChange={(event) => setSettings((current) => ({ ...current, overlapPercent: event.target.valueAsNumber }))} /></label><div className="two-fields"><label>Одновременно<input type="number" min="1" max="32" value={settings.maxConcurrentSounds} onChange={(event) => setSettings((current) => ({ ...current, maxConcurrentSounds: event.target.valueAsNumber }))} /></label><label>Громкость <output>{settings.volumePercent}%</output><input type="range" min="0" max="100" value={settings.volumePercent} onChange={(event) => setSettings((current) => ({ ...current, volumePercent: event.target.valueAsNumber }))} /></label></div><button type="submit">Сохранить настройки</button></form>
     </section>
     <footer><span>Короткая история чата хранится только в памяти сервера.</span><a href="https://github.com/gopnikgame/TikTokHelper_ASP.NET/tree/rewrite/typescript">Исходный код сервера</a></footer>

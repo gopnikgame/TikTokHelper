@@ -64,4 +64,21 @@ describe('SoundPlaybackQueue', () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(queue.active).toBe(0);
   });
+
+  it('does not report audio as unlocked when every warm-up playback fails', async () => {
+    const sound = new FakeAudio();
+    sound.play.mockRejectedValue(new Error('unsupported warm-up audio'));
+    const queue = new SoundPlaybackQueue(() => sound);
+    await expect(queue.unlock(1, '/real-sound.mp3')).rejects.toThrow('not unlocked');
+  });
+
+  it('starts preview playback immediately on a real source', async () => {
+    const sound = new FakeAudio();
+    const queue = new SoundPlaybackQueue((url) => { sound.src = url; return sound; });
+    const playback = queue.preview('/real-sound.mp3', 65);
+    expect(sound.play).toHaveBeenCalledOnce();
+    expect(sound.src).toBe('/real-sound.mp3');
+    expect(sound.volume).toBe(.65);
+    await playback;
+  });
 });
