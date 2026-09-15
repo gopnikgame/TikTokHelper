@@ -33,6 +33,7 @@ async function setup(
     (workspaceId: string): boolean => workspaceId === 'primary',
   authenticate?: NonNullable<RealtimeServerOptions['authenticate']>,
   cookie?: string,
+  extraHeaders?: Record<string, string>,
 ) {
   const connector = new FakeConnector();
   const events: Parameters<ReturnType<typeof attachRealtimeServer>['publish']>[] = [];
@@ -49,7 +50,8 @@ async function setup(
   app.addHook('preClose', async () => realtime.close());
   const address = await app.listen({ host: '127.0.0.1', port: 0 });
   const client: Socket<ServerToClientEvents, ClientToServerEvents> = createClient(address, {
-    transports: ['websocket'], forceNew: true, ...(cookie ? { extraHeaders: { cookie } } : {}),
+    transports: ['websocket'], forceNew: true,
+    ...((cookie || extraHeaders) ? { extraHeaders: { ...extraHeaders, ...(cookie ? { cookie } : {}) } } : {}),
   });
   clients.add(client);
   await new Promise<void>((resolve, reject) => {
@@ -78,10 +80,23 @@ describe('realtime server', () => {
     const principal = { userId: randomUUID(), displayName: null, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
     const { client } = await setup(
       (workspaceId, current) => current?.userId === principal.userId && current.workspaces.some((workspace) => workspace.id === workspaceId),
-      async (cookie) => cookie === 'session=valid' ? principal : null,
+      async (headers) => headers.cookie === 'session=valid' ? principal : null,
       'session=valid',
     );
     expect(await subscribe(client, 'mine')).toEqual({ ok: true });
+    expect(await subscribe(client, 'other')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+  });
+
+  it('passes the trusted proxy marker through Socket.IO authentication', async () => {
+    const principal = { userId: randomUUID(), displayName: 'Локальный доступ', workspaces: [{ id: 'primary', displayName: 'Основной эфир' }] };
+    const { client } = await setup(
+      (workspaceId, current) => current?.userId === principal.userId
+        && current.workspaces.some((workspace) => workspace.id === workspaceId),
+      async (headers) => headers['x-tiktok-local-access'] === '1' ? principal : null,
+      undefined,
+      { 'x-tiktok-local-access': '1' },
+    );
+    expect(await subscribe(client, 'primary')).toEqual({ ok: true });
     expect(await subscribe(client, 'other')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
   });
 

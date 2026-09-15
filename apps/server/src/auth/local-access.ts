@@ -1,0 +1,17 @@
+import type { IncomingHttpHeaders } from 'node:http';
+import type { AuthPrincipal } from '@tiktok-helper/contracts';
+
+export const LOCAL_ACCESS_HEADER = 'x-tiktok-local-access';
+
+export function isTrustedLocalAccess(headers: IncomingHttpHeaders): boolean {
+  return headers[LOCAL_ACCESS_HEADER] === '1';
+}
+
+export function localPrincipal(workspaceId: string): AuthPrincipal {
+  return {
+    userId: '00000000-0000-4000-8000-000000000001',
+    displayName: 'Локальный доступ',
+    workspaces: [{ id: workspaceId, displayName: 'Основной эфир' }],
+  };
+}
+

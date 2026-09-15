@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { IncomingHttpHeaders } from 'node:http';
 import { Server } from 'socket.io';
 import {
   type ClientToServerEvents, type CommandAcknowledgement, type RealtimeEvent,
@@ -17,7 +18,7 @@ const forbidden: CommandAcknowledgement = {
 };
 
 export interface RealtimeServerOptions {
-  authenticate?: (cookieHeader: string | undefined) => AuthPrincipal | null | Promise<AuthPrincipal | null>;
+  authenticate?: (headers: IncomingHttpHeaders) => AuthPrincipal | null | Promise<AuthPrincipal | null>;
   authorizeWorkspace?: (workspaceId: string, principal?: AuthPrincipal) => boolean | Promise<boolean>;
   bufferCapacity?: number;
 }
@@ -44,7 +45,7 @@ export function attachRealtimeServer(
   if (options.authenticate) {
     io.use(async (socket, next) => {
       try {
-        const principal = await options.authenticate?.(socket.handshake.headers.cookie);
+        const principal = await options.authenticate?.(socket.handshake.headers);
         if (!principal) return next(new Error('UNAUTHENTICATED'));
         socket.data.authPrincipal = principal;
         next();

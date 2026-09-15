@@ -56,6 +56,38 @@ const apps = new Set<ReturnType<typeof buildApp>>();
 afterEach(async () => { await Promise.all([...apps].map((app) => app.close())); apps.clear(); });
 
 describe('VLine-backed application sessions', () => {
+  it('allows only the trusted proxy marker to use the local workspace', async () => {
+    const bridge: IdentityBridge = {
+      async exchange() { return { subject: 'solo-user-1', displayName: null, authenticatedAt: new Date().toISOString() }; },
+    };
+    const service = new AuthService(memoryRepository(), bridge, {
+      bridgeAuthorizeUrl: 'https://vline.online/integrations/tiktok-helper/authorize',
+      clientId: 'tiktok-helper', redirectUri: 'https://tiktok.vpnline.online/auth/callback',
+    });
+    const app = buildApp({
+      logger: false, authService: service, localWorkspaceId: 'primary', settingsRepository,
+    });
+    apps.add(app);
+
+    expect((await app.inject({ method: 'GET', url: '/api/auth/session' })).statusCode).toBe(401);
+    expect((await app.inject({
+      method: 'GET', url: '/api/auth/session', headers: { 'x-tiktok-local-access': 'true' },
+    })).statusCode).toBe(401);
+
+    const headers = { 'x-tiktok-local-access': '1' };
+    const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers });
+    expect(session.statusCode).toBe(200);
+    expect(session.json()).toMatchObject({
+      mode: 'local', user: { workspaces: [{ id: 'primary', displayName: 'Основной эфир' }] },
+    });
+    expect((await app.inject({
+      method: 'GET', url: '/api/workspaces/primary/settings', headers,
+    })).statusCode).toBe(200);
+    expect((await app.inject({
+      method: 'GET', url: '/api/workspaces/other/settings', headers,
+    })).statusCode).toBe(403);
+  });
+
   it('completes PKCE login and isolates protected workspaces', async () => {
     let expectedChallenge = '';
     const bridge: IdentityBridge = {

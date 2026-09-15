@@ -19,6 +19,7 @@ import { recentChannelRoutes } from './channels/routes.js';
 import type { RecentChannelRepository } from './channels/repository.js';
 import { authRoutes } from './auth/routes.js';
 import { parseCookie, type AuthService } from './auth/service.js';
+import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -149,12 +150,14 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.authService) {
     const authService = options.authService;
-    app.register(authRoutes, { service: authService });
+    app.register(authRoutes, { service: authService, localWorkspaceId: options.localWorkspaceId });
     app.addHook('preHandler', async (request, reply) => {
       const route = request.routeOptions.url ?? '';
       const protectedRoute = route.startsWith('/api/workspaces/') || route.startsWith('/api/live/');
       if (!protectedRoute) return;
-      const active = await authService.resolve(parseCookie(request.headers.cookie, authService.cookieName));
+      const active = options.localWorkspaceId && isTrustedLocalAccess(request.headers)
+        ? { principal: localPrincipal(options.localWorkspaceId) }
+        : await authService.resolve(parseCookie(request.headers.cookie, authService.cookieName));
       if (!active) {
         return reply.code(401).send(errorResponse('UNAUTHENTICATED', 'Authentication required', request.id));
       }
@@ -175,9 +178,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         authenticated: true,
         mode: 'local',
         user: {
-          userId: '00000000-0000-4000-8000-000000000001',
-          displayName: 'Локальный доступ',
-          workspaces: [{ id: options.localWorkspaceId!, displayName: 'Основной эфир' }],
+          ...localPrincipal(options.localWorkspaceId!),
         },
       };
     });
