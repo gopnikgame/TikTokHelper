@@ -16,6 +16,7 @@ export const users = pgTable('users', {
   identitySubject: varchar('identity_subject', { length: 128 }).notNull(),
   displayName: varchar('display_name', { length: 120 }),
   status: varchar('status', { length: 16 }).notNull().default('active'),
+  globalRole: varchar('global_role', { length: 16 }).notNull().default('user'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
@@ -24,6 +25,7 @@ export const users = pgTable('users', {
   check('users_identity_provider_chk', sql`${table.identityProvider} ~ '^[a-z][a-z0-9_-]{0,31}$'`),
   check('users_identity_subject_chk', sql`length(trim(${table.identitySubject})) > 0`),
   check('users_status_chk', sql`${table.status} in ('active', 'disabled')`),
+  check('users_global_role_chk', sql`${table.globalRole} in ('user', 'admin')`),
 ]);
 
 export const workspaceMemberships = pgTable('workspace_memberships', {
@@ -129,13 +131,18 @@ export const soundLibraryAssets = pgTable('sound_library_assets', {
   durationMs: integer('duration_ms'),
   contentSha256: varchar('content_sha256', { length: 64 }),
   status: varchar('status', { length: 16 }).notNull().default('active'),
+  quarantineReason: varchar('quarantine_reason', { length: 500 }),
+  quarantinedAt: timestamp('quarantined_at', { withTimezone: true }),
+  quarantinedByUserId: uuid('quarantined_by_user_id')
+    .references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   uniqueIndex('sound_library_assets_storage_uidx').on(table.storageKey),
   index('sound_library_assets_creator_idx').on(table.createdByUserId),
   check('sound_library_assets_duration_chk', sql`${table.durationMs} is null or ${table.durationMs} > 0`),
   check('sound_library_assets_sha256_chk', sql`${table.contentSha256} is null or ${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
-  check('sound_library_assets_status_chk', sql`${table.status} in ('active', 'archived')`),
+  check('sound_library_assets_status_chk', sql`${table.status} in ('active', 'quarantined')`),
+  check('sound_library_assets_quarantine_chk', sql`(${table.status} = 'active' and ${table.quarantineReason} is null and ${table.quarantinedAt} is null) or (${table.status} = 'quarantined' and ${table.quarantineReason} is not null and ${table.quarantinedAt} is not null)`),
 ]);
 
 export const observedGifts = pgTable('observed_gifts', {

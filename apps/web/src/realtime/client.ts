@@ -75,6 +75,7 @@ export function createRealtimeClient(
   workspaceId: string,
   onState: (state: RealtimeViewState) => void,
   socketOverride?: Socket<ServerToClientEvents, ClientToServerEvents>,
+  onSoundLibraryChanged?: (soundId: string) => void,
 ): RealtimeClient {
   const model = new RealtimeStateModel();
   const socket: Socket<ServerToClientEvents, ClientToServerEvents> = socketOverride ?? io({
@@ -95,6 +96,7 @@ export function createRealtimeClient(
     if (model.applyEvent(event) === 'resync') subscribe();
     notify();
   });
+  socket.on('sound-library:changed', ({ soundId }) => onSoundLibraryChanged?.(soundId));
 
   const command = <Payload extends { commandId: string; workspaceId: string }>(
     eventName: 'live:connect' | 'live:disconnect', payload: Payload,

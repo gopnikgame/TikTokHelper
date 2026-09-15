@@ -42,6 +42,7 @@ export interface BuildAppOptions {
   staticRoot?: string;
   authService?: AuthService;
   localWorkspaceId?: string;
+  onSoundChanged?: (soundId: string) => void;
 }
 
 export const LOG_REDACTION_PATHS = [
@@ -194,7 +195,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
 
   if (options.soundRepository) {
-    app.register(soundRoutes, { repository: options.soundRepository, uploadStore: options.soundUploadStore });
+    app.register(soundRoutes, { repository: options.soundRepository, uploadStore: options.soundUploadStore, onSoundChanged: options.onSoundChanged });
   }
 
   if (options.giftCatalogRepository) {

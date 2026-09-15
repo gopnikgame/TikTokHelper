@@ -77,7 +77,7 @@ describe('realtime server', () => {
   });
 
   it('authenticates the handshake and authorizes rooms for that principal', async () => {
-    const principal = { userId: randomUUID(), displayName: null, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
+    const principal = { userId: randomUUID(), displayName: null, isAdmin: false, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
     const { client } = await setup(
       (workspaceId, current) => current?.userId === principal.userId && current.workspaces.some((workspace) => workspace.id === workspaceId),
       async (headers) => headers.cookie === 'session=valid' ? principal : null,
@@ -88,7 +88,7 @@ describe('realtime server', () => {
   });
 
   it('passes the trusted proxy marker through Socket.IO authentication', async () => {
-    const principal = { userId: randomUUID(), displayName: 'Локальный доступ', workspaces: [{ id: 'primary', displayName: 'Основной эфир' }] };
+    const principal = { userId: randomUUID(), displayName: 'Локальный доступ', isAdmin: false, workspaces: [{ id: 'primary', displayName: 'Основной эфир' }] };
     const { client } = await setup(
       (workspaceId, current) => current?.userId === principal.userId
         && current.workspaces.some((workspace) => workspace.id === workspaceId),

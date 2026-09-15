@@ -12,6 +12,7 @@ export interface StoredSound {
 
 export interface SoundUploadStore {
   save(data: Buffer, declaredMimeType: string): Promise<StoredSound>;
+  remove(storageKey: string): Promise<void>;
 }
 
 function detectAudio(data: Buffer): { extension: string; mimeType: string } | null {
@@ -39,6 +40,10 @@ const allowedDeclaredTypes = new Set([
 
 export function createSoundUploadStore(root: string): SoundUploadStore {
   return {
+    async remove(storageKey) {
+      if (!/^uploaded\/[0-9a-f-]+\.(wav|mp3|ogg|m4a)$/.test(storageKey)) return;
+      await rm(join(root, storageKey.slice('uploaded/'.length)), { force: true });
+    },
     async save(data, declaredMimeType) {
       const normalizedType = declaredMimeType.split(';', 1)[0]!.trim().toLowerCase();
       if (!allowedDeclaredTypes.has(normalizedType)) throw new TypeError('UNSUPPORTED_SOUND_TYPE');

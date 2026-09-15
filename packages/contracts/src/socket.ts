@@ -104,4 +104,5 @@ export interface RealtimeSnapshot {
 export interface ServerToClientEvents {
   snapshot: (snapshot: RealtimeSnapshot) => void;
   event: (event: RealtimeEvent) => void;
+  'sound-library:changed': (payload: { soundId: string }) => void;
 }

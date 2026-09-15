@@ -89,7 +89,7 @@ export class AuthService {
       idleExpiresAt: new Date(now.valueOf() + this.#idleMs),
       absoluteExpiresAt: new Date(now.valueOf() + this.#absoluteMs),
     });
-    return { token: issued.token, principal: { userId: user.id, displayName: user.displayName, workspaces } };
+    return { token: issued.token, principal: { userId: user.id, displayName: user.displayName, isAdmin: user.globalRole === 'admin', workspaces } };
   }
 
   async resolve(token: string | undefined): Promise<{ principal: AuthPrincipal; sessionId: string } | null> {
@@ -102,7 +102,7 @@ export class AuthService {
     await this.repository.touchSession(active.session.id, now, idleExpiresAt);
     return {
       sessionId: active.session.id,
-      principal: { userId: active.user.id, displayName: active.user.displayName, workspaces },
+      principal: { userId: active.user.id, displayName: active.user.displayName, isAdmin: active.user.globalRole === 'admin', workspaces },
     };
   }
 

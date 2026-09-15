@@ -2,7 +2,16 @@ export interface SoundAsset {
   id: string;
   displayName: string;
   url: string;
+  status: 'active' | 'quarantined';
+  createdByUserId: string | null;
+  isOwnedByCurrentUser: boolean;
+  usageCount: number;
+  quarantineReason: string | null;
+  canQuarantine: boolean;
+  canDelete: boolean;
 }
+
+export interface QuarantineSoundInput { reason: string }
 
 export interface UploadSoundQuery {
   displayName: string;
@@ -33,10 +42,29 @@ export interface UpdateGiftSoundMapping {
 
 const uuid = { type: 'string', format: 'uuid' } as const;
 export const soundAssetSchema = {
-  type: 'object', additionalProperties: false, required: ['id', 'displayName', 'url'],
-  properties: { id: uuid, displayName: { type: 'string' }, url: { type: 'string' } },
+  type: 'object', additionalProperties: false,
+  required: ['id', 'displayName', 'url', 'status', 'createdByUserId', 'isOwnedByCurrentUser', 'usageCount', 'quarantineReason', 'canQuarantine', 'canDelete'],
+  properties: {
+    id: uuid, displayName: { type: 'string' }, url: { type: 'string' },
+    status: { type: 'string', enum: ['active', 'quarantined'] },
+    createdByUserId: { anyOf: [uuid, { type: 'null' }] },
+    isOwnedByCurrentUser: { type: 'boolean' }, usageCount: { type: 'integer', minimum: 0 },
+    quarantineReason: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+    canQuarantine: { type: 'boolean' }, canDelete: { type: 'boolean' },
+  },
 } as const;
 export const soundAssetsSchema = { type: 'array', items: soundAssetSchema } as const;
+export const soundParamsSchema = {
+  type: 'object', additionalProperties: false, required: ['workspaceId', 'soundId'],
+  properties: {
+    workspaceId: { type: 'string', pattern: '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$' },
+    soundId: uuid,
+  },
+} as const;
+export const quarantineSoundInputSchema = {
+  type: 'object', additionalProperties: false, required: ['reason'],
+  properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } },
+} as const;
 export const uploadSoundQuerySchema = {
   type: 'object', additionalProperties: false, required: ['displayName'],
   properties: { displayName: { type: 'string', minLength: 1, maxLength: 160 } },

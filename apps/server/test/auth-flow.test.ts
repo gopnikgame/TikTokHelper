@@ -8,7 +8,7 @@ import type { SettingsRepository } from '../src/settings/repository.js';
 const userId = '123e4567-e89b-42d3-a456-426614174000';
 const user: AppUser = {
   id: userId, identityProvider: 'vline', identitySubject: 'solo-user-1', displayName: 'Иван',
-  status: 'active', createdAt: new Date(), updatedAt: new Date(), lastLoginAt: new Date(),
+  status: 'active', globalRole: 'admin', createdAt: new Date(), updatedAt: new Date(), lastLoginAt: new Date(),
 };
 
 function memoryRepository() {

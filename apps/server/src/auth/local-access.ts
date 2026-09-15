@@ -11,7 +11,7 @@ export function localPrincipal(workspaceId: string): AuthPrincipal {
   return {
     userId: '00000000-0000-4000-8000-000000000001',
     displayName: 'Локальный доступ',
+    isAdmin: false,
     workspaces: [{ id: workspaceId, displayName: 'Основной эфир' }],
   };
 }
-

@@ -1,6 +1,7 @@
 export interface AuthPrincipal {
   userId: string;
   displayName: string | null;
+  isAdmin: boolean;
   workspaces: Array<{ id: string; displayName: string }>;
 }
 
@@ -12,10 +13,11 @@ export const authSessionSchema = {
     mode: { type: 'string', enum: ['local', 'vline'] },
     user: {
       type: 'object', additionalProperties: false,
-      required: ['userId', 'displayName', 'workspaces'],
+      required: ['userId', 'displayName', 'isAdmin', 'workspaces'],
       properties: {
         userId: { type: 'string', format: 'uuid' },
         displayName: { type: ['string', 'null'], maxLength: 120 },
+        isAdmin: { type: 'boolean' },
         workspaces: {
           type: 'array', maxItems: 100,
           items: { type: 'object', additionalProperties: false, required: ['id', 'displayName'], properties: {

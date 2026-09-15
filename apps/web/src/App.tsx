@@ -73,6 +73,24 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   const player = useRef(new SoundPlaybackQueue(undefined, () => setNotice('Браузер не смог воспроизвести звук')));
   const ownership = useRef<AudioOwnership | null>(null);
 
+  const reloadSoundLibrary = useCallback(async (changedSoundId?: string) => {
+    const workspacePath = encodeURIComponent(workspaceId);
+    const [soundsResponse, mappingsResponse] = await Promise.all([
+      fetch(`/api/workspaces/${workspacePath}/sounds`),
+      fetch(`/api/workspaces/${workspacePath}/gift-mappings`),
+    ]);
+    if (!soundsResponse.ok || !mappingsResponse.ok) return;
+    const loadedSounds = await soundsResponse.json() as SoundAsset[];
+    const loadedMappings = await mappingsResponse.json() as GiftSoundMapping[];
+    setSounds(loadedSounds); setMappings(loadedMappings);
+    setSelectedSoundId((current) => loadedSounds.some((sound) => sound.id === current && sound.status === 'active')
+      ? current : (loadedSounds.find((sound) => sound.status === 'active')?.id ?? ''));
+    if (changedSoundId) {
+      player.current.stopAll();
+      setNotice('Библиотека звуков обновлена — очередь воспроизведения очищена');
+    }
+  }, [workspaceId]);
+
   useEffect(() => {
     const controller = new AbortController();
     const workspacePath = encodeURIComponent(workspaceId);
@@ -106,10 +124,10 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
         }
       }
       setRealtime(next);
-    });
+    }, undefined, (soundId) => void reloadSoundLibrary(soundId));
     realtimeClient.current = client;
     return () => { realtimeClient.current = null; client.close(); };
-  }, [workspaceId]);
+  }, [reloadSoundLibrary, workspaceId]);
   useEffect(() => { const playback = player.current; const owner = new AudioOwnership(() => { setAudioEnabled(false); playback.stopAll(); setNotice('Звук включён в другой вкладке'); }); ownership.current = owner; return () => { owner.close(); playback.stopAll(); }; }, []);
 
   const mappingByGift = useMemo(() => new Map(mappings.filter((item) => item.isEnabled).map((item) => [item.giftId, item])), [mappings]);
@@ -189,7 +207,10 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setNotice(`Подарок ${observedGifts.find((gift) => gift.giftId === saved.giftId)?.giftName ?? saved.giftId} привязан к звуку`);
   }
   function previewSound() {
-    const sound = sounds.find((item) => item.id === selectedSoundId); if (!sound) return;
+    previewSoundById(selectedSoundId);
+  }
+  function previewSoundById(soundId: string) {
+    const sound = sounds.find((item) => item.id === soundId); if (!sound || sound.status !== 'active') return;
     lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim();
     void player.current.preview(sound.url, settings.volumePercent).then(() => {
       setAudioEnabled(true); setNotice('Проверочный звук воспроизводится');
@@ -215,6 +236,27 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     } finally {
       setIsUploadingSound(false);
     }
+  }
+  async function quarantineSound(sound: SoundAsset) {
+    const reason = window.prompt('Причина помещения в карантин', 'Нарушение авторских прав')?.trim();
+    if (!reason) return;
+    if (!window.confirm(`Поместить «${sound.displayName}» в карантин? Звук перестанет воспроизводиться у всех пользователей.`)) return;
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/sounds/${encodeURIComponent(sound.id)}/quarantine`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason }),
+    });
+    if (!response.ok) { setNotice('Не удалось поместить звук в карантин'); return; }
+    await reloadSoundLibrary(sound.id); setNotice(`Звук «${sound.displayName}» помещён в карантин`);
+  }
+  async function deleteSound(sound: SoundAsset) {
+    const warning = sound.status === 'quarantined'
+      ? `Окончательно удалить «${sound.displayName}» и ${sound.usageCount} привязок? Отменить это действие нельзя.`
+      : `Удалить ваш звук «${sound.displayName}»? Отменить это действие нельзя.`;
+    if (!window.confirm(warning)) return;
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/sounds/${encodeURIComponent(sound.id)}`, { method: 'DELETE' });
+    if (!response.ok) {
+      setNotice(response.status === 409 ? 'Звук используется: сначала удалите все привязки' : 'Не удалось удалить звук'); return;
+    }
+    await reloadSoundLibrary(sound.id); setNotice(`Звук «${sound.displayName}» удалён`);
   }
   function selectGiftForMapping(id: string) {
     setGiftId(id);
@@ -249,9 +291,16 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
       <div className="catalog-tools"><label>Поиск по названию, ID или звуку<input type="search" value={catalogQuery} placeholder="Например: Rose, 5655 или Пук" onChange={(event) => setCatalogQuery(event.target.value)} /></label><fieldset><legend>Показывать</legend><div className="filter-pills"><button type="button" className={catalogFilter === 'all' ? 'active' : ''} aria-pressed={catalogFilter === 'all'} onClick={() => setCatalogFilter('all')}>Все <span>{observedGifts.length}</span></button><button type="button" className={catalogFilter === 'unassigned' ? 'active' : ''} aria-pressed={catalogFilter === 'unassigned'} onClick={() => setCatalogFilter('unassigned')}>Без звука <span>{observedGifts.length - assignedGiftCount}</span></button><button type="button" className={catalogFilter === 'assigned' ? 'active' : ''} aria-pressed={catalogFilter === 'assigned'} onClick={() => setCatalogFilter('assigned')}>Настроенные <span>{assignedGiftCount}</span></button></div></fieldset></div>
       {filteredGifts.length === 0 ? <p className="catalog-empty">Ничего не найдено. Измените запрос или дождитесь новых подарков в эфире.</p> : <ul className="catalog-list">{filteredGifts.map((gift) => { const mapping = mappingByGift.get(gift.giftId); return <li key={gift.giftId}>{gift.imageUrl ? <img src={gift.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="catalog-placeholder" aria-hidden="true">🎁</span>}<div><strong>{gift.giftName}</strong><code>ID {gift.giftId}</code></div><div className={mapping ? 'mapping-state assigned' : 'mapping-state'}><span>{mapping ? 'Назначен звук' : 'Без звука'}</span><b>{mapping?.soundDisplayName ?? 'Выберите реакцию'}</b></div><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>; })}</ul>}
     </details>
+    <details className="sound-library-panel">
+      <summary><span><b>Библиотека звуков</b><small>{sounds.filter((sound) => sound.status === 'active').length} доступно · {sounds.filter((sound) => sound.status === 'quarantined').length} в карантине</small></span><span aria-hidden="true">Развернуть</span></summary>
+      <ul className="sound-library-list">{sounds.map((sound) => <li key={sound.id} className={sound.status === 'quarantined' ? 'is-quarantined' : ''}>
+        <div><strong>{sound.displayName}</strong><code>ID {sound.id}</code><small>{sound.status === 'quarantined' ? `Карантин: ${sound.quarantineReason}` : sound.isOwnedByCurrentUser ? 'Загружен вами' : 'Общий звук'} · привязок: {sound.usageCount}</small></div>
+        <div className="actions">{sound.status === 'active' ? <button type="button" className="secondary" onClick={() => { setSelectedSoundId(sound.id); previewSoundById(sound.id); }}>Прослушать</button> : null}{sound.canQuarantine ? <button type="button" className="danger" onClick={() => void quarantineSound(sound)}>В карантин</button> : null}{sound.canDelete ? <button type="button" className="danger" onClick={() => void deleteSound(sound)}>Удалить</button> : null}</div>
+      </li>)}</ul>
+    </details>
     <section className="control-grid" aria-label="Настройки звука">
       <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? 'Подарки озвучиваются здесь.' : 'Браузеру нужно разрешить звук одним нажатием.'}</p><div className="actions"><button type="button" onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
-      <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
+      <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.filter((sound) => sound.status === 'active').map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
       <form className="control-card settings-card" onSubmit={(event) => void saveSettings(event)}><p className="section-kicker">Поведение серии</p><h2>Наложение</h2><label>Режим<select value={settings.playbackMode} onChange={(event) => setSettings((current) => ({ ...current, playbackMode: event.target.value as UpdateWorkspaceSettings['playbackMode'] }))}><option value="controlled_overlap">Умеренное наложение</option><option value="sequential">Последовательно</option><option value="strong_overlap">Сильное наложение</option></select></label><label>Перекрытие звука <output>{settings.overlapPercent}%</output><input type="range" min="0" max="100" value={settings.overlapPercent} onChange={(event) => setSettings((current) => ({ ...current, overlapPercent: event.target.valueAsNumber }))} /></label><div className="two-fields"><label>Одновременно<input type="number" min="1" max="32" value={settings.maxConcurrentSounds} onChange={(event) => setSettings((current) => ({ ...current, maxConcurrentSounds: event.target.valueAsNumber }))} /></label><label>Громкость <output>{settings.volumePercent}%</output><input type="range" min="0" max="100" value={settings.volumePercent} onChange={(event) => setSettings((current) => ({ ...current, volumePercent: event.target.valueAsNumber }))} /></label></div><button type="submit">Сохранить настройки</button></form>
     </section>
     <footer><span>Короткая история чата хранится только в памяти сервера.</span><a href="https://github.com/gopnikgame/TikTokHelper_ASP.NET/tree/rewrite/typescript">Исходный код сервера</a></footer>

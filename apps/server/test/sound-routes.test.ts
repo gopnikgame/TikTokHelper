@@ -8,18 +8,21 @@ afterEach(async () => { await Promise.all([...apps].map(async (app) => app.close
 
 const repository: SoundRepository = {
   async seed() {},
-  async listSounds() { return [{ id: '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3', displayName: 'Аплодисменты', url: '/sounds/test.wav' }]; },
+  async listSounds() { return [{ id: '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3', displayName: 'Аплодисменты', url: '/sounds/test.wav', status: 'active', createdByUserId: null, isOwnedByCurrentUser: false, usageCount: 0, quarantineReason: null, canQuarantine: false, canDelete: false }]; },
   async listMappings() { return []; },
   async saveMapping(workspaceId, input) {
     if (input.soundAssetId !== '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3') return null;
     return { giftId: input.giftId, soundAssetId: input.soundAssetId, soundDisplayName: 'Аплодисменты', soundUrl: '/sounds/test.wav', isEnabled: input.isEnabled };
   },
   async createSound(workspaceId, sound) {
-    return { id: 'd359e3be-e1f2-49b8-b57d-dfb6e8cbc877', displayName: `${workspaceId}:${sound.displayName}`, url: '/media/sounds/upload.wav' };
+    return { id: 'd359e3be-e1f2-49b8-b57d-dfb6e8cbc877', displayName: `${workspaceId}:${sound.displayName}`, url: '/media/sounds/upload.wav', status: 'active', createdByUserId: null, isOwnedByCurrentUser: false, usageCount: 0, quarantineReason: null, canQuarantine: false, canDelete: false };
   },
+  async quarantineSound() { return null; },
+  async deleteSound() { return { ok: false, reason: 'not_found' }; },
 };
 
 const uploadStore: SoundUploadStore = {
+  async remove() {},
   async save() { return { storageKey: 'uploaded/upload.wav', mimeType: 'audio/wav', async remove() {} }; },
 };
 

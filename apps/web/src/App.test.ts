@@ -16,7 +16,7 @@ describe('application session bootstrap', () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       authenticated: true,
       mode: 'vline',
-      user: { userId: '123e4567-e89b-42d3-a456-426614174000', displayName: 'Иван', workspaces: [{ id: 'workspace-1', displayName: 'Эфир жены' }] },
+      user: { userId: '123e4567-e89b-42d3-a456-426614174000', displayName: 'Иван', isAdmin: true, workspaces: [{ id: 'workspace-1', displayName: 'Эфир жены' }] },
     }), { status: 200, headers: { 'content-type': 'application/json' } })));
     await expect(loadSession()).resolves.toMatchObject({ user: { workspaces: [{ displayName: 'Эфир жены' }] } });
   });

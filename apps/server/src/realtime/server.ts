@@ -25,6 +25,7 @@ export interface RealtimeServerOptions {
 
 export interface RealtimeServer {
   publish(workspaceId: string, event: RealtimeEvent): void;
+  publishSoundLibraryChanged(soundId: string): void;
   close(): Promise<void>;
 }
 
@@ -125,6 +126,7 @@ export function attachRealtimeServer(
       buffer.add(workspaceId, event);
       io.to(roomFor(workspaceId)).emit('event', event);
     },
+    publishSoundLibraryChanged(soundId) { io.emit('sound-library:changed', { soundId }); },
     async close() { io.local.disconnectSockets(true); },
   };
 }

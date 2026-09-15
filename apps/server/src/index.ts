@@ -84,6 +84,7 @@ const app = buildApp({
   tiktokManager,
   authService,
   localWorkspaceId: workspaceId,
+  onSoundChanged: (soundId) => realtimeRef.current?.publishSoundLibraryChanged(soundId),
   staticRoot: process.env.WEB_ROOT,
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
