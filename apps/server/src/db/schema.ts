@@ -117,6 +117,27 @@ export const soundAssets = pgTable('sound_assets', {
   check('sound_assets_duration_chk', sql`${table.durationMs} is null or ${table.durationMs} > 0`),
 ]);
 
+export const soundLibraryAssets = pgTable('sound_library_assets', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  originalWorkspaceId: varchar('original_workspace_id', { length: 64 })
+    .references(() => workspaces.id, { onDelete: 'set null' }),
+  createdByUserId: uuid('created_by_user_id')
+    .references(() => users.id, { onDelete: 'set null' }),
+  storageKey: text('storage_key').notNull(),
+  displayName: varchar('display_name', { length: 160 }).notNull(),
+  mimeType: varchar('mime_type', { length: 100 }).notNull(),
+  durationMs: integer('duration_ms'),
+  contentSha256: varchar('content_sha256', { length: 64 }),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex('sound_library_assets_storage_uidx').on(table.storageKey),
+  index('sound_library_assets_creator_idx').on(table.createdByUserId),
+  check('sound_library_assets_duration_chk', sql`${table.durationMs} is null or ${table.durationMs} > 0`),
+  check('sound_library_assets_sha256_chk', sql`${table.contentSha256} is null or ${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
+  check('sound_library_assets_status_chk', sql`${table.status} in ('active', 'archived')`),
+]);
+
 export const observedGifts = pgTable('observed_gifts', {
   workspaceId: varchar('workspace_id', { length: 64 }).notNull()
     .references(() => workspaces.id, { onDelete: 'cascade' }),
@@ -132,6 +153,20 @@ export const observedGifts = pgTable('observed_gifts', {
   check('observed_gifts_diamond_count_chk', sql`${table.diamondCount} is null or ${table.diamondCount} >= 0`),
 ]);
 
+export const giftCatalog = pgTable('gift_catalog', {
+  giftId: varchar('gift_id', { length: 80 }).primaryKey(),
+  giftName: varchar('gift_name', { length: 160 }).notNull(),
+  imageUrl: text('image_url'),
+  diamondCount: integer('diamond_count'),
+  firstSeenWorkspaceId: varchar('first_seen_workspace_id', { length: 64 })
+    .references(() => workspaces.id, { onDelete: 'set null' }),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('gift_catalog_last_seen_idx').on(table.lastSeenAt),
+  check('gift_catalog_diamond_count_chk', sql`${table.diamondCount} is null or ${table.diamondCount} >= 0`),
+]);
+
 export const giftSoundRules = pgTable('gift_sound_rules', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: varchar('workspace_id', { length: 64 }).notNull()
@@ -144,10 +179,8 @@ export const giftSoundRules = pgTable('gift_sound_rules', {
   uniqueIndex('gift_sound_rules_workspace_gift_uidx').on(table.workspaceId, table.giftId),
   index('gift_sound_rules_workspace_idx').on(table.workspaceId),
   index('gift_sound_rules_sound_asset_idx').on(table.soundAssetId),
-  foreignKey({
-    columns: [table.workspaceId, table.soundAssetId],
-    foreignColumns: [soundAssets.workspaceId, soundAssets.id],
-  }).onDelete('cascade'),
+  foreignKey({ columns: [table.soundAssetId], foreignColumns: [soundLibraryAssets.id] })
+    .onDelete('restrict'),
 ]);
 
 export const processedGiftEvents = pgTable('processed_gift_events', {

@@ -9,6 +9,12 @@ Phase 1 is implemented in source but not deployed. Authentication enforcement re
 the production `primary` workspace is unchanged. The additive migration was tested on an
 ephemeral PostgreSQL 18 instance after inserting representative pre-migration `primary` data.
 
+Phase 2 is implemented and verified in source but not deployed. Static checks and application
+tests pass. Migration `0004` was tested from migrations `0000`–`0003` on an ephemeral
+PostgreSQL 18 instance with two legacy workspaces, duplicate gift observations, duplicate sound
+storage and independent mappings. The test confirmed catalogue merging, rule remapping,
+rollback-row preservation and referenced-sound delete protection.
+
 ## Phase 1: database ownership foundation
 
 - Add `users`, `workspace_memberships`, and `app_sessions`.
@@ -42,6 +48,15 @@ Completed in source:
 
 Exit gate: two fixture workspaces see the same catalogue/library but can map the same gift to
 different sounds.
+
+Implemented in source:
+
+- global `gift_catalog` and `sound_library_assets` tables;
+- backfill that merges repeated workspace observations while retaining the latest gift metadata;
+- sound deduplication by storage key and remapping of existing personal rules to the shared ID;
+- preservation of legacy `observed_gifts` and `sound_assets` rows as a rollback layer;
+- global catalogue/library reads with workspace-scoped gift-to-sound rules;
+- SQL fixtures for two-workspace migration and foreign-key protection.
 
 ## Phase 3: VLine Auth Bridge prototype
 

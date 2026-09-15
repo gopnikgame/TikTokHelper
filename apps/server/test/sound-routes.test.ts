@@ -8,10 +8,10 @@ afterEach(async () => { await Promise.all([...apps].map(async (app) => app.close
 
 const repository: SoundRepository = {
   async seed() {},
-  async listSounds(workspaceId) { return workspaceId === 'primary' ? [{ id: '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3', displayName: 'Аплодисменты', url: '/sounds/test.wav' }] : []; },
+  async listSounds() { return [{ id: '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3', displayName: 'Аплодисменты', url: '/sounds/test.wav' }]; },
   async listMappings() { return []; },
   async saveMapping(workspaceId, input) {
-    if (workspaceId !== 'primary' || input.soundAssetId !== '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3') return null;
+    if (input.soundAssetId !== '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3') return null;
     return { giftId: input.giftId, soundAssetId: input.soundAssetId, soundDisplayName: 'Аплодисменты', soundUrl: '/sounds/test.wav', isEnabled: input.isEnabled };
   },
   async createSound(workspaceId, sound) {
@@ -34,13 +34,16 @@ describe('sound library API', () => {
     expect(saved.json()).toMatchObject({ giftId: '5655', soundDisplayName: 'Аплодисменты' });
   });
 
-  it('rejects invalid gift ids and cross-workspace sound ids', async () => {
+  it('rejects invalid gift ids and unknown sound ids while allowing shared sounds', async () => {
     const app = buildApp({ logger: false, soundRepository: repository }); apps.add(app);
     expect((await app.inject({ method: 'PUT', url: '/api/workspaces/primary/gift-mappings', payload: {
       giftId: '../secret', soundAssetId: '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3', isEnabled: true,
     } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'PUT', url: '/api/workspaces/other/gift-mappings', payload: {
       giftId: '5655', soundAssetId: '56f92c37-5eca-43b3-8073-6d1a3c8b9cd3', isEnabled: true,
+    } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PUT', url: '/api/workspaces/primary/gift-mappings', payload: {
+      giftId: '5655', soundAssetId: 'd359e3be-e1f2-49b8-b57d-dfb6e8cbc877', isEnabled: true,
     } })).statusCode).toBe(404);
   });
 
