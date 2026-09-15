@@ -11,4 +11,4 @@ if [ -z "${VLINE_BRIDGE_CLIENT_SECRET:-}" ] && [ -f /run/secrets/tiktok_helper_c
   export VLINE_BRIDGE_CLIENT_SECRET
 fi
 
-exec "$@"
+exec setpriv --reuid=node --regid=node --init-groups "$@"
