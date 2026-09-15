@@ -6,6 +6,7 @@ import {
 } from '@tiktok-helper/contracts';
 import type { SoundRepository } from './repository.js';
 import { MAX_SOUND_BYTES, type SoundUploadStore } from './upload.js';
+import { LOCAL_ACCESS_USER_ID } from '../auth/local-access.js';
 
 export interface SoundRoutesOptions { repository: SoundRepository; uploadStore?: SoundUploadStore; onSoundChanged?: (soundId: string) => void }
 interface SoundParams extends WorkspaceParams { soundId: string }
@@ -33,7 +34,8 @@ export const soundRoutes: FastifyPluginAsync<SoundRoutesOptions> = async (app, o
         return reply.code(415).send({ error: { code: 'UNSUPPORTED_SOUND', message: 'Use WAV, MP3, OGG or M4A audio', requestId: request.id } });
       }
       try {
-        const sound = await options.repository.createSound(request.params.workspaceId, { displayName, storageKey: stored.storageKey, mimeType: stored.mimeType }, request.authPrincipal?.userId);
+        const createdByUserId = request.authPrincipal?.userId === LOCAL_ACCESS_USER_ID ? undefined : request.authPrincipal?.userId;
+        const sound = await options.repository.createSound(request.params.workspaceId, { displayName, storageKey: stored.storageKey, mimeType: stored.mimeType }, createdByUserId);
         return reply.code(201).send(sound);
       } catch (error) {
         await stored.remove();
