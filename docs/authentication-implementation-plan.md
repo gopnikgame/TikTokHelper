@@ -96,10 +96,13 @@ expiry/revocation, and attempted access to a second user's workspace.
 
 ## Phase 5: user interface
 
-Status: completed locally on 2026-09-15. The React application now bootstraps from
+Status: implementation completed locally on 2026-09-15; the integrated browser exit gate remains
+pending until the Bridge is deployed. The React application now bootstraps from
 `/api/auth/session`, presents VLine login/loading/recovery states, displays the active account,
 supports named workspace selection, and removes the hard-coded `primary` workspace from runtime
-requests and Socket.IO setup. Logout and expired-session recovery are included.
+requests and Socket.IO setup. Logout and expired-session recovery are included. Unit tests cover
+session bootstrap and the local production build was visually checked in its unavailable state;
+real login/callback, two-user isolation, and mobile audio remain to be verified end to end.
 
 - Add a VLine login screen and account/session indicator.
 - Load the user's available workspace rather than hard-coding `primary`.
