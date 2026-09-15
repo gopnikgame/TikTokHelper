@@ -6,9 +6,10 @@ export interface AuthPrincipal {
 
 export const authSessionSchema = {
   $id: 'AuthSession', type: 'object', additionalProperties: false,
-  required: ['authenticated', 'user'],
+  required: ['authenticated', 'mode', 'user'],
   properties: {
     authenticated: { const: true },
+    mode: { type: 'string', enum: ['local', 'vline'] },
     user: {
       type: 'object', additionalProperties: false,
       required: ['userId', 'displayName', 'workspaces'],
@@ -27,7 +28,7 @@ export const authSessionSchema = {
   },
 } as const;
 
-export interface AuthSessionResponse { authenticated: true; user: AuthPrincipal }
+export interface AuthSessionResponse { authenticated: true; mode: 'local' | 'vline'; user: AuthPrincipal }
 
 export const authLoginResponseSchema = {
   $id: 'AuthLoginResponse', type: 'object', additionalProperties: false,

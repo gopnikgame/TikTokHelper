@@ -33,7 +33,7 @@ export const authRoutes: FastifyPluginAsync<{ service: AuthService }> = async (a
     reply.header('cache-control', 'no-store');
     const active = await service.resolve(parseCookie(request.headers.cookie, service.cookieName));
     if (!active) return reply.code(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required', requestId: request.id } });
-    return { authenticated: true, user: active.principal };
+    return { authenticated: true, mode: 'vline', user: active.principal };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

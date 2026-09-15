@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import fastifyStatic from '@fastify/static';
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import {
-  apiErrorSchema, healthResponseSchema, readinessResponseSchema,
-  type ApiErrorResponse, type HealthResponse, type ReadinessResponse,
+  apiErrorSchema, authSessionSchema, healthResponseSchema, readinessResponseSchema,
+  type ApiErrorResponse, type AuthSessionResponse, type HealthResponse, type ReadinessResponse,
 } from '@tiktok-helper/contracts';
 import { settingsRoutes } from './settings/routes.js';
 import type { SettingsRepository } from './settings/repository.js';
@@ -40,6 +40,7 @@ export interface BuildAppOptions {
   tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
   authService?: AuthService;
+  localWorkspaceId?: string;
 }
 
 export const LOG_REDACTION_PATHS = [
@@ -164,6 +165,21 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
         return reply.code(403).send(errorResponse('FORBIDDEN', 'Workspace access denied', request.id));
       }
       request.authPrincipal = active.principal;
+    });
+  } else if (options.localWorkspaceId) {
+    app.get<{ Reply: AuthSessionResponse }>('/api/auth/session', {
+      schema: { response: { 200: authSessionSchema } },
+    }, async (_request, reply) => {
+      reply.header('cache-control', 'no-store');
+      return {
+        authenticated: true,
+        mode: 'local',
+        user: {
+          userId: '00000000-0000-4000-8000-000000000001',
+          displayName: 'Локальный доступ',
+          workspaces: [{ id: options.localWorkspaceId!, displayName: 'Основной эфир' }],
+        },
+      };
     });
   }
 

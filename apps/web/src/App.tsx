@@ -9,14 +9,14 @@ import { beginLogin, endSession, loadSession } from './auth-client.js';
 
 const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', events: [], generation: 0, lastSequence: 0, isTransportConnected: false };
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
-type SessionState = { status: 'loading' } | { status: 'anonymous' } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal };
+type SessionState = { status: 'loading' } | { status: 'anonymous' } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
 
 export function App() {
   const [sessionState, setSessionState] = useState<SessionState>({ status: 'loading' });
   useEffect(() => {
     const controller = new AbortController();
     void loadSession(controller.signal).then((session) => {
-      setSessionState(session ? { status: 'authenticated', principal: session.user } : { status: 'anonymous' });
+      setSessionState(session ? { status: 'authenticated', principal: session.user, mode: session.mode } : { status: 'anonymous' });
     }).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === 'AbortError')) setSessionState({ status: 'error' });
     });
@@ -27,7 +27,7 @@ export function App() {
   if (sessionState.status === 'loading') return <AccessScreen title="Проверяем вход…" message="Подготавливаем ваше рабочее место." />;
   if (sessionState.status === 'anonymous') return <LoginScreen />;
   if (sessionState.status === 'error') return <AccessScreen title="Сервис входа недоступен" message="Обновите страницу через минуту. Настройки и звуки останутся на месте." retry />;
-  return <AuthenticatedApp principal={sessionState.principal} onLoggedOut={onLoggedOut} />;
+  return <AuthenticatedApp principal={sessionState.principal} authMode={sessionState.mode} onLoggedOut={onLoggedOut} />;
 }
 
 function AccessScreen({ title, message, retry = false }: { title: string; message: string; retry?: boolean }) {
@@ -44,7 +44,7 @@ function LoginScreen() {
   return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1><p>Войдите через аккаунт VLine, чтобы открыть свои эфиры, звуки и привязки подарков.</p><button type="button" disabled={busy} onClick={() => void login()}>{busy ? 'Открываем VLine…' : 'Войти через VLine'}</button>{failed ? <p className="access-error" role="alert">Не удалось начать вход. Проверьте соединение и попробуйте снова.</p> : null}</section></main>;
 }
 
-function AuthenticatedApp({ principal, onLoggedOut }: { principal: AuthPrincipal; onLoggedOut: () => void }) {
+function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: AuthPrincipal; authMode: 'local' | 'vline'; onLoggedOut: () => void }) {
   const [workspaceId, setWorkspaceId] = useState(() => {
     const saved = sessionStorage.getItem('tiktok-helper.workspace');
     return principal.workspaces.some((workspace) => workspace.id === saved) ? saved! : (principal.workspaces[0]?.id ?? '');
@@ -209,7 +209,7 @@ function AuthenticatedApp({ principal, onLoggedOut }: { principal: AuthPrincipal
   }
 
   return <main className="console-shell">
-    <header className="topbar"><div><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1></div><div className="account-area"><div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div><div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}<button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button></div></div></header>
+    <header className="topbar"><div><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1></div><div className="account-area"><div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div><div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}{authMode === 'vline' ? <button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button> : null}</div></div></header>
     <p className="notice" role="status" aria-live="polite">{notice}</p>
     <section className="connection-panel" aria-labelledby="connection-title">
       <div><h2 id="connection-title">Подключение</h2><p>TikTokHelper читает уже запущенный эфир — сам эфир запускается на телефоне.</p></div>

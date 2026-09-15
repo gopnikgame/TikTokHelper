@@ -84,7 +84,7 @@ describe('VLine-backed application sessions', () => {
 
     const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie } });
     expect(session.statusCode).toBe(200);
-    expect(session.json().user).toMatchObject({ userId, workspaces: [{ id: 'primary', displayName: 'Основной эфир' }] });
+    expect(session.json()).toMatchObject({ mode: 'vline', user: { userId, workspaces: [{ id: 'primary', displayName: 'Основной эфир' }] } });
     expect((await app.inject({ method: 'GET', url: '/api/workspaces/primary/settings', headers: { cookie } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/workspaces/other/settings', headers: { cookie } })).statusCode).toBe(403);
 

@@ -82,6 +82,7 @@ const app = buildApp({
   soundUploadStore: soundUploadRoot ? createSoundUploadStore(soundUploadRoot) : undefined,
   tiktokManager,
   authService,
+  localWorkspaceId: authService ? undefined : workspaceId,
   staticRoot: process.env.WEB_ROOT,
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {

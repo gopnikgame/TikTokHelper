@@ -33,6 +33,24 @@ describe('service probes', () => {
   });
 });
 
+describe('local access mode', () => {
+  it('bootstraps the configured workspace without exposing login or logout', async () => {
+    const app = buildApp({ logger: false, localWorkspaceId: 'primary' });
+    apps.add(app);
+
+    const session = await app.inject({ method: 'GET', url: '/api/auth/session' });
+    expect(session.statusCode).toBe(200);
+    expect(session.headers['cache-control']).toBe('no-store');
+    expect(session.json()).toMatchObject({
+      authenticated: true,
+      mode: 'local',
+      user: { displayName: 'Локальный доступ', workspaces: [{ id: 'primary' }] },
+    });
+    expect((await app.inject({ method: 'GET', url: '/api/auth/login' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/logout' })).statusCode).toBe(404);
+  });
+});
+
 describe('HTTP boundary and errors', () => {
   it('validates a shared schema and returns the common error shape', async () => {
     const app = buildApp({ logger: false });
