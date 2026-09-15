@@ -10,6 +10,55 @@ export const workspaces = pgTable('workspaces', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const users = pgTable('users', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  identityProvider: varchar('identity_provider', { length: 32 }).notNull().default('vline'),
+  identitySubject: varchar('identity_subject', { length: 128 }).notNull(),
+  displayName: varchar('display_name', { length: 120 }),
+  status: varchar('status', { length: 16 }).notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  lastLoginAt: timestamp('last_login_at', { withTimezone: true }),
+}, (table) => [
+  uniqueIndex('users_identity_uidx').on(table.identityProvider, table.identitySubject),
+  check('users_identity_provider_chk', sql`${table.identityProvider} ~ '^[a-z][a-z0-9_-]{0,31}$'`),
+  check('users_identity_subject_chk', sql`length(trim(${table.identitySubject})) > 0`),
+  check('users_status_chk', sql`${table.status} in ('active', 'disabled')`),
+]);
+
+export const workspaceMemberships = pgTable('workspace_memberships', {
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  role: varchar('role', { length: 16 }).notNull().default('member'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.workspaceId, table.userId] }),
+  index('workspace_memberships_user_idx').on(table.userId),
+  check('workspace_memberships_role_chk', sql`${table.role} in ('owner', 'member')`),
+]);
+
+export const appSessions = pgTable('app_sessions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: uuid('user_id').notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  idleExpiresAt: timestamp('idle_expires_at', { withTimezone: true }).notNull(),
+  absoluteExpiresAt: timestamp('absolute_expires_at', { withTimezone: true }).notNull(),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+}, (table) => [
+  uniqueIndex('app_sessions_token_hash_uidx').on(table.tokenHash),
+  index('app_sessions_user_idx').on(table.userId),
+  index('app_sessions_expiry_idx').on(table.idleExpiresAt, table.absoluteExpiresAt),
+  check('app_sessions_token_hash_chk', sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check('app_sessions_idle_expiry_chk', sql`${table.idleExpiresAt} > ${table.createdAt}`),
+  check('app_sessions_absolute_expiry_chk', sql`${table.absoluteExpiresAt} >= ${table.idleExpiresAt}`),
+  check('app_sessions_revoked_at_chk', sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.createdAt}`),
+]);
+
 export const channels = pgTable('channels', {
   id: uuid('id').primaryKey().defaultRandom(),
   workspaceId: varchar('workspace_id', { length: 64 }).notNull()

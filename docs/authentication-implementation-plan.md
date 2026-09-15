@@ -3,6 +3,12 @@
 This plan implements ADR-003 without changing production SoloBot or the deployed TikTokHelper
 until the corresponding deployment step is separately approved.
 
+## Current status
+
+Phase 1 is implemented in source but not deployed. Authentication enforcement remains off and
+the production `primary` workspace is unchanged. The additive migration was tested on an
+ephemeral PostgreSQL 18 instance after inserting representative pre-migration `primary` data.
+
 ## Phase 1: database ownership foundation
 
 - Add `users`, `workspace_memberships`, and `app_sessions`.
@@ -15,6 +21,14 @@ until the corresponding deployment step is separately approved.
 
 Exit gate: migration applies to a disposable PostgreSQL database, existing data survives, and a
 schema-level test proves that one user cannot acquire another workspace implicitly.
+
+Completed in source:
+
+- additive `users`, `workspace_memberships`, and `app_sessions` tables;
+- identity upsert, transactional workspace creation, explicit membership assignment, access
+  lookup, session issue/lookup/touch/revoke, and expiry cleanup repository methods;
+- 256-bit opaque session-token generation with SHA-256 hashes stored by the database layer;
+- SQL migration fixtures proving that `primary` survives and is not implicitly claimed.
 
 ## Phase 2: shared catalogue and sound library
 
