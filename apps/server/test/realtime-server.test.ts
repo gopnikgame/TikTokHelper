@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { io as createClient, type Socket } from 'socket.io-client';
 import type {
-  ClientToServerEvents, CommandAcknowledgement, ServerToClientEvents,
+  AuthPrincipal, ClientToServerEvents, CommandAcknowledgement, ServerToClientEvents,
 } from '@tiktok-helper/contracts';
 import { buildApp } from '../src/app.js';
 import { RecentEventBuffer } from '../src/realtime/buffer.js';
-import { attachRealtimeServer } from '../src/realtime/server.js';
+import { attachRealtimeServer, type RealtimeServerOptions } from '../src/realtime/server.js';
 import { TikTokSessionManager } from '../src/tiktok/session-manager.js';
 import type { ConnectorEventMap, LiveConnector } from '../src/tiktok/types.js';
 
@@ -28,7 +28,12 @@ afterEach(async () => {
   apps.clear();
 });
 
-async function setup(authorizeWorkspace = (workspaceId: string) => workspaceId === 'primary') {
+async function setup(
+  authorizeWorkspace: (workspaceId: string, principal?: AuthPrincipal) => boolean | Promise<boolean> =
+    (workspaceId: string): boolean => workspaceId === 'primary',
+  authenticate?: NonNullable<RealtimeServerOptions['authenticate']>,
+  cookie?: string,
+) {
   const connector = new FakeConnector();
   const events: Parameters<ReturnType<typeof attachRealtimeServer>['publish']>[] = [];
   let publish: ReturnType<typeof attachRealtimeServer>['publish'] = () => undefined;
@@ -37,12 +42,14 @@ async function setup(authorizeWorkspace = (workspaceId: string) => workspaceId =
   });
   const app = buildApp({ logger: false, tiktokManager: manager });
   apps.add(app);
-  const realtime = attachRealtimeServer(app, manager, { authorizeWorkspace, bufferCapacity: 2 });
+  const realtime = attachRealtimeServer(app, manager, {
+    authorizeWorkspace, bufferCapacity: 2, ...(authenticate ? { authenticate } : {}),
+  });
   publish = realtime.publish;
   app.addHook('preClose', async () => realtime.close());
   const address = await app.listen({ host: '127.0.0.1', port: 0 });
   const client: Socket<ServerToClientEvents, ClientToServerEvents> = createClient(address, {
-    transports: ['websocket'], forceNew: true,
+    transports: ['websocket'], forceNew: true, ...(cookie ? { extraHeaders: { cookie } } : {}),
   });
   clients.add(client);
   await new Promise<void>((resolve, reject) => {
@@ -60,6 +67,24 @@ function subscribe(
 }
 
 describe('realtime server', () => {
+  it('rejects an anonymous Socket.IO handshake', async () => {
+    await expect(setup(
+      () => true,
+      async () => null,
+    )).rejects.toBeTruthy();
+  });
+
+  it('authenticates the handshake and authorizes rooms for that principal', async () => {
+    const principal = { userId: randomUUID(), displayName: null, workspaceIds: ['mine'] };
+    const { client } = await setup(
+      (workspaceId, current) => current?.userId === principal.userId && current.workspaceIds.includes(workspaceId),
+      async (cookie) => cookie === 'session=valid' ? principal : null,
+      'session=valid',
+    );
+    expect(await subscribe(client, 'mine')).toEqual({ ok: true });
+    expect(await subscribe(client, 'other')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+  });
+
   it('rejects unauthorized and malformed subscriptions', async () => {
     const { client } = await setup();
     expect(await subscribe(client, 'other')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });

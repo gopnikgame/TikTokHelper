@@ -10,6 +10,9 @@ import { createSoundRepository } from './sounds/repository.js';
 import { createSoundUploadStore } from './sounds/upload.js';
 import { createGiftCatalogRepository } from './gifts/repository.js';
 import { createRecentChannelRepository } from './channels/repository.js';
+import { createAuthRepository } from './auth/repository.js';
+import { HttpIdentityBridge } from './auth/bridge-client.js';
+import { AuthService, parseCookie } from './auth/service.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -22,6 +25,25 @@ if (soundUploadRoot) await mkdir(soundUploadRoot, { recursive: true });
 const giftCatalogRepository = createGiftCatalogRepository(db);
 const recentChannelRepository = createRecentChannelRepository(db);
 const soundRepository = createSoundRepository(db, giftCatalogRepository);
+const authRepository = createAuthRepository(db);
+const authEnvironment = {
+  authorizeUrl: process.env.VLINE_BRIDGE_AUTHORIZE_URL,
+  tokenUrl: process.env.VLINE_BRIDGE_TOKEN_URL,
+  clientId: process.env.VLINE_BRIDGE_CLIENT_ID,
+  clientSecret: process.env.VLINE_BRIDGE_CLIENT_SECRET,
+  redirectUri: process.env.VLINE_BRIDGE_REDIRECT_URI,
+};
+const authValues = Object.values(authEnvironment);
+const configuredAuthValues = authValues.filter((value) => value !== undefined && value.length > 0).length;
+if (configuredAuthValues > 0 && configuredAuthValues !== authValues.length) {
+  throw new Error('All VLINE_BRIDGE_* variables are required when authentication is enabled');
+}
+const authConfigured = configuredAuthValues === authValues.length;
+const authService = authConfigured ? new AuthService(
+  authRepository,
+  new HttpIdentityBridge(authEnvironment.tokenUrl!, authEnvironment.clientId!, authEnvironment.clientSecret!, authEnvironment.redirectUri!),
+  { bridgeAuthorizeUrl: authEnvironment.authorizeUrl!, clientId: authEnvironment.clientId!, redirectUri: authEnvironment.redirectUri! },
+) : undefined;
 if (soundRoot) {
   const files = (await readdir(soundRoot)).filter((name) => /\.wav$/i.test(name));
   await soundRepository.seed(workspaceId, files.map((storageKey) => ({
@@ -59,10 +81,16 @@ const app = buildApp({
   soundUploadRoot,
   soundUploadStore: soundUploadRoot ? createSoundUploadStore(soundUploadRoot) : undefined,
   tiktokManager,
+  authService,
   staticRoot: process.env.WEB_ROOT,
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
-  authorizeWorkspace: (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
+  ...(authService ? { authenticate: async (cookieHeader: string | undefined) => (await authService.resolve(
+    parseCookie(cookieHeader, authService.cookieName),
+  ))?.principal ?? null } : {}),
+  authorizeWorkspace: authService
+    ? (requestedWorkspaceId, principal) => principal?.workspaceIds.includes(requestedWorkspaceId) ?? false
+    : (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
 });
 app.addHook('preClose', async () => realtimeRef.current?.close());
 app.addHook('onClose', async () => client.end());

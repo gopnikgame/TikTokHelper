@@ -17,6 +17,14 @@ import { giftRoutes } from './gifts/routes.js';
 import type { GiftCatalogRepository } from './gifts/repository.js';
 import { recentChannelRoutes } from './channels/routes.js';
 import type { RecentChannelRepository } from './channels/repository.js';
+import { authRoutes } from './auth/routes.js';
+import { parseCookie, type AuthService } from './auth/service.js';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    authPrincipal?: import('@tiktok-helper/contracts').AuthPrincipal;
+  }
+}
 
 export type ReadinessCheck = () => boolean | Promise<boolean>;
 export interface BuildAppOptions {
@@ -31,6 +39,7 @@ export interface BuildAppOptions {
   soundUploadStore?: SoundUploadStore;
   tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
+  authService?: AuthService;
 }
 
 export const LOG_REDACTION_PATHS = [
@@ -136,6 +145,27 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       ? { status: 'ready' }
       : reply.code(503).send({ status: 'not_ready' });
   });
+
+  if (options.authService) {
+    const authService = options.authService;
+    app.register(authRoutes, { service: authService });
+    app.addHook('preHandler', async (request, reply) => {
+      const route = request.routeOptions.url ?? '';
+      const protectedRoute = route.startsWith('/api/workspaces/') || route.startsWith('/api/live/');
+      if (!protectedRoute) return;
+      const active = await authService.resolve(parseCookie(request.headers.cookie, authService.cookieName));
+      if (!active) {
+        return reply.code(401).send(errorResponse('UNAUTHENTICATED', 'Authentication required', request.id));
+      }
+      const params = request.params as { workspaceId?: unknown };
+      const body = request.body as { workspaceId?: unknown } | undefined;
+      const workspaceId = typeof params.workspaceId === 'string' ? params.workspaceId : body?.workspaceId;
+      if (typeof workspaceId !== 'string' || !active.principal.workspaceIds.includes(workspaceId)) {
+        return reply.code(403).send(errorResponse('FORBIDDEN', 'Workspace access denied', request.id));
+      }
+      request.authPrincipal = active.principal;
+    });
+  }
 
   if (options.settingsRepository) {
     app.register(settingsRoutes, { repository: options.settingsRepository });

@@ -6,6 +6,7 @@ import {
 } from '@tiktok-helper/contracts';
 import type { TikTokSessionManager } from '../tiktok/session-manager.js';
 import { RecentEventBuffer } from './buffer.js';
+import type { AuthPrincipal } from '@tiktok-helper/contracts';
 
 const roomFor = (workspaceId: string) => `workspace:${workspaceId}`;
 const invalidCommand: CommandAcknowledgement = {
@@ -16,7 +17,8 @@ const forbidden: CommandAcknowledgement = {
 };
 
 export interface RealtimeServerOptions {
-  authorizeWorkspace?: (workspaceId: string) => boolean | Promise<boolean>;
+  authenticate?: (cookieHeader: string | undefined) => AuthPrincipal | null | Promise<AuthPrincipal | null>;
+  authorizeWorkspace?: (workspaceId: string, principal?: AuthPrincipal) => boolean | Promise<boolean>;
   bufferCapacity?: number;
 }
 
@@ -39,8 +41,20 @@ export function attachRealtimeServer(
     maxHttpBufferSize: 16 * 1024,
   });
 
-  const remember = (commandId: string, result: CommandAcknowledgement): void => {
-    commandResults.set(commandId, result);
+  if (options.authenticate) {
+    io.use(async (socket, next) => {
+      try {
+        const principal = await options.authenticate?.(socket.handshake.headers.cookie);
+        if (!principal) return next(new Error('UNAUTHENTICATED'));
+        socket.data.authPrincipal = principal;
+        next();
+      } catch { next(new Error('UNAUTHENTICATED')); }
+    });
+  }
+
+  const commandKey = (workspaceId: string, commandId: string) => `${workspaceId}:${commandId}`;
+  const remember = (workspaceId: string, commandId: string, result: CommandAcknowledgement): void => {
+    commandResults.set(commandKey(workspaceId, commandId), result);
     if (commandResults.size > 1_000) {
       const oldest = commandResults.keys().next().value as string | undefined;
       if (oldest) commandResults.delete(oldest);
@@ -51,7 +65,7 @@ export function attachRealtimeServer(
     socket.on('workspace:subscribe', async (raw, acknowledge) => {
       const parsed = validateClientEvent('workspace:subscribe', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
-      if (!await authorize(parsed.value.workspaceId)) return acknowledge(forbidden);
+      if (!await authorize(parsed.value.workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined)) return acknowledge(forbidden);
       const status = manager.status(parsed.value.workspaceId);
       const replay = buffer.replay(
         parsed.value.workspaceId, parsed.value.generation, parsed.value.lastSequence,
@@ -75,19 +89,19 @@ export function attachRealtimeServer(
     socket.on('live:connect', async (raw, acknowledge) => {
       const parsed = validateClientEvent('live:connect', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
-      const cached = commandResults.get(parsed.value.commandId);
+      if (!await authorize(parsed.value.workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined)) return acknowledge(forbidden);
+      const cached = commandResults.get(commandKey(parsed.value.workspaceId, parsed.value.commandId));
       if (cached) return acknowledge(cached.ok ? { ...cached, duplicate: true } : cached);
-      if (!await authorize(parsed.value.workspaceId)) return acknowledge(forbidden);
       try {
         await manager.start(parsed.value.workspaceId, parsed.value.tiktokUsername);
         const result: CommandAcknowledgement = { ok: true };
-        remember(parsed.value.commandId, result);
+        remember(parsed.value.workspaceId, parsed.value.commandId, result);
         acknowledge(result);
       } catch {
         const result: CommandAcknowledgement = {
           ok: false, error: { code: 'INTERNAL_ERROR', message: 'Unable to connect to LIVE' },
         };
-        remember(parsed.value.commandId, result);
+        remember(parsed.value.workspaceId, parsed.value.commandId, result);
         acknowledge(result);
       }
     });
@@ -95,12 +109,12 @@ export function attachRealtimeServer(
     socket.on('live:disconnect', async (raw, acknowledge) => {
       const parsed = validateClientEvent('live:disconnect', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
-      const cached = commandResults.get(parsed.value.commandId);
+      if (!await authorize(parsed.value.workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined)) return acknowledge(forbidden);
+      const cached = commandResults.get(commandKey(parsed.value.workspaceId, parsed.value.commandId));
       if (cached) return acknowledge(cached.ok ? { ...cached, duplicate: true } : cached);
-      if (!await authorize(parsed.value.workspaceId)) return acknowledge(forbidden);
       await manager.stop(parsed.value.workspaceId);
       const result: CommandAcknowledgement = { ok: true };
-      remember(parsed.value.commandId, result);
+      remember(parsed.value.workspaceId, parsed.value.commandId, result);
       acknowledge(result);
     });
   });

@@ -32,6 +32,7 @@ export interface AuthRepository {
   createWorkspaceForUser(userId: string, displayName: string): Promise<WorkspaceMembership>;
   assignMembership(userId: string, workspaceId: string, role: 'owner' | 'member'): Promise<WorkspaceMembership>;
   hasWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean>;
+  listWorkspaceIds(userId: string): Promise<string[]>;
   issueSession(input: NewSessionInput): Promise<AppSession>;
   findActiveSession(tokenHash: string, now: Date): Promise<ActiveSession | null>;
   touchSession(sessionId: string, lastSeenAt: Date, idleExpiresAt: Date): Promise<void>;
@@ -92,6 +93,14 @@ export function createAuthRepository(db: Database): AuthRepository {
           eq(users.status, 'active'),
         )).limit(1);
       return membership !== undefined;
+    },
+
+    async listWorkspaceIds(userId) {
+      const rows = await db.select({ workspaceId: workspaceMemberships.workspaceId })
+        .from(workspaceMemberships)
+        .innerJoin(users, eq(users.id, workspaceMemberships.userId))
+        .where(and(eq(workspaceMemberships.userId, userId), eq(users.status, 'active')));
+      return rows.map((row) => row.workspaceId);
     },
 
     async issueSession(input) {

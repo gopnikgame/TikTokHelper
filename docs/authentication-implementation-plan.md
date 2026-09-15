@@ -79,6 +79,11 @@ expired code all fail without revealing identity data.
 
 ## Phase 4: TikTokHelper local authentication
 
+Status: completed locally on 2026-09-15. The server now supports the VLine Bridge login/callback,
+hashed PostgreSQL sessions, secure cookies, workspace authorization for HTTP and Socket.IO, and
+fails startup on partial auth configuration. The auth flow remains disabled unless the complete
+`VLINE_BRIDGE_*` configuration is supplied, so production is unchanged until the Bridge exists.
+
 - Add `/api/auth/session`, `/api/auth/login`, `/auth/callback`, and `/api/auth/logout`.
 - Store only a session-token hash in PostgreSQL and only the raw token in a secure cookie.
 - Resolve authentication in a Fastify plugin and expose a typed request principal.
