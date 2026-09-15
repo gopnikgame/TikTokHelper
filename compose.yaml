@@ -42,9 +42,13 @@ services:
       POSTGRES_USER: tiktok_helper
       TIKTOK_PROXY_URL: ${TIKTOK_PROXY_URL:-}
       SOUND_UPLOAD_ROOT: /app/data/media/sounds
+      VLINE_BRIDGE_AUTHORIZE_URL: ${VLINE_BRIDGE_AUTHORIZE_URL:-}
+      VLINE_BRIDGE_TOKEN_URL: ${VLINE_BRIDGE_TOKEN_URL:-}
+      VLINE_BRIDGE_CLIENT_ID: ${VLINE_BRIDGE_CLIENT_ID:-}
+      VLINE_BRIDGE_REDIRECT_URI: ${VLINE_BRIDGE_REDIRECT_URI:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    secrets: [db_password]
+    secrets: [db_password, tiktok_helper_client_secret]
     ports:
       - "${APP_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
@@ -59,6 +63,8 @@ services:
 secrets:
   db_password:
     file: ./secrets/db_password
+  tiktok_helper_client_secret:
+    file: ./secrets/tiktok_helper_client_secret
 
 volumes:
   media_data:
