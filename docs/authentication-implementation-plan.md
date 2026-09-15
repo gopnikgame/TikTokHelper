@@ -96,6 +96,11 @@ expiry/revocation, and attempted access to a second user's workspace.
 
 ## Phase 5: user interface
 
+Status: completed locally on 2026-09-15. The React application now bootstraps from
+`/api/auth/session`, presents VLine login/loading/recovery states, displays the active account,
+supports named workspace selection, and removes the hard-coded `primary` workspace from runtime
+requests and Socket.IO setup. Logout and expired-session recovery are included.
+
 - Add a VLine login screen and account/session indicator.
 - Load the user's available workspace rather than hard-coding `primary`.
 - Keep browser audio unlock client-specific.

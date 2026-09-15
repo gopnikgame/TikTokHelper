@@ -7,6 +7,7 @@ import { appSessions, users, workspaceMemberships, workspaces } from '../db/sche
 export type AppUser = typeof users.$inferSelect;
 export type WorkspaceMembership = typeof workspaceMemberships.$inferSelect;
 export type AppSession = typeof appSessions.$inferSelect;
+export interface WorkspaceAccess { id: string; displayName: string }
 
 export interface ExternalIdentityInput {
   provider: string;
@@ -32,7 +33,7 @@ export interface AuthRepository {
   createWorkspaceForUser(userId: string, displayName: string): Promise<WorkspaceMembership>;
   assignMembership(userId: string, workspaceId: string, role: 'owner' | 'member'): Promise<WorkspaceMembership>;
   hasWorkspaceAccess(userId: string, workspaceId: string): Promise<boolean>;
-  listWorkspaceIds(userId: string): Promise<string[]>;
+  listWorkspaces(userId: string): Promise<WorkspaceAccess[]>;
   issueSession(input: NewSessionInput): Promise<AppSession>;
   findActiveSession(tokenHash: string, now: Date): Promise<ActiveSession | null>;
   touchSession(sessionId: string, lastSeenAt: Date, idleExpiresAt: Date): Promise<void>;
@@ -95,12 +96,12 @@ export function createAuthRepository(db: Database): AuthRepository {
       return membership !== undefined;
     },
 
-    async listWorkspaceIds(userId) {
-      const rows = await db.select({ workspaceId: workspaceMemberships.workspaceId })
+    async listWorkspaces(userId) {
+      return db.select({ id: workspaces.id, displayName: workspaces.displayName })
         .from(workspaceMemberships)
         .innerJoin(users, eq(users.id, workspaceMemberships.userId))
+        .innerJoin(workspaces, eq(workspaces.id, workspaceMemberships.workspaceId))
         .where(and(eq(workspaceMemberships.userId, userId), eq(users.status, 'active')));
-      return rows.map((row) => row.workspaceId);
     },
 
     async issueSession(input) {

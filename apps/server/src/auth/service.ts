@@ -77,10 +77,10 @@ export class AuthService {
     const user = await this.repository.upsertIdentity({
       provider: 'vline', subject: identity.subject, displayName: identity.displayName, authenticatedAt,
     });
-    let workspaceIds = await this.repository.listWorkspaceIds(user.id);
-    if (workspaceIds.length === 0) {
+    let workspaces = await this.repository.listWorkspaces(user.id);
+    if (workspaces.length === 0) {
       const membership = await this.repository.createWorkspaceForUser(user.id, identity.displayName ?? 'Мой эфир');
-      workspaceIds = [membership.workspaceId];
+      workspaces = [{ id: membership.workspaceId, displayName: identity.displayName ?? 'Мой эфир' }];
     }
     const issued = issueSessionToken();
     const now = new Date(this.now());
@@ -89,7 +89,7 @@ export class AuthService {
       idleExpiresAt: new Date(now.valueOf() + this.#idleMs),
       absoluteExpiresAt: new Date(now.valueOf() + this.#absoluteMs),
     });
-    return { token: issued.token, principal: { userId: user.id, displayName: user.displayName, workspaceIds } };
+    return { token: issued.token, principal: { userId: user.id, displayName: user.displayName, workspaces } };
   }
 
   async resolve(token: string | undefined): Promise<{ principal: AuthPrincipal; sessionId: string } | null> {
@@ -97,12 +97,12 @@ export class AuthService {
     const now = new Date(this.now());
     const active = await this.repository.findActiveSession(hashSessionToken(token), now);
     if (!active) return null;
-    const workspaceIds = await this.repository.listWorkspaceIds(active.user.id);
+    const workspaces = await this.repository.listWorkspaces(active.user.id);
     const idleExpiresAt = new Date(Math.min(now.valueOf() + this.#idleMs, active.session.absoluteExpiresAt.valueOf()));
     await this.repository.touchSession(active.session.id, now, idleExpiresAt);
     return {
       sessionId: active.session.id,
-      principal: { userId: active.user.id, displayName: active.user.displayName, workspaceIds },
+      principal: { userId: active.user.id, displayName: active.user.displayName, workspaces },
     };
   }
 

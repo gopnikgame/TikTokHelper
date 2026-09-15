@@ -75,9 +75,9 @@ describe('realtime server', () => {
   });
 
   it('authenticates the handshake and authorizes rooms for that principal', async () => {
-    const principal = { userId: randomUUID(), displayName: null, workspaceIds: ['mine'] };
+    const principal = { userId: randomUUID(), displayName: null, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
     const { client } = await setup(
-      (workspaceId, current) => current?.userId === principal.userId && current.workspaceIds.includes(workspaceId),
+      (workspaceId, current) => current?.userId === principal.userId && current.workspaces.some((workspace) => workspace.id === workspaceId),
       async (cookie) => cookie === 'session=valid' ? principal : null,
       'session=valid',
     );

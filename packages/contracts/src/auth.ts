@@ -1,7 +1,7 @@
 export interface AuthPrincipal {
   userId: string;
   displayName: string | null;
-  workspaceIds: string[];
+  workspaces: Array<{ id: string; displayName: string }>;
 }
 
 export const authSessionSchema = {
@@ -11,11 +11,17 @@ export const authSessionSchema = {
     authenticated: { const: true },
     user: {
       type: 'object', additionalProperties: false,
-      required: ['userId', 'displayName', 'workspaceIds'],
+      required: ['userId', 'displayName', 'workspaces'],
       properties: {
         userId: { type: 'string', format: 'uuid' },
         displayName: { type: ['string', 'null'], maxLength: 120 },
-        workspaceIds: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 64 }, maxItems: 100 },
+        workspaces: {
+          type: 'array', maxItems: 100,
+          items: { type: 'object', additionalProperties: false, required: ['id', 'displayName'], properties: {
+            id: { type: 'string', minLength: 1, maxLength: 64 },
+            displayName: { type: 'string', minLength: 1, maxLength: 120 },
+          } },
+        },
       },
     },
   },

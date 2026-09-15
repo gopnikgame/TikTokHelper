@@ -23,7 +23,7 @@ function memoryRepository() {
       return { workspaceId, userId, role, createdAt: new Date() };
     },
     async hasWorkspaceAccess(_userId, workspaceId) { return workspaceId === 'primary'; },
-    async listWorkspaceIds() { return ['primary']; },
+    async listWorkspaces() { return [{ id: 'primary', displayName: 'Основной эфир' }]; },
     async issueSession(input) {
       const session: AppSession = {
         id: randomUUID(), ...input, createdAt: new Date(), lastSeenAt: new Date(), revokedAt: null,
@@ -84,7 +84,7 @@ describe('VLine-backed application sessions', () => {
 
     const session = await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie } });
     expect(session.statusCode).toBe(200);
-    expect(session.json().user).toMatchObject({ userId, workspaceIds: ['primary'] });
+    expect(session.json().user).toMatchObject({ userId, workspaces: [{ id: 'primary', displayName: 'Основной эфир' }] });
     expect((await app.inject({ method: 'GET', url: '/api/workspaces/primary/settings', headers: { cookie } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/workspaces/other/settings', headers: { cookie } })).statusCode).toBe(403);
 

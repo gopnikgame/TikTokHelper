@@ -31,6 +31,19 @@ h2 { margin-bottom: .7rem; font-size: 1.25rem; }
 ul { margin: 0; padding: 0; list-style: none; }
 .console-shell { width: min(92rem, calc(100% - 2rem)); margin: 0 auto; padding: 2rem 0 3rem; }
 .topbar { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-bottom: 1.2rem; }
+.account-area { display: flex; align-items: end; gap: .75rem; }
+.account-control { display: grid; grid-template-columns: minmax(8rem, auto) auto; align-items: center; gap: .2rem .65rem; padding: .55rem .65rem; border: 1px solid var(--line); border-radius: .65rem; background: var(--panel); }
+.account-control > span { font-weight: 800; }
+.account-control > small { grid-column: 1; color: var(--muted); }
+.account-control > label { grid-row: 1 / span 2; min-width: 10rem; font-size: .7rem; }
+.account-control select { min-height: 2rem; padding: .25rem .45rem; }
+.account-control .quiet { grid-column: 2; grid-row: 1 / span 2; }
+.access-shell { display: grid; place-items: center; min-height: 100vh; padding: 1rem; }
+.access-card { width: min(34rem, 100%); padding: clamp(1.4rem, 5vw, 3rem); border: 1px solid var(--line); border-left: 4px solid var(--pink); background: rgba(18, 22, 29, .97); box-shadow: 0 1.5rem 5rem #0008; }
+.access-card h1 { margin-bottom: 1.5rem; font-size: clamp(2.5rem, 9vw, 4.8rem); }
+.access-card > p:not(.eyebrow) { max-width: 40ch; color: var(--muted); font-size: 1.05rem; line-height: 1.5; }
+.access-card button { margin-top: .5rem; }
+.access-card .access-error { margin: 1rem 0 0; color: #ff9db6; font-size: .9rem; }
 .eyebrow, .section-kicker { margin-bottom: .35rem; color: var(--pink); font-family: Consolas, monospace; font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
 .live-pill { display: inline-flex; align-items: center; gap: .55rem; padding: .65rem .9rem; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-weight: 800; white-space: nowrap; }
 .live-pill span { color: var(--muted); }
@@ -91,5 +104,5 @@ button.channel-chip:hover { border-color: var(--cyan); background: #19282a; }
 .upload-box button { justify-self: start; }
 footer { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }footer a { color: #cbd2d8; }
 @media (max-width: 1050px) { .connection-panel { grid-template-columns: 1fr 1fr; }.feed-grid { grid-template-columns: 1fr; }.gift-panel { min-height: 20rem; }.gift-list { height: 16rem; }.control-grid { grid-template-columns: 1fr 1fr; }.settings-card { grid-column: 1 / -1; } }
-@media (max-width: 660px) { .console-shell { width: min(100% - 1rem, 40rem); padding-top: 1rem; }.topbar { align-items: start; }.live-pill { font-size: .8rem; }.connection-panel, .control-grid, .catalog-tools { grid-template-columns: 1fr; }.connection-panel { align-items: stretch; }.connection-facts { grid-template-columns: 1fr 1fr; }.feed-panel { min-height: 28rem; }.chat-list { height: 23rem; }.chat-message { grid-template-columns: 1fr; gap: .4rem; }.catalog-panel summary { align-items: start; }.filter-pills button { flex: 1 1 auto; }.catalog-list { grid-template-columns: 1fr; padding-inline: .75rem; }.catalog-list li { grid-template-columns: 3.5rem minmax(0, 1fr); }.catalog-list .quiet { grid-column: 2; grid-row: auto; justify-self: start; }.settings-card { grid-column: auto; }.two-fields { grid-template-columns: 1fr; }footer { flex-direction: column; } }
+@media (max-width: 660px) { .console-shell { width: min(100% - 1rem, 40rem); padding-top: 1rem; }.topbar { align-items: start; }.account-area { align-items: end; flex-direction: column; }.account-control { max-width: 15rem; }.live-pill { font-size: .8rem; }.connection-panel, .control-grid, .catalog-tools { grid-template-columns: 1fr; }.connection-panel { align-items: stretch; }.connection-facts { grid-template-columns: 1fr 1fr; }.feed-panel { min-height: 28rem; }.chat-list { height: 23rem; }.chat-message { grid-template-columns: 1fr; gap: .4rem; }.catalog-panel summary { align-items: start; }.filter-pills button { flex: 1 1 auto; }.catalog-list { grid-template-columns: 1fr; padding-inline: .75rem; }.catalog-list li { grid-template-columns: 3.5rem minmax(0, 1fr); }.catalog-list .quiet { grid-column: 2; grid-row: auto; justify-self: start; }.settings-card { grid-column: auto; }.two-fields { grid-template-columns: 1fr; }footer { flex-direction: column; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }

@@ -89,7 +89,7 @@ realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
     parseCookie(cookieHeader, authService.cookieName),
   ))?.principal ?? null } : {}),
   authorizeWorkspace: authService
-    ? (requestedWorkspaceId, principal) => principal?.workspaceIds.includes(requestedWorkspaceId) ?? false
+    ? (requestedWorkspaceId, principal) => principal?.workspaces.some((workspace) => workspace.id === requestedWorkspaceId) ?? false
     : (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
 });
 app.addHook('preClose', async () => realtimeRef.current?.close());

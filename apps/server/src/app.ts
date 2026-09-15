@@ -160,7 +160,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       const params = request.params as { workspaceId?: unknown };
       const body = request.body as { workspaceId?: unknown } | undefined;
       const workspaceId = typeof params.workspaceId === 'string' ? params.workspaceId : body?.workspaceId;
-      if (typeof workspaceId !== 'string' || !active.principal.workspaceIds.includes(workspaceId)) {
+      if (typeof workspaceId !== 'string' || !active.principal.workspaces.some((workspace) => workspace.id === workspaceId)) {
         return reply.code(403).send(errorResponse('FORBIDDEN', 'Workspace access denied', request.id));
       }
       request.authPrincipal = active.principal;
