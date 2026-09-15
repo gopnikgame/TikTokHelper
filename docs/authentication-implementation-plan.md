@@ -60,6 +60,12 @@ Implemented in source:
 
 ## Phase 3: VLine Auth Bridge prototype
 
+Status: completed locally on 2026-09-15 in the separate sibling repository
+`VLineAuthBridge` at commit `e2ed0eb`. The prototype keeps request logging disabled,
+uses a mocked identity introspector, and passed typecheck, 10 security/flow tests, and build.
+Production and SoloBot were not changed. Publishing awaits creation or confirmation of the
+separate Forgejo repository and verification of its SSH host key.
+
 - Create the bridge in a separate repository and deployment unit.
 - Implement `/authorize`, `/token`, and `/health` exactly as ADR-003 defines.
 - Validate SoloBot `/api/auth/me` as an untrusted external response.
