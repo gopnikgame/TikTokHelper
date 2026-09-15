@@ -20,7 +20,9 @@ COPY --from=build --chown=node:node /workspace/apps ./apps
 COPY --from=build --chown=node:node /workspace/packages ./packages
 COPY --chown=node:node wwwroot/Assets/Sounds ./builtin-sounds
 COPY --chown=node:node deploy/entrypoint.sh /usr/local/bin/tiktok-helper-entrypoint
-RUN chmod 0555 /usr/local/bin/tiktok-helper-entrypoint
+RUN mkdir -p /app/data/media/sounds \
+    && chown -R node:node /app/data \
+    && chmod 0555 /usr/local/bin/tiktok-helper-entrypoint
 USER node
 EXPOSE 3000
 ENTRYPOINT ["tiktok-helper-entrypoint"]

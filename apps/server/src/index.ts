@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { readdir } from 'node:fs/promises';
+import { mkdir, readdir } from 'node:fs/promises';
 import { buildApp } from './app.js';
 import { createDatabase } from './db/client.js';
 import { createSettingsRepository } from './settings/repository.js';
@@ -18,6 +18,7 @@ const { client, db } = createDatabase(databaseUrl);
 const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? 'primary';
 const soundRoot = process.env.SOUND_ROOT;
 const soundUploadRoot = process.env.SOUND_UPLOAD_ROOT;
+if (soundUploadRoot) await mkdir(soundUploadRoot, { recursive: true });
 const giftCatalogRepository = createGiftCatalogRepository(db);
 const recentChannelRepository = createRecentChannelRepository(db);
 const soundRepository = createSoundRepository(db, giftCatalogRepository);
