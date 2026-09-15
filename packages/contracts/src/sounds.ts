@@ -4,6 +4,10 @@ export interface SoundAsset {
   url: string;
 }
 
+export interface UploadSoundQuery {
+  displayName: string;
+}
+
 export interface ObservedGift {
   giftId: string;
   giftName: string;
@@ -33,6 +37,10 @@ export const soundAssetSchema = {
   properties: { id: uuid, displayName: { type: 'string' }, url: { type: 'string' } },
 } as const;
 export const soundAssetsSchema = { type: 'array', items: soundAssetSchema } as const;
+export const uploadSoundQuerySchema = {
+  type: 'object', additionalProperties: false, required: ['displayName'],
+  properties: { displayName: { type: 'string', minLength: 1, maxLength: 160 } },
+} as const;
 export const observedGiftSchema = {
   type: 'object', additionalProperties: false,
   required: ['giftId', 'giftName', 'imageUrl', 'diamondCount', 'firstSeenAt', 'lastSeenAt'],

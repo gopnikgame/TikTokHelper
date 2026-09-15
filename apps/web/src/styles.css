@@ -63,8 +63,13 @@ button.channel-chip:hover { border-color: var(--cyan); background: #19282a; }
 .catalog-panel[open] summary { border-bottom: 1px solid var(--line); }
 .catalog-panel[open] summary > span:last-child { font-size: 0; }
 .catalog-panel[open] summary > span:last-child::after { content: "Свернуть"; font-size: .8rem; }
-.catalog-tools { padding: 1rem 1.2rem 0; }
-.catalog-tools label { max-width: 32rem; }
+.catalog-tools { display: grid; grid-template-columns: minmax(16rem, 32rem) 1fr; align-items: end; gap: 1rem; padding: 1rem 1.2rem 0; }
+.catalog-tools fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.catalog-tools legend { margin-bottom: .45rem; color: #dfe4e8; font-size: .9rem; font-weight: 700; }
+.filter-pills { display: flex; flex-wrap: wrap; gap: .45rem; }
+.filter-pills button { min-height: 2.8rem; padding: .55rem .8rem; border: 1px solid #394452; color: var(--ink); background: #171d25; }
+.filter-pills button.active { border-color: var(--cyan); background: #123330; }
+.filter-pills span { margin-left: .35rem; color: var(--muted); font-family: Consolas, monospace; }
 .catalog-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); gap: .75rem; padding: 1rem 1.2rem 1.2rem; }
 .catalog-list li { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; grid-template-rows: auto auto; gap: .35rem .8rem; align-items: center; min-width: 0; padding: .85rem; border: 1px solid #28313c; border-radius: .65rem; background: #0e1319; }
 .catalog-list img, .catalog-placeholder { grid-row: 1 / span 2; width: 3.5rem; height: 3.5rem; border-radius: .55rem; object-fit: contain; background: #171d25; }
@@ -80,7 +85,11 @@ button.channel-chip:hover { border-color: var(--cyan); background: #19282a; }
 .control-grid { display: grid; grid-template-columns: .75fr 1fr 1.25fr; gap: 1rem; margin-top: 1rem; }
 .control-card { align-content: start; min-width: 0; padding: 1.2rem; border: 1px solid var(--line); background: var(--panel); }.control-card > p:not(.section-kicker) { color: var(--muted); }.control-card label + label, .control-card label + .two-fields, .control-card .two-fields + button { margin-top: 1rem; }.audio-card { background: linear-gradient(145deg, #18212a, #12161d); }.helper { margin: .85rem 0 0; font-size: .8rem; }
 .two-fields { display: grid; grid-template-columns: .7fr 1.3fr; gap: 1rem; }output { justify-self: end; color: var(--cyan); font-family: Consolas, monospace; }
+.upload-box { display: grid; gap: .45rem; margin: 1rem 0; padding: .8rem; border: 1px dashed #465362; border-radius: .6rem; background: #0d1117; }
+.upload-box > span { color: var(--muted); font-size: .78rem; }
+.upload-box input[type="file"] { min-height: auto; padding: .55rem; font-size: .82rem; }
+.upload-box button { justify-self: start; }
 footer { display: flex; justify-content: space-between; gap: 1rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .8rem; }footer a { color: #cbd2d8; }
 @media (max-width: 1050px) { .connection-panel { grid-template-columns: 1fr 1fr; }.feed-grid { grid-template-columns: 1fr; }.gift-panel { min-height: 20rem; }.gift-list { height: 16rem; }.control-grid { grid-template-columns: 1fr 1fr; }.settings-card { grid-column: 1 / -1; } }
-@media (max-width: 660px) { .console-shell { width: min(100% - 1rem, 40rem); padding-top: 1rem; }.topbar { align-items: start; }.live-pill { font-size: .8rem; }.connection-panel, .control-grid { grid-template-columns: 1fr; }.connection-panel { align-items: stretch; }.connection-facts { grid-template-columns: 1fr 1fr; }.feed-panel { min-height: 28rem; }.chat-list { height: 23rem; }.chat-message { grid-template-columns: 1fr; gap: .4rem; }.catalog-panel summary { align-items: start; }.catalog-list { grid-template-columns: 1fr; padding-inline: .75rem; }.catalog-list li { grid-template-columns: 3.5rem minmax(0, 1fr); }.catalog-list .quiet { grid-column: 2; grid-row: auto; justify-self: start; }.settings-card { grid-column: auto; }.two-fields { grid-template-columns: 1fr; }footer { flex-direction: column; } }
+@media (max-width: 660px) { .console-shell { width: min(100% - 1rem, 40rem); padding-top: 1rem; }.topbar { align-items: start; }.live-pill { font-size: .8rem; }.connection-panel, .control-grid, .catalog-tools { grid-template-columns: 1fr; }.connection-panel { align-items: stretch; }.connection-facts { grid-template-columns: 1fr 1fr; }.feed-panel { min-height: 28rem; }.chat-list { height: 23rem; }.chat-message { grid-template-columns: 1fr; gap: .4rem; }.catalog-panel summary { align-items: start; }.filter-pills button { flex: 1 1 auto; }.catalog-list { grid-template-columns: 1fr; padding-inline: .75rem; }.catalog-list li { grid-template-columns: 3.5rem minmax(0, 1fr); }.catalog-list .quiet { grid-column: 2; grid-row: auto; justify-self: start; }.settings-card { grid-column: auto; }.two-fields { grid-template-columns: 1fr; }footer { flex-direction: column; } }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }

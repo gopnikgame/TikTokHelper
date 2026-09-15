@@ -7,6 +7,7 @@ import { createTikTokConnector } from './tiktok/live-connector.js';
 import { TikTokSessionManager } from './tiktok/session-manager.js';
 import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
 import { createSoundRepository } from './sounds/repository.js';
+import { createSoundUploadStore } from './sounds/upload.js';
 import { createGiftCatalogRepository } from './gifts/repository.js';
 import { createRecentChannelRepository } from './channels/repository.js';
 
@@ -16,6 +17,7 @@ if (!databaseUrl) throw new Error('DATABASE_URL is required');
 const { client, db } = createDatabase(databaseUrl);
 const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? 'primary';
 const soundRoot = process.env.SOUND_ROOT;
+const soundUploadRoot = process.env.SOUND_UPLOAD_ROOT;
 const giftCatalogRepository = createGiftCatalogRepository(db);
 const recentChannelRepository = createRecentChannelRepository(db);
 const soundRepository = createSoundRepository(db, giftCatalogRepository);
@@ -53,6 +55,8 @@ const app = buildApp({
   giftCatalogRepository,
   recentChannelRepository,
   soundRoot,
+  soundUploadRoot,
+  soundUploadStore: soundUploadRoot ? createSoundUploadStore(soundUploadRoot) : undefined,
   tiktokManager,
   staticRoot: process.env.WEB_ROOT,
 });

@@ -10,6 +10,7 @@ import { settingsRoutes } from './settings/routes.js';
 import type { SettingsRepository } from './settings/repository.js';
 import { soundRoutes } from './sounds/routes.js';
 import type { SoundRepository } from './sounds/repository.js';
+import type { SoundUploadStore } from './sounds/upload.js';
 import { tiktokRoutes } from './tiktok/routes.js';
 import type { TikTokSessionManager } from './tiktok/session-manager.js';
 import { giftRoutes } from './gifts/routes.js';
@@ -26,6 +27,8 @@ export interface BuildAppOptions {
   giftCatalogRepository?: GiftCatalogRepository;
   recentChannelRepository?: RecentChannelRepository;
   soundRoot?: string;
+  soundUploadRoot?: string;
+  soundUploadStore?: SoundUploadStore;
   tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
 }
@@ -144,7 +147,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
 
   if (options.soundRepository) {
-    app.register(soundRoutes, { repository: options.soundRepository });
+    app.register(soundRoutes, { repository: options.soundRepository, uploadStore: options.soundUploadStore });
   }
 
   if (options.giftCatalogRepository) {
@@ -159,6 +162,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     app.register(fastifyStatic, {
       root: options.soundRoot, prefix: '/sounds/', decorateReply: false,
       cacheControl: true, maxAge: '1d', immutable: false,
+    });
+  }
+
+  if (options.soundUploadRoot) {
+    app.register(fastifyStatic, {
+      root: options.soundUploadRoot, prefix: '/media/sounds/', decorateReply: false,
+      cacheControl: true, maxAge: '1d', immutable: true,
     });
   }
 

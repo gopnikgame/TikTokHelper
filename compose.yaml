@@ -41,6 +41,7 @@ services:
       POSTGRES_DB: tiktok_helper
       POSTGRES_USER: tiktok_helper
       TIKTOK_PROXY_URL: ${TIKTOK_PROXY_URL:-}
+      SOUND_UPLOAD_ROOT: /app/data/media/sounds
     extra_hosts:
       - "host.docker.internal:host-gateway"
     secrets: [db_password]

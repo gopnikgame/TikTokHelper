@@ -10,9 +10,12 @@ export interface SoundRepository {
   listSounds(workspaceId: string): Promise<SoundAsset[]>;
   listMappings(workspaceId: string): Promise<GiftSoundMapping[]>;
   saveMapping(workspaceId: string, input: UpdateGiftSoundMapping): Promise<GiftSoundMapping | null>;
+  createSound(workspaceId: string, sound: BuiltInSound & { mimeType: string }): Promise<SoundAsset>;
 }
 
-const soundUrl = (storageKey: string) => `/sounds/${encodeURIComponent(storageKey)}`;
+const soundUrl = (storageKey: string) => storageKey.startsWith('uploaded/')
+  ? `/media/sounds/${encodeURIComponent(storageKey.slice('uploaded/'.length))}`
+  : `/sounds/${encodeURIComponent(storageKey)}`;
 
 export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRepository): SoundRepository {
   return {
@@ -26,6 +29,12 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
     async listSounds(workspaceId) {
       const rows = await db.select().from(soundAssets).where(eq(soundAssets.workspaceId, workspaceId));
       return rows.map((row) => ({ id: row.id, displayName: row.displayName, url: soundUrl(row.storageKey) }));
+    },
+    async createSound(workspaceId, sound) {
+      await db.insert(workspaces).values({ id: workspaceId, displayName: workspaceId }).onConflictDoNothing();
+      const [row] = await db.insert(soundAssets).values({ workspaceId, ...sound }).returning();
+      if (!row) throw new Error('Sound asset was not created');
+      return { id: row.id, displayName: row.displayName, url: soundUrl(row.storageKey) };
     },
     async listMappings(workspaceId) {
       const rows = await db.select({
