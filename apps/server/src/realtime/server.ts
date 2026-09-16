@@ -9,7 +9,17 @@ import type { TikTokSessionManager } from '../tiktok/session-manager.js';
 import { RecentEventBuffer } from './buffer.js';
 import type { AuthPrincipal } from '@tiktok-helper/contracts';
 
-const roomFor = (workspaceId: string) => `workspace:${workspaceId}`;
+const roomFor = (workspaceId: string, diagnostics: boolean) =>
+  `workspace:${workspaceId}:${diagnostics ? 'diagnostics' : 'standard'}`;
+
+function eventForPrincipal(event: RealtimeEvent, isAdmin: boolean): RealtimeEvent {
+  if (isAdmin || event.type !== 'chat.message') return event;
+  return {
+    type: event.type, generation: event.generation, sequence: event.sequence, eventId: event.eventId,
+    senderDisplayName: event.senderDisplayName, senderUsername: event.senderUsername, text: event.text,
+    ...(event.emotes ? { emotes: event.emotes } : {}),
+  };
+}
 const invalidCommand: CommandAcknowledgement = {
   ok: false, error: { code: 'INVALID_COMMAND', message: 'Command validation failed' },
 };
@@ -72,19 +82,20 @@ export function attachRealtimeServer(
       const replay = buffer.replay(
         parsed.value.workspaceId, parsed.value.generation, parsed.value.lastSequence,
       );
+      const diagnostics = (socket.data.authPrincipal as AuthPrincipal | undefined)?.isAdmin === true;
       const snapshot: RealtimeSnapshot = {
         workspaceId: parsed.value.workspaceId,
         generation: status.generation,
         lastSequence: status.lastSequence,
         connectionState: status.state,
-        replay: replay.events,
+        replay: replay.events.map((event) => eventForPrincipal(event, diagnostics)),
         requiresFullRefresh: replay.requiresFullRefresh,
       };
       socket.emit('snapshot', snapshot);
-      await socket.join(roomFor(parsed.value.workspaceId));
+      await socket.join(roomFor(parsed.value.workspaceId, diagnostics));
       for (const event of buffer.replay(
         parsed.value.workspaceId, snapshot.generation, snapshot.lastSequence,
-      ).events) socket.emit('event', event);
+      ).events) socket.emit('event', eventForPrincipal(event, diagnostics));
       acknowledge({ ok: true });
     });
 
@@ -124,7 +135,8 @@ export function attachRealtimeServer(
   return {
     publish(workspaceId, event) {
       buffer.add(workspaceId, event);
-      io.to(roomFor(workspaceId)).emit('event', event);
+      io.to(roomFor(workspaceId, false)).emit('event', eventForPrincipal(event, false));
+      io.to(roomFor(workspaceId, true)).emit('event', event);
     },
     publishSoundLibraryChanged(soundId) { io.emit('sound-library:changed', { soundId }); },
     async close() { io.local.disconnectSockets(true); },

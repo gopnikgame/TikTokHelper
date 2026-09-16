@@ -100,6 +100,36 @@ describe('realtime server', () => {
     expect(await subscribe(client, 'other')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
   });
 
+  it('sends participant diagnostics to administrators only', async () => {
+    const diagnosticEvent = {
+      type: 'chat.message' as const, generation: 1, sequence: 1, eventId: 'chat-1',
+      senderDisplayName: 'Viewer', senderUsername: 'viewer', text: 'Hello', language: 'ru',
+      participant: { userId: '42', secUidAvailable: true, moderator: true },
+    };
+    const memberPrincipal = { userId: randomUUID(), displayName: 'Member', isAdmin: false, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
+    const member = await setup(
+      (workspaceId, current) => current?.workspaces.some((workspace) => workspace.id === workspaceId) === true,
+      async () => memberPrincipal,
+    );
+    expect(await subscribe(member.client, 'mine')).toEqual({ ok: true });
+    const memberEvent = new Promise<unknown>((resolve) => member.client.once('event', resolve));
+    member.realtime.publish('mine', diagnosticEvent);
+    await expect(memberEvent).resolves.toEqual({
+      type: 'chat.message', generation: 1, sequence: 1, eventId: 'chat-1',
+      senderDisplayName: 'Viewer', senderUsername: 'viewer', text: 'Hello',
+    });
+
+    const adminPrincipal = { userId: randomUUID(), displayName: 'Admin', isAdmin: true, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
+    const admin = await setup(
+      (workspaceId, current) => current?.workspaces.some((workspace) => workspace.id === workspaceId) === true,
+      async () => adminPrincipal,
+    );
+    expect(await subscribe(admin.client, 'mine')).toEqual({ ok: true });
+    const adminEvent = new Promise<unknown>((resolve) => admin.client.once('event', resolve));
+    admin.realtime.publish('mine', diagnosticEvent);
+    await expect(adminEvent).resolves.toEqual(diagnosticEvent);
+  });
+
   it('rejects unauthorized and malformed subscriptions', async () => {
     const { client } = await setup();
     expect(await subscribe(client, 'other')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
