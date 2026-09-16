@@ -1,5 +1,5 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AuthPrincipal, GiftEvent, GiftSoundMapping, ObservedGift, RecentChannel, SoundAsset, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
+import type { AuthPrincipal, ChatEvent, GiftEvent, GiftSoundMapping, ObservedGift, RecentChannel, SoundAsset, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
 import { AudioOwnership, SoundPlaybackQueue } from './audio/playback.js';
 import { operatorEventCount } from './event-model.js';
 import { createRealtimeClient, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
@@ -11,6 +11,10 @@ const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', 
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
 const CONNECTION_NOTICE = { live: 'Эфир подключён — принимаем чат и подарки', reconnecting: 'Связь прервалась — подключаемся снова…', offline: 'Эфир завершён или аккаунт сейчас не в эфире', failed: 'Не удалось подключиться к эфиру' } as const;
 type SessionState = { status: 'loading' } | { status: 'anonymous' } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
+
+function diagnosticBoolean(value: boolean | undefined): string {
+  return value === undefined ? 'нет данных' : value ? 'да' : 'нет';
+}
 
 export function App() {
   const [sessionState, setSessionState] = useState<SessionState>({ status: 'loading' });
@@ -131,7 +135,16 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   useEffect(() => { const playback = player.current; const owner = new AudioOwnership(() => { setAudioEnabled(false); playback.stopAll(); setNotice('Звук включён в другой вкладке'); }); ownership.current = owner; return () => { owner.close(); playback.stopAll(); }; }, []);
 
   const mappingByGift = useMemo(() => new Map(mappings.filter((item) => item.isEnabled).map((item) => [item.giftId, item])), [mappings]);
-  const chatEvents = useMemo(() => realtime.events.filter((event) => event.type === 'chat.message'), [realtime.events]);
+  const chatEvents = useMemo(() => realtime.events.filter((event): event is ChatEvent => event.type === 'chat.message'), [realtime.events]);
+  const participantObservations = useMemo(() => {
+    const observations = new Map<string, ChatEvent>();
+    for (const event of chatEvents.toReversed()) {
+      const key = event.participant?.userId ?? event.senderUsername.toLocaleLowerCase();
+      if (!observations.has(key)) observations.set(key, event);
+      if (observations.size >= 50) break;
+    }
+    return [...observations.values()];
+  }, [chatEvents]);
   const giftEvents = useMemo(() => realtime.events.filter((event): event is GiftEvent => event.type === 'gift.received'), [realtime.events]);
   const observedGifts = useMemo(() => {
     const now = new Date().toISOString();
@@ -286,6 +299,32 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
       <section className="feed-panel chat-panel" aria-labelledby="chat-title"><header><div><p className="section-kicker">Прямой эфир</p><h2 id="chat-title">Чат</h2></div>{!followChat ? <button type="button" className="quiet" onClick={() => setFollowChat(true)}>К новым сообщениям</button> : null}</header><ul ref={chatFeed} className="chat-list" aria-live="polite" onScroll={(event) => { const target = event.currentTarget; setFollowChat(target.scrollHeight - target.scrollTop - target.clientHeight < 56); }}>{chatEvents.length === 0 ? <li className="empty-state"><strong>Сообщений пока нет</strong><span>После подключения новые реплики появятся здесь крупным текстом.</span></li> : chatEvents.map((message) => <li key={message.eventId} className="chat-message"><div><strong>{message.senderDisplayName}</strong><span>@{message.senderUsername}</span></div><p>{chatContentParts(message.text, message.emotes).map((part, index) => part.type === 'text' ? part.value : <img key={`${part.value.emoteId}-${index}`} className="chat-emote" src={part.value.imageUrl} alt={`:${part.value.emoteId}:`} loading="lazy" referrerPolicy="no-referrer" />)}</p></li>)}</ul></section>
       <aside className="feed-panel gift-panel" aria-labelledby="gift-title"><header><div><p className="section-kicker">Реакции</p><h2 id="gift-title">Подарки</h2></div></header><ul className="gift-list">{giftEvents.length === 0 ? <li className="empty-state"><strong>Ждём первый подарок</strong><span>Серии будут показаны по реально добавленному количеству.</span></li> : giftEvents.slice(-30).toReversed().map((gift) => <li key={gift.eventId}>{gift.imageUrl ? <img className="gift-image" src={gift.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="gift-count">×{gift.repeatCount}</span>}<div><strong>{gift.giftName} ×{gift.repeatCount}</strong><span>{gift.senderDisplayName}</span></div><small>{mappingByGift.has(gift.giftId) ? 'звук назначен' : `ID ${gift.giftId} · без звука`}</small><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>)}</ul></aside>
     </div>
+    <details className="diagnostics-panel">
+      <summary><span><b>Диагностика участников чата</b><small>{participantObservations.length} замечено в текущей истории</small></span><span aria-hidden="true">Развернуть</span></summary>
+      <div className="diagnostics-intro"><strong>Безопасный просмотр</strong><span>Показываются только нормализованные поля текущего эфира. Исходные события, secUid, биографии и текст сообщений здесь не сохраняются.</span></div>
+      {participantObservations.length === 0 ? <p className="catalog-empty">Данные появятся после первого нового сообщения в подключённом эфире.</p> : <ul className="diagnostics-list">{participantObservations.map((message) => {
+        const participant = message.participant;
+        return <li key={participant?.userId ?? message.senderUsername}>
+          <div className="participant-heading">{participant?.avatarUrl ? <img src={participant.avatarUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="participant-placeholder" aria-hidden="true">👤</span>}<div><strong>{message.senderDisplayName}</strong><span>@{message.senderUsername}</span>{participant?.userId ? <code>ID {participant.userId}</code> : null}</div></div>
+          <dl>
+            <div><dt>Модератор</dt><dd>{diagnosticBoolean(participant?.moderator)}</dd></div>
+            <div><dt>Подписчик</dt><dd>{diagnosticBoolean(participant?.subscriber)}</dd></div>
+            <div><dt>Фолловер</dt><dd>{diagnosticBoolean(participant?.follower)}</dd></div>
+            <div><dt>Взаимная подписка</dt><dd>{diagnosticBoolean(participant?.mutualFollow)}</dd></div>
+            <div><dt>Даритель</dt><dd>{diagnosticBoolean(participant?.giftGiver)}</dd></div>
+            <div><dt>Автор эфира</dt><dd>{diagnosticBoolean(participant?.anchor)}</dd></div>
+            <div><dt>Верифицирован</dt><dd>{diagnosticBoolean(participant?.verified)}</dd></div>
+            <div><dt>secUid получен</dt><dd>{participant?.secUidAvailable ? 'да, скрыт' : 'нет'}</dd></div>
+            <div><dt>Уровень дарителя</dt><dd>{participant?.gifterLevel ?? 'нет данных'}</dd></div>
+            <div><dt>Фан-клуб</dt><dd>{participant?.fanClubName ?? 'нет данных'}{participant?.fanClubLevel !== undefined ? ` · уровень ${participant.fanClubLevel}` : ''}</dd></div>
+            <div><dt>Подписчики профиля</dt><dd>{participant?.followerCount ?? 'нет данных'}</dd></div>
+            <div><dt>Подписки профиля</dt><dd>{participant?.followingCount ?? 'нет данных'}</dd></div>
+            <div><dt>Язык сообщения</dt><dd>{message.language ?? 'нет данных'}</dd></div>
+            <div><dt>Упоминания</dt><dd>{message.mentionedUsernames?.map((name) => `@${name}`).join(', ') || 'нет'}</dd></div>
+          </dl>
+        </li>;
+      })}</ul>}
+    </details>
     <details className="catalog-panel">
       <summary><span><b>Каталог подарков и звуков</b><small>{observedGifts.length} подарков · {mappings.length} привязок</small></span><span aria-hidden="true">Развернуть</span></summary>
       <div className="catalog-tools"><label>Поиск по названию, ID или звуку<input type="search" value={catalogQuery} placeholder="Например: Rose, 5655 или Пук" onChange={(event) => setCatalogQuery(event.target.value)} /></label><fieldset><legend>Показывать</legend><div className="filter-pills"><button type="button" className={catalogFilter === 'all' ? 'active' : ''} aria-pressed={catalogFilter === 'all'} onClick={() => setCatalogFilter('all')}>Все <span>{observedGifts.length}</span></button><button type="button" className={catalogFilter === 'unassigned' ? 'active' : ''} aria-pressed={catalogFilter === 'unassigned'} onClick={() => setCatalogFilter('unassigned')}>Без звука <span>{observedGifts.length - assignedGiftCount}</span></button><button type="button" className={catalogFilter === 'assigned' ? 'active' : ''} aria-pressed={catalogFilter === 'assigned'} onClick={() => setCatalogFilter('assigned')}>Настроенные <span>{assignedGiftCount}</span></button></div></fieldset></div>

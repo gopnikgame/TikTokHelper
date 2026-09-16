@@ -67,12 +67,29 @@ describe('TikTok session manager', () => {
     await manager.start('family', 'streamer');
     connector.emit('chat', {
       common: { msgId: 'chat-current-1' },
-      user: { id: '42', displayId: 'current_viewer', nickname: 'Current Viewer' },
-      content: 'Current message',
+      user: {
+        id: '42', secUid: 'must-not-leave-the-adapter', displayId: 'current_viewer', nickname: 'Current Viewer',
+        avatarThumb: { urlList: ['https://cdn.example/avatar.png'] }, verified: true,
+        followInfo: { followerCount: '123', followingCount: '45' },
+        payGrade: { level: 17 }, fansClub: { data: { clubName: 'Stream Team', level: 8 } },
+      },
+      userIdentity: {
+        isFollowerOfAnchor: true, isMutualFollowingWithAnchor: false, isModeratorOfAnchor: true,
+        isSubscriberOfAnchor: true, isAnchor: false, isGiftGiverOfAnchor: true,
+      },
+      content: 'Current message', contentLanguage: 'ru',
+      mentionUsers: [{ displayId: 'streamer' }],
     });
     expect(events).toContainEqual(expect.objectContaining({
-      type: 'chat.message', senderUsername: 'current_viewer', text: 'Current message',
+      type: 'chat.message', senderUsername: 'current_viewer', text: 'Current message', language: 'ru',
+      mentionedUsernames: ['streamer'],
+      participant: {
+        userId: '42', avatarUrl: 'https://cdn.example/avatar.png', secUidAvailable: true, verified: true,
+        follower: true, mutualFollow: false, moderator: true, subscriber: true, anchor: false, giftGiver: true,
+        followerCount: 123, followingCount: 45, gifterLevel: 17, fanClubName: 'Stream Team', fanClubLevel: 8,
+      },
     }));
+    expect(JSON.stringify(events)).not.toContain('must-not-leave-the-adapter');
   });
 
   it('keeps current connector emote images in the project chat contract', async () => {

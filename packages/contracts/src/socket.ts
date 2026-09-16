@@ -87,8 +87,28 @@ export interface ChatEvent {
   type: 'chat.message'; generation: number; sequence: number; eventId: string;
   senderDisplayName: string; senderUsername: string; text: string;
   emotes?: ChatEmote[];
+  participant?: ChatParticipantDiagnostic;
+  language?: string;
+  mentionedUsernames?: string[];
 }
 export interface ChatEmote { emoteId: string; imageUrl: string; position: number; }
+export interface ChatParticipantDiagnostic {
+  userId?: string;
+  avatarUrl?: string;
+  secUidAvailable: boolean;
+  verified?: boolean;
+  follower?: boolean;
+  mutualFollow?: boolean;
+  moderator?: boolean;
+  subscriber?: boolean;
+  anchor?: boolean;
+  giftGiver?: boolean;
+  followerCount?: number;
+  followingCount?: number;
+  gifterLevel?: number;
+  fanClubName?: string;
+  fanClubLevel?: number;
+}
 export interface GiftEvent {
   type: 'gift.received'; generation: number; sequence: number; eventId: string;
   giftId: string; giftName: string; senderDisplayName: string; repeatCount: number;

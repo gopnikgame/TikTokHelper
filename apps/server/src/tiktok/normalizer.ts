@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { ChatEmote, ChatEvent, GiftEvent } from '@tiktok-helper/contracts';
+import type { ChatEmote, ChatEvent, ChatParticipantDiagnostic, GiftEvent } from '@tiktok-helper/contracts';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -21,6 +21,15 @@ function positiveInteger(value: unknown): number | undefined {
 function nonNegativeInteger(value: unknown): number | undefined {
   const parsed = typeof value === 'bigint' ? Number(value) : Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function boolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
+}
+
+function boundedText(value: unknown, maximumLength: number): string | undefined {
+  const valueText = text(value);
+  return valueText && valueText.length <= maximumLength ? valueText : undefined;
 }
 
 function chatEmotes(value: unknown): ChatEmote[] {
@@ -69,6 +78,46 @@ function sender(raw: UnknownRecord): { displayName: string; username: string } |
   return { displayName: text(user?.nickname) ?? username, username };
 }
 
+function participantDiagnostic(raw: UnknownRecord): ChatParticipantDiagnostic {
+  const user = record(raw.user) ?? {};
+  const identity = record(raw.userIdentity);
+  const followInfo = record(user.followInfo);
+  const payGrade = record(user.payGrade);
+  const fansClub = record(user.fansClub);
+  const fansClubData = record(fansClub?.data);
+  const fansClubInfo = record(user.fansClubInfo);
+  return {
+    secUidAvailable: Boolean(text(user.secUid)),
+    ...(boundedText(user.idStr ?? user.id ?? user.userId, 40) ? { userId: boundedText(user.idStr ?? user.id ?? user.userId, 40) } : {}),
+    ...(firstImageUrl(user.avatarThumb, user.profilePicture) ? { avatarUrl: firstImageUrl(user.avatarThumb, user.profilePicture) } : {}),
+    ...(boolean(user.verified) !== undefined ? { verified: boolean(user.verified) } : {}),
+    ...(boolean(identity?.isFollowerOfAnchor) !== undefined ? { follower: boolean(identity?.isFollowerOfAnchor) } : {}),
+    ...(boolean(identity?.isMutualFollowingWithAnchor) !== undefined ? { mutualFollow: boolean(identity?.isMutualFollowingWithAnchor) } : {}),
+    ...(boolean(identity?.isModeratorOfAnchor ?? user.isModerator) !== undefined ? { moderator: boolean(identity?.isModeratorOfAnchor ?? user.isModerator) } : {}),
+    ...(boolean(identity?.isSubscriberOfAnchor ?? user.isSubscriber) !== undefined ? { subscriber: boolean(identity?.isSubscriberOfAnchor ?? user.isSubscriber) } : {}),
+    ...(boolean(identity?.isAnchor) !== undefined ? { anchor: boolean(identity?.isAnchor) } : {}),
+    ...(boolean(identity?.isGiftGiverOfAnchor) !== undefined ? { giftGiver: boolean(identity?.isGiftGiverOfAnchor) } : {}),
+    ...(nonNegativeInteger(followInfo?.followerCount) !== undefined ? { followerCount: nonNegativeInteger(followInfo?.followerCount) } : {}),
+    ...(nonNegativeInteger(followInfo?.followingCount) !== undefined ? { followingCount: nonNegativeInteger(followInfo?.followingCount) } : {}),
+    ...(nonNegativeInteger(payGrade?.level ?? user.gifterLevel) !== undefined ? { gifterLevel: nonNegativeInteger(payGrade?.level ?? user.gifterLevel) } : {}),
+    ...(boundedText(fansClubData?.clubName ?? fansClubInfo?.fansClubName, 80) ? { fanClubName: boundedText(fansClubData?.clubName ?? fansClubInfo?.fansClubName, 80) } : {}),
+    ...(nonNegativeInteger(fansClubData?.level ?? fansClubInfo?.fansLevel ?? user.teamMemberLevel) !== undefined
+      ? { fanClubLevel: nonNegativeInteger(fansClubData?.level ?? fansClubInfo?.fansLevel ?? user.teamMemberLevel) } : {}),
+  };
+}
+
+function mentionedUsernames(raw: UnknownRecord): string[] {
+  const values = [
+    ...(Array.isArray(raw.mentionUsers) ? raw.mentionUsers : []),
+    ...(record(raw.atUser) ? [raw.atUser] : []),
+  ];
+  return [...new Set(values.flatMap((value) => {
+    const user = record(value);
+    const username = boundedText(user?.displayId ?? user?.uniqueId, 64);
+    return username ? [username] : [];
+  }))].slice(0, 20);
+}
+
 export function normalizeChat(rawValue: unknown, generation: number, sequence: number): ChatEvent | undefined {
   const raw = record(rawValue);
   if (!raw) return undefined;
@@ -76,11 +125,16 @@ export function normalizeChat(rawValue: unknown, generation: number, sequence: n
   const comment = text(raw.comment) ?? text(raw.content);
   if (!author || !comment) return undefined;
   const emotes = chatEmotes(raw.emotes);
+  const mentions = mentionedUsernames(raw);
+  const language = boundedText(raw.contentLanguage, 16);
   return {
     type: 'chat.message', generation, sequence,
     eventId: eventId(raw, ['chat', author.username, comment]),
     senderDisplayName: author.displayName, senderUsername: author.username, text: comment,
     ...(emotes.length > 0 ? { emotes } : {}),
+    participant: participantDiagnostic(raw),
+    ...(language ? { language } : {}),
+    ...(mentions.length > 0 ? { mentionedUsernames: mentions } : {}),
   };
 }
 
