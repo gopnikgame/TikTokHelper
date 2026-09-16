@@ -190,6 +190,78 @@ export const giftSoundRules = pgTable('gift_sound_rules', {
     .onDelete('restrict'),
 ]);
 
+export const workspaceSpeechPolicies = pgTable('workspace_speech_policies', {
+  workspaceId: varchar('workspace_id', { length: 64 }).primaryKey()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  moderatorSpeechEnabled: boolean('moderator_speech_enabled').notNull().default(false),
+  moderatorCooldownSeconds: integer('moderator_cooldown_seconds').notNull().default(30),
+  defaultSpeechCooldownSeconds: integer('default_speech_cooldown_seconds').notNull().default(30),
+  maxMessageCharacters: integer('max_message_characters').notNull().default(200),
+  maxQueueSize: integer('max_queue_size').notNull().default(20),
+  readUserName: boolean('read_user_name').notNull().default(false),
+  fallbackLanguage: varchar('fallback_language', { length: 16 }).notNull().default('ru-RU'),
+  revision: integer('revision').notNull().default(1),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check('workspace_speech_policies_moderator_cooldown_chk', sql`${table.moderatorCooldownSeconds} between 5 and 3600`),
+  check('workspace_speech_policies_default_cooldown_chk', sql`${table.defaultSpeechCooldownSeconds} between 5 and 3600`),
+  check('workspace_speech_policies_message_length_chk', sql`${table.maxMessageCharacters} between 20 and 500`),
+  check('workspace_speech_policies_queue_size_chk', sql`${table.maxQueueSize} between 1 and 100`),
+  check('workspace_speech_policies_revision_chk', sql`${table.revision} >= 1`),
+]);
+
+export const supportLevels = pgTable('support_levels', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 80 }).notNull(),
+  thresholdPoints: integer('threshold_points').notNull(),
+  pointsScope: varchar('points_scope', { length: 16 }).notNull(),
+  privilegeDuration: varchar('privilege_duration', { length: 16 }).notNull(),
+  privilegeDurationDays: integer('privilege_duration_days'),
+  grantsChatSpeech: boolean('grants_chat_speech').notNull().default(false),
+  chatSpeechCooldownSeconds: integer('chat_speech_cooldown_seconds').notNull().default(30),
+  announcementTemplate: varchar('announcement_template', { length: 500 }),
+  soundAssetId: uuid('sound_asset_id').references(() => soundLibraryAssets.id, { onDelete: 'set null' }),
+  isEnabled: boolean('is_enabled').notNull().default(false),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  unique('support_levels_workspace_id_unique').on(table.workspaceId, table.id),
+  index('support_levels_workspace_position_idx').on(table.workspaceId, table.position),
+  index('support_levels_sound_asset_idx').on(table.soundAssetId),
+  check('support_levels_threshold_chk', sql`${table.thresholdPoints} >= 1`),
+  check('support_levels_scope_chk', sql`${table.pointsScope} in ('stream', 'lifetime')`),
+  check('support_levels_duration_chk', sql`${table.privilegeDuration} in ('stream', 'days', 'permanent')`),
+  check('support_levels_duration_days_chk', sql`(${table.privilegeDuration} = 'days' and ${table.privilegeDurationDays} between 1 and 3650) or (${table.privilegeDuration} <> 'days' and ${table.privilegeDurationDays} is null)`),
+  check('support_levels_cooldown_chk', sql`${table.chatSpeechCooldownSeconds} between 5 and 3600`),
+  check('support_levels_position_chk', sql`${table.position} between 0 and 10000`),
+]);
+
+export const eventReactions = pgTable('event_reactions', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  name: varchar('name', { length: 80 }).notNull(),
+  eventType: varchar('event_type', { length: 32 }).notNull(),
+  supportLevelId: uuid('support_level_id'),
+  speechTemplate: varchar('speech_template', { length: 500 }),
+  soundAssetId: uuid('sound_asset_id').references(() => soundLibraryAssets.id, { onDelete: 'set null' }),
+  cooldownSeconds: integer('cooldown_seconds').notNull().default(0),
+  isEnabled: boolean('is_enabled').notNull().default(false),
+  position: integer('position').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index('event_reactions_workspace_position_idx').on(table.workspaceId, table.position),
+  index('event_reactions_sound_asset_idx').on(table.soundAssetId),
+  foreignKey({ columns: [table.workspaceId, table.supportLevelId], foreignColumns: [supportLevels.workspaceId, supportLevels.id] }).onDelete('cascade'),
+  check('event_reactions_type_chk', sql`${table.eventType} in ('moderator_seen', 'donor_seen', 'support_level_reached')`),
+  check('event_reactions_cooldown_chk', sql`${table.cooldownSeconds} between 0 and 86400`),
+  check('event_reactions_position_chk', sql`${table.position} between 0 and 10000`),
+]);
+
 export const processedGiftEvents = pgTable('processed_gift_events', {
   workspaceId: varchar('workspace_id', { length: 64 }).notNull()
     .references(() => workspaces.id, { onDelete: 'cascade' }),

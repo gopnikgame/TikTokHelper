@@ -1,7 +1,7 @@
 import { and, count, eq } from 'drizzle-orm';
 import type { GiftSoundMapping, SoundAsset, UpdateGiftSoundMapping } from '@tiktok-helper/contracts';
 import type { Database } from '../db/client.js';
-import { giftSoundRules, soundLibraryAssets, workspaces } from '../db/schema.js';
+import { eventReactions, giftSoundRules, soundLibraryAssets, supportLevels, workspaces } from '../db/schema.js';
 import type { GiftCatalogRepository } from '../gifts/repository.js';
 
 export interface BuiltInSound { displayName: string; storageKey: string }
@@ -25,8 +25,12 @@ const soundUrl = (storageKey: string) => storageKey.startsWith('uploaded/')
 
 export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRepository): SoundRepository {
   async function usageCount(soundId: string): Promise<number> {
-    const [row] = await db.select({ value: count() }).from(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId));
-    return Number(row?.value ?? 0);
+    const [giftRows, levelRows, reactionRows] = await Promise.all([
+      db.select({ value: count() }).from(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId)),
+      db.select({ value: count() }).from(supportLevels).where(eq(supportLevels.soundAssetId, soundId)),
+      db.select({ value: count() }).from(eventReactions).where(eq(eventReactions.soundAssetId, soundId)),
+    ]);
+    return Number(giftRows[0]?.value ?? 0) + Number(levelRows[0]?.value ?? 0) + Number(reactionRows[0]?.value ?? 0);
   }
   function present(row: typeof soundLibraryAssets.$inferSelect, actor?: SoundActor, used = 0): SoundAsset {
     const isOwnedByCurrentUser = actor !== undefined && row.createdByUserId === actor.userId;
@@ -48,11 +52,18 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
       }))).onConflictDoNothing();
     },
     async listSounds(_workspaceId, actor) {
-      const rows = await db.select({ asset: soundLibraryAssets, usageCount: count(giftSoundRules.id) })
-        .from(soundLibraryAssets).leftJoin(giftSoundRules, eq(giftSoundRules.soundAssetId, soundLibraryAssets.id))
-        .groupBy(soundLibraryAssets.id);
-      return rows.filter(({ asset }) => asset.status === 'active' || actor?.isAdmin)
-        .map(({ asset, usageCount: used }) => present(asset, actor, Number(used)));
+      const [rows, giftUsage, levelUsage, reactionUsage] = await Promise.all([
+        db.select().from(soundLibraryAssets),
+        db.select({ soundId: giftSoundRules.soundAssetId, value: count() }).from(giftSoundRules).groupBy(giftSoundRules.soundAssetId),
+        db.select({ soundId: supportLevels.soundAssetId, value: count() }).from(supportLevels).groupBy(supportLevels.soundAssetId),
+        db.select({ soundId: eventReactions.soundAssetId, value: count() }).from(eventReactions).groupBy(eventReactions.soundAssetId),
+      ]);
+      const usage = new Map<string, number>();
+      for (const group of [...giftUsage, ...levelUsage, ...reactionUsage]) {
+        if (group.soundId) usage.set(group.soundId, (usage.get(group.soundId) ?? 0) + Number(group.value));
+      }
+      return rows.filter((asset) => asset.status === 'active' || actor?.isAdmin)
+        .map((asset) => present(asset, actor, usage.get(asset.id) ?? 0));
     },
     async createSound(workspaceId, sound, createdByUserId) {
       await db.insert(workspaces).values({ id: workspaceId, displayName: workspaceId }).onConflictDoNothing();
@@ -101,8 +112,12 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
       return db.transaction(async (tx) => {
         const [asset] = await tx.select().from(soundLibraryAssets).where(eq(soundLibraryAssets.id, soundId)).for('update').limit(1);
         if (!asset) return { ok: false, reason: 'not_found' } as const;
-        const [usage] = await tx.select({ value: count() }).from(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId));
-        const used = Number(usage?.value ?? 0);
+        const [giftUsage, levelUsage, reactionUsage] = await Promise.all([
+          tx.select({ value: count() }).from(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId)),
+          tx.select({ value: count() }).from(supportLevels).where(eq(supportLevels.soundAssetId, soundId)),
+          tx.select({ value: count() }).from(eventReactions).where(eq(eventReactions.soundAssetId, soundId)),
+        ]);
+        const used = Number(giftUsage[0]?.value ?? 0) + Number(levelUsage[0]?.value ?? 0) + Number(reactionUsage[0]?.value ?? 0);
         if (actor.isAdmin) {
           if (asset.status !== 'quarantined') return { ok: false, reason: 'not_quarantined' } as const;
           await tx.delete(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId));

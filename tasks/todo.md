@@ -214,3 +214,103 @@
 - [ ] All acceptance criteria and verification commands are recorded with fresh results.
 - [ ] Known TikTok reliability/licensing limitations and rollback instructions are documented.
 - [ ] Ivan and the operator accept the real browser flow.
+
+## Task 11: Define configurable speech and reaction contracts
+
+**Description:** Define additive runtime-validated contracts for support levels, speech policy, event reactions, template variables, and browser actions.
+
+**Acceptance criteria:**
+- [x] Every rule belongs to one workspace and is disabled/silent until explicitly configured.
+- [x] Templates accept only documented variables and bounded text.
+- [x] Moderator speech is an explicit workspace option with its own cooldown.
+
+**Verification:**
+- [x] Contract tests accept representative rules and reject unknown variables, oversized templates, invalid thresholds, and additional fields.
+- [x] Existing gift, sound, and settings contracts remain backward compatible.
+
+**Dependencies:** Tasks 5, 7, and 8
+
+**Files likely touched:** `packages/contracts/src/automation.ts`, `packages/contracts/src/index.ts`
+
+**Estimated scope:** Small
+
+## Task 12: Persist workspace speech configuration
+
+**Description:** Add reviewed Drizzle migrations, repository methods, and authenticated REST routes for levels, event reactions, and speech policy.
+
+**Acceptance criteria:**
+- [x] Levels, reactions, and policy survive restart and remain workspace-scoped.
+- [x] Sound references use the shared library and cannot reference quarantined or missing sounds.
+- [x] Empty workspaces receive no enabled speech or event reactions.
+
+**Verification:**
+- [ ] Empty-database migration and production-backup gates pass.
+- [x] API tests cover CRUD, ordering, validation, and cross-workspace isolation.
+
+**Dependencies:** Task 11
+
+**Files likely touched:** `apps/server/drizzle/`, `apps/server/src/db/schema.ts`, `apps/server/src/automation/`
+
+**Estimated scope:** Medium
+
+## Task 13: Track supporters and grant privileges
+
+**Description:** Identify gift senders, aggregate support points, and create idempotent level achievements without retaining raw events.
+
+**Acceptance criteria:**
+- [ ] Gift series increment totals exactly once.
+- [ ] Crossing a threshold grants its configured privilege once.
+- [ ] Current-stream and lifetime totals are distinguishable.
+
+**Verification:**
+- [ ] Tests cover duplicate events, series, multiple crossed levels, username changes, and concurrent updates.
+
+**Dependencies:** Task 12
+
+**Files likely touched:** `apps/server/src/tiktok/`, `apps/server/src/supporters/`, `packages/contracts/src/socket.ts`
+
+**Estimated scope:** Medium
+
+## Task 14: Execute bounded browser speech and event sounds
+
+**Description:** Evaluate moderator and earned privileges server-side, then send typed speech/sound actions for browser playback.
+
+**Acceptance criteria:**
+- [ ] No configured action means silence.
+- [ ] Speech respects language, cooldown, maximum length, duplicate suppression, and bounded queue policy.
+- [ ] Event sounds and gift sounds share browser audio ownership without uncontrolled overlap.
+
+**Verification:**
+- [ ] Unit tests cover template rendering and policy decisions.
+- [ ] Browser tests cover audio activation, voice fallback, queue overflow, and stop/clear.
+
+**Dependencies:** Task 13
+
+**Files likely touched:** `apps/server/src/automation/`, `apps/web/src/speech/`, `apps/web/src/audio/`
+
+**Estimated scope:** Medium
+
+## Task 15: Build the mobile rule editor
+
+**Description:** Add a dedicated progressive-disclosure settings surface for levels, moderator speech, event reactions, templates, sounds, and test playback.
+
+**Acceptance criteria:**
+- [ ] Users edit rules using human labels, not JSON or internal event names.
+- [ ] Available variables are shown next to each template and can be inserted by tapping.
+- [ ] Create, edit, reorder, disable, test, and delete flows work on mobile.
+
+**Verification:**
+- [ ] Component and Playwright tests cover empty, loading, error, long-name, and compact-width states.
+- [ ] Manual iPhone check confirms editing and test speech after one audio-unlock gesture.
+
+**Dependencies:** Tasks 12 and 14
+
+**Files likely touched:** `apps/web/src/`, `apps/web/src/styles.css`
+
+**Estimated scope:** Medium
+
+## Checkpoint: speech privileges
+
+- [ ] Tasks 11-15 pass `pnpm run verify`.
+- [ ] Production backup, migration, deploy, and rollback checks pass.
+- [ ] Real LIVE verifies one moderator message, one threshold crossing, one announcement, and one event sound.

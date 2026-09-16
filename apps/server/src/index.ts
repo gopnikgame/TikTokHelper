@@ -14,6 +14,7 @@ import { createAuthRepository } from './auth/repository.js';
 import { HttpIdentityBridge } from './auth/bridge-client.js';
 import { AuthService, parseCookie } from './auth/service.js';
 import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
+import { createAutomationRepository } from './automation/repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -78,6 +79,7 @@ const app = buildApp({
   soundRepository,
   giftCatalogRepository,
   recentChannelRepository,
+  automationRepository: createAutomationRepository(db),
   soundRoot,
   soundUploadRoot,
   soundUploadStore: soundUploadRoot ? createSoundUploadStore(soundUploadRoot) : undefined,

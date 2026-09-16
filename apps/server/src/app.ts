@@ -20,6 +20,8 @@ import type { RecentChannelRepository } from './channels/repository.js';
 import { authRoutes } from './auth/routes.js';
 import { parseCookie, type AuthService } from './auth/service.js';
 import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
+import { automationRoutes } from './automation/routes.js';
+import type { AutomationRepository } from './automation/repository.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -35,6 +37,7 @@ export interface BuildAppOptions {
   soundRepository?: SoundRepository;
   giftCatalogRepository?: GiftCatalogRepository;
   recentChannelRepository?: RecentChannelRepository;
+  automationRepository?: AutomationRepository;
   soundRoot?: string;
   soundUploadRoot?: string;
   soundUploadStore?: SoundUploadStore;
@@ -204,6 +207,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.recentChannelRepository) {
     app.register(recentChannelRoutes, { repository: options.recentChannelRepository });
+  }
+
+  if (options.automationRepository) {
+    app.register(automationRoutes, { repository: options.automationRepository });
   }
 
   if (options.soundRoot) {

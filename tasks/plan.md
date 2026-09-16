@@ -109,3 +109,20 @@ Replace the archived ASP.NET/Node hybrid with a browser-first TypeScript applica
 - Should sound files be shared per workspace or private per operator/browser?
 - How much event history, if any, is useful beyond a short live buffer and minimal gift audit?
 - Which domain and dedicated VM should host the service?
+
+## Phase 6: configurable speech privileges and event reactions
+
+- Add workspace-scoped support levels with user-defined names, point thresholds, privilege duration, chat-speech cooldown, optional announcement template, and optional sound.
+- Add workspace-scoped event reactions for moderator first-seen, donor first-seen, and support-level reached. Speech and sound actions are independently optional and disabled by default.
+- Add a global workspace speech policy with optional permanent moderator speech, bounded queues, message length limits, and cooldowns.
+- Track aggregate supporter totals without storing raw chat or the complete gift-event stream. Grant level achievements transactionally and idempotently.
+- Render templates from an allowlist of documented variables such as `{user}`, `{username}`, `{message}`, `{gift}`, `{count}`, `{points}`, `{total}`, `{level}`, and `{threshold}`.
+- Keep voice selection and browser audio activation local to the output device; store business rules and templates on the server.
+
+### Checkpoint: configurable speech foundation
+
+- Empty text and sound selections produce no reaction.
+- Workspace members cannot read or change another workspace's rules or supporter totals.
+- Duplicate gift events cannot grant points or achievements twice.
+- Moderator speech and earned speech privileges respect cooldown, length, queue, and content filters.
+- Mobile users can create, test, reorder, disable, and delete rules without editing JSON.
