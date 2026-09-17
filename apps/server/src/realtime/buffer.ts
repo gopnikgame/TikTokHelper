@@ -23,6 +23,15 @@ export class RecentEventBuffer {
     const events = this.#events.get(workspaceId) ?? [];
     if (generation === undefined || lastSequence === undefined) return { events: [], requiresFullRefresh: false };
     const currentGeneration = events.at(-1)?.generation;
+    // A new browser has no generation cursor yet. Its snapshot is authoritative,
+    // so include the bounded recent context from the current generation instead
+    // of treating generation 0 as an unrecoverable gap.
+    if (generation === 0 && lastSequence === 0 && currentGeneration !== undefined) {
+      return {
+        events: events.filter((event) => event.generation === currentGeneration),
+        requiresFullRefresh: false,
+      };
+    }
     if (currentGeneration !== undefined && generation !== currentGeneration) {
       return { events: [], requiresFullRefresh: true };
     }

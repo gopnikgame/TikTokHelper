@@ -9,6 +9,8 @@ import { RecentEventBuffer } from '../src/realtime/buffer.js';
 import { attachRealtimeServer, type RealtimeServerOptions } from '../src/realtime/server.js';
 import { TikTokSessionManager } from '../src/tiktok/session-manager.js';
 import type { ConnectorEventMap, LiveConnector } from '../src/tiktok/types.js';
+import type { LiveConnectorFactory } from '../src/tiktok/types.js';
+import { ScriptedConnector } from './helpers/scripted-connector.js';
 
 class FakeConnector implements LiveConnector {
   connect = vi.fn(async () => undefined);
@@ -34,11 +36,12 @@ async function setup(
   authenticate?: NonNullable<RealtimeServerOptions['authenticate']>,
   cookie?: string,
   extraHeaders?: Record<string, string>,
+  connectorFactory?: LiveConnectorFactory,
 ) {
   const connector = new FakeConnector();
   const events: Parameters<ReturnType<typeof attachRealtimeServer>['publish']>[] = [];
   let publish: ReturnType<typeof attachRealtimeServer>['publish'] = () => undefined;
-  const manager = new TikTokSessionManager(() => connector, (workspaceId, event) => {
+  const manager = new TikTokSessionManager(connectorFactory ?? (() => connector), (workspaceId, event) => {
     events.push([workspaceId, event]); publish(workspaceId, event);
   });
   const app = buildApp({ logger: false, tiktokManager: manager });
@@ -57,7 +60,7 @@ async function setup(
   await new Promise<void>((resolve, reject) => {
     client.once('connect', resolve); client.once('connect_error', reject);
   });
-  return { app, client, connector, manager, realtime, events };
+  return { address, app, client, connector, manager, realtime, events };
 }
 
 function subscribe(
@@ -174,6 +177,59 @@ describe('realtime server', () => {
     expect(connector.connect).toHaveBeenCalledTimes(1);
   });
 
+  it('drives normalized scripted events through reconnect and browser reload without a live account', async () => {
+    const scripted: ScriptedConnector[] = [];
+    const factory: LiveConnectorFactory = () => {
+      const index = scripted.length;
+      const connector = new ScriptedConnector(index === 0 ? [
+        { afterMs: 5, eventName: 'chat', payload: {
+          common: { msgId: 'script-chat-1' }, user: { displayId: 'moderator', nickname: 'Moderator' },
+          userIdentity: { isModeratorOfAnchor: true }, content: 'Scripted hello',
+        } },
+        { afterMs: 10, eventName: 'gift', payload: {
+          common: { msgId: 'script-gift-1' }, user: { displayId: 'donor', nickname: 'Donor' },
+          giftId: '5655', repeatCount: 1, repeatEnd: false, giftDetails: { giftType: 1, giftName: 'Rose' },
+        } },
+        { afterMs: 15, eventName: 'gift', payload: {
+          common: { msgId: 'script-gift-2' }, user: { displayId: 'donor', nickname: 'Donor' },
+          giftId: '5655', repeatCount: 3, repeatEnd: false, giftDetails: { giftType: 1, giftName: 'Rose' },
+        } },
+        { afterMs: 20, eventName: 'gift', payload: {
+          common: { msgId: 'script-gift-3' }, user: { displayId: 'donor', nickname: 'Donor' },
+          giftId: '5655', repeatCount: 3, repeatEnd: true, giftDetails: { giftType: 1, giftName: 'Rose' },
+        } },
+        { afterMs: 25, eventName: 'gift', payload: {
+          common: { msgId: 'script-gift-3' }, user: { displayId: 'donor', nickname: 'Donor' },
+          giftId: '5655', repeatCount: 3, repeatEnd: true, giftDetails: { giftType: 1, giftName: 'Rose' },
+        } },
+        { afterMs: 30, eventName: 'disconnected', payload: { code: 1006, reason: 'scripted' } },
+      ] : [{
+        afterMs: 5, eventName: 'chat', payload: {
+          common: { msgId: 'script-chat-2' }, user: { displayId: 'viewer', nickname: 'Viewer' },
+          content: 'Recovered after reconnect',
+        },
+      }]);
+      scripted.push(connector);
+      return connector;
+    };
+    const { address, client, events } = await setup(undefined, undefined, undefined, undefined, factory);
+    expect(await subscribe(client, 'primary')).toEqual({ ok: true });
+    await new Promise<CommandAcknowledgement>((resolve) => client.emit('live:connect', {
+      commandId: randomUUID(), workspaceId: 'primary', tiktokUsername: 'fixture_streamer',
+    }, resolve));
+    await vi.waitFor(() => expect(scripted).toHaveLength(2), { timeout: 2_000 });
+    await vi.waitFor(() => expect(events.some(([, event]) => event.type === 'chat.message' && event.text === 'Recovered after reconnect')).toBe(true));
+    expect(events.filter(([, event]) => event.type === 'gift.received').map(([, event]) => event.type === 'gift.received' ? event.repeatCount : 0)).toEqual([1, 2]);
+
+    const reloaded = createClient(address, { transports: ['websocket'], forceNew: true });
+    clients.add(reloaded);
+    await new Promise<void>((resolve, reject) => { reloaded.once('connect', resolve); reloaded.once('connect_error', reject); });
+    const snapshot = new Promise<unknown>((resolve) => reloaded.once('snapshot', resolve));
+    expect(await subscribe(reloaded, 'primary')).toEqual({ ok: true });
+    await expect(snapshot).resolves.toMatchObject({ connectionState: 'live' });
+    expect(scripted).toHaveLength(2);
+  });
+
   it('removes socket listeners and stops the connector on shutdown', async () => {
     const { app, client, connector } = await setup();
     await subscribe(client, 'primary');
@@ -188,6 +244,19 @@ describe('realtime server', () => {
 });
 
 describe('recent event buffer', () => {
+  it('gives a fresh browser the bounded recent context from the active generation', () => {
+    const buffer = new RecentEventBuffer(3);
+    buffer.add('primary', { type: 'connection.state', generation: 1, sequence: 1, state: 'connecting' });
+    buffer.add('primary', { type: 'connection.state', generation: 1, sequence: 2, state: 'live' });
+    expect(buffer.replay('primary', 0, 0)).toEqual({
+      events: [
+        { type: 'connection.state', generation: 1, sequence: 1, state: 'connecting' },
+        { type: 'connection.state', generation: 1, sequence: 2, state: 'live' },
+      ],
+      requiresFullRefresh: false,
+    });
+  });
+
   it('is bounded and signals a sequence gap it can no longer fill', () => {
     const buffer = new RecentEventBuffer(2);
     for (let sequence = 1; sequence <= 3; sequence += 1) {

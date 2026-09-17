@@ -25,7 +25,7 @@ The repository verification command covers linting, TypeScript, unit/integration
 pnpm run verify
 ```
 
-The latest responsive release passed 110 repository tests and was inspected at representative viewport sizes from 280 px to 2560 px wide. Production Chromium previously verified persistent reuse of all enabled mapped sounds with the network disabled; details and the deliberately deferred browser matrix are in [audio-cache-verification.md](audio-cache-verification.md).
+The current branch passes 112 repository tests and the latest responsive release was inspected at representative viewport sizes from 280 px to 2560 px wide. Production Chromium previously verified persistent reuse of all enabled mapped sounds with the network disabled; details and the deliberately deferred browser matrix are in [audio-cache-verification.md](audio-cache-verification.md).
 
 Automated coverage currently includes:
 
@@ -38,11 +38,11 @@ Automated coverage currently includes:
 
 ## Open work that does not require a real LIVE
 
-### 1. Deterministic browser event source
+### 1. Deterministic browser event source — implemented
 
-Add a test-only fake source behind an explicit non-production boundary. It must emit sanitized chat, emoji, gift, streak, reconnect, moderator and supporter-level events through the same normalized contracts as the real adapter. It must never be enabled by a public runtime flag in production.
+The test-only scripted source is isolated behind the connector-factory boundary and has no production runtime switch. It emits sanitized chat, emoji, gift, streak, reconnect, moderator and supporter-level events through the same normalizer, session manager and Socket.IO contracts as the real adapter. The repeatable workflow and current Chromium evidence are documented in [browser-workflow-harness.md](browser-workflow-harness.md).
 
-Use it for Playwright scenarios covering:
+The current harness and focused integration tests cover:
 
 - initial load and audio activation;
 - snapshot followed by live deltas;
@@ -52,7 +52,7 @@ Use it for Playwright scenarios covering:
 - supporter threshold announcements and moderator speech;
 - speech cooldown, queue limits and stop/clear;
 - sound overlap, fallback and single-tab ownership;
-- the responsive viewport matrix.
+- a representative mobile viewport; the broader responsive matrix remains covered by the separate responsive inspection.
 
 ### 2. Supporter-accounting edge cases
 

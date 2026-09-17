@@ -131,6 +131,7 @@ curl --fail http://127.0.0.1:3000/ready
 ## Документация
 
 - [Текущее состояние и следующие этапы](docs/project-status.md)
+- [Детерминированный браузерный harness](docs/browser-workflow-harness.md)
 - [Рабочие сценарии](docs/product/workflows.md)
 - [План и состояние задач](tasks/todo.md)
 - [Наблюдаемость и безопасные журналы](docs/observability.md)

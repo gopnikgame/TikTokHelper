@@ -143,3 +143,16 @@ Replace the archived ASP.NET/Node hybrid with a browser-first TypeScript applica
 - Cache eviction or unavailability degrades to network playback without affecting chat or TikTok connection state.
 - Browser storage contains no session, workspace, chat, participant, or live-event responses.
 - The future Service Worker can adopt the audio cache namespace and key contract without rewriting cached media.
+
+## Phase 8: deterministic browser workflow source
+
+- Introduce a process-injected connector factory used by the session manager; keep the real connector as the only production composition.
+- Provide a deterministic scripted connector exclusively from the browser-test harness, without an HTTP endpoint or production environment switch.
+- Drive sanitized connection, chat, emoji, gift streak, duplicate, reconnect, moderator, and supporter events through the existing normalized contracts.
+- Add repeatable browser workflow scenarios for snapshot recovery, rendering, audio ownership, speech policy, stop/clear, and the responsive viewport matrix.
+
+### Checkpoint: browser workflows without a real LIVE
+
+- The production startup path cannot select or expose the fake source.
+- Server tests prove scripted events use the same session/realtime boundary and do not create duplicate connectors after browser reload.
+- Browser scenarios are deterministic, require no TikTok account, and leave no runtime test controls in the public application.

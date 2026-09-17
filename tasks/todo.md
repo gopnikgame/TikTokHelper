@@ -157,7 +157,7 @@
 
 **Verification:**
 - [x] Component tests cover queues and error states.
-- [ ] Playwright covers initial load, activation, events, reload/reconnect, and responsive layout with a fake source.
+- [x] Playwright covers initial load, activation, events, reload/reconnect, and responsive layout with a fake source.
 - [ ] A manual browser check confirms actual speech and sound output.
 
 **Dependencies:** Tasks 5 and 7
@@ -339,3 +339,29 @@
 - [x] Tasks 11-15 pass `pnpm run verify`.
 - [x] Production backup, migration, deploy, and rollback procedure checks pass; full restore rehearsal remains open.
 - [ ] Real LIVE verifies one moderator message, one threshold crossing, one announcement, and one event sound.
+
+## Task 17: Add a deterministic browser workflow source
+
+**Description:** Exercise the complete browser workflow with sanitized scripted TikTok events without connecting to TikTok or adding a production-accessible simulation endpoint.
+
+**Acceptance criteria:**
+- [x] The session manager accepts an injected connector factory while production composition always selects the real adapter.
+- [x] A test-only scripted source emits normalized connection, chat, emoji, gift streak, duplicate, reconnect, moderator, and supporter events.
+- [x] Browser workflow checks cover snapshot recovery, rendering, audio/speech behavior, stop/clear, single-tab ownership, and representative responsive sizes.
+
+**Verification:**
+- [x] Focused server and browser tests pass with no live account or network dependency.
+- [x] `pnpm run verify` passes.
+- [x] Production bundles and startup configuration contain no public switch or route that enables the fake source.
+
+**Dependencies:** Tasks 7, 8, 14, and 16
+
+**Files likely touched:** `apps/server/src/tiktok/`, `apps/server/test/`, `apps/web/src/`, test harness files
+
+**Estimated scope:** Medium, implemented as separate connector-injection and browser-workflow slices
+
+## Checkpoint: deterministic operator workflow
+
+- [x] Scripted events traverse the same normalized contracts and Socket.IO path as real events.
+- [x] Reloading a browser does not create a second scripted connector.
+- [x] The automated suite remains isolated from production runtime configuration.
