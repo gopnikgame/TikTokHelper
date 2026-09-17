@@ -1,6 +1,4 @@
 FROM node:24.18.0-bookworm-slim AS build
-ARG SOURCE_REVISION=development
-ENV VITE_SOURCE_REVISION=$SOURCE_REVISION
 WORKDIR /workspace
 RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json eslint.config.mjs ./
@@ -11,7 +9,8 @@ RUN --mount=type=cache,id=tiktok-helper-pnpm,target=/root/.local/share/pnpm/stor
     pnpm install --frozen-lockfile --network-concurrency=4 --fetch-timeout=60000
 COPY apps ./apps
 COPY packages ./packages
-RUN pnpm run build
+ARG SOURCE_REVISION=development
+RUN VITE_SOURCE_REVISION="$SOURCE_REVISION" pnpm run build
 
 FROM node:24.18.0-bookworm-slim AS runtime
 ENV HOST=0.0.0.0 PORT=3000 WEB_ROOT=/app/apps/web/dist SOUND_ROOT=/app/builtin-sounds

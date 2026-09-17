@@ -11,7 +11,7 @@ docker compose build
 docker compose --profile tools run --rm migrate
 docker compose up -d db app
 docker compose ps
-curl --fail http://127.0.0.1:3000/ready
+docker compose exec -T app node -e "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 ```
 
 `SOURCE_REVISION` is embedded into the web bundle. The visible **Исходный код** link points to
