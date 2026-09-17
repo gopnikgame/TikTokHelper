@@ -84,7 +84,9 @@ export class SoundPlaybackQueue {
     this.#pump();
   }
 
-  warm(sounds: readonly SoundAsset[]): Promise<void> { return this.managed?.warm(sounds) ?? Promise.resolve(); }
+  warm(sounds: readonly SoundAsset[]): Promise<{ prepared: number; failed: number }> {
+    return this.managed?.warm(sounds) ?? Promise.resolve({ prepared: 0, failed: sounds.length });
+  }
   reconcile(sounds: readonly SoundAsset[]): Promise<void> { return this.managed?.reconcile(sounds) ?? Promise.resolve(); }
 
   stopAll(): void {

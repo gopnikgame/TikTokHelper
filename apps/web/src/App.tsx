@@ -66,6 +66,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   const [recentChannels, setRecentChannels] = useState<RecentChannel[]>([]);
   const [automation, setAutomation] = useState<AutomationConfiguration | null>(null);
   const [automationStatus, setAutomationStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [workspaceReady, setWorkspaceReady] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [giftId, setGiftId] = useState('');
@@ -73,7 +74,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   const [soundFile, setSoundFile] = useState<File | null>(null);
   const [isUploadingSound, setIsUploadingSound] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
-  const [audioCacheStatus, setAudioCacheStatus] = useState<'idle' | 'warming' | 'ready'>('idle');
+  const [audioCacheStatus, setAudioCacheStatus] = useState<'idle' | 'warming' | 'ready' | 'fallback'>('idle');
   const [followChat, setFollowChat] = useState(true);
   const realtimeClient = useRef<RealtimeClient | null>(null);
   const chatFeed = useRef<HTMLUListElement | null>(null);
@@ -155,6 +156,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
       if (recentChannelsResponse.ok) setRecentChannels(await recentChannelsResponse.json() as RecentChannel[]);
       if (automationResponse.ok) { setAutomation(await automationResponse.json() as AutomationConfiguration); setAutomationStatus('ready'); }
       else setAutomationStatus('error');
+      setWorkspaceReady(true);
       setNotice('Готово к работе');
     }).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === 'AbortError')) { setAutomationStatus('error'); setNotice('Не удалось загрузить настройки'); } });
     return () => controller.abort();
@@ -223,12 +225,12 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   useEffect(() => {
     let current = true;
     queueMicrotask(() => { if (current) setAudioCacheStatus(audioEnabled ? 'warming' : 'idle'); });
-    if (!audioEnabled) return () => { current = false; };
-    void player.current.reconcile(warmSounds).then(() => player.current.warm(warmSounds)).finally(() => {
-      if (current) setAudioCacheStatus('ready');
+    if (!audioEnabled || !workspaceReady) return () => { current = false; };
+    void player.current.reconcile(warmSounds).then(() => player.current.warm(warmSounds)).then((result) => {
+      if (current) setAudioCacheStatus(result.failed > 0 ? 'fallback' : 'ready');
     });
     return () => { current = false; };
-  }, [audioEnabled, warmSounds]);
+  }, [audioEnabled, warmSounds, workspaceReady]);
 
   useEffect(() => {
     if (!audioEnabled) return;
@@ -366,6 +368,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   function selectWorkspace(nextWorkspaceId: string) {
     sessionStorage.setItem('tiktok-helper.workspace', nextWorkspaceId);
     setNotice('Загружаем рабочее место…');
+    setWorkspaceReady(false);
     speechPolicy.current.reset(); speechQueue?.stop();
     setRealtime(INITIAL_REALTIME_STATE);
     setSounds([]); setMappings([]); setGifts([]); setRecentChannels([]); setAutomation(null); setAutomationStatus('loading');
@@ -427,7 +430,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     {automationStatus === 'error' ? <AutomationStatus status="error" onRetry={() => void reloadAutomation()} /> : null}
     {automationStatus === 'ready' && automation ? <AutomationEditor key={workspaceId} workspaceId={workspaceId} configuration={automation} sounds={sounds} speechSupported={speechSupported} speechQueue={speechQueue} onConfigurationChange={setAutomation} onPreviewSound={previewSoundById} onNotice={setNotice} /> : null}
     <section className="control-grid" aria-label="Настройки звука">
-      <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? (speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.') : 'Браузеру нужно разрешить звук одним нажатием.'}</p>{audioEnabled ? <small>{audioCacheStatus === 'warming' ? `Подготавливаем используемые звуки: ${warmSounds.length}` : `Используемые звуки готовы: ${warmSounds.length}`}</small> : null}<div className="actions"><button type="button" onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); speechQueue?.stop(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
+      <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? (speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.') : 'Браузеру нужно разрешить звук одним нажатием.'}</p>{audioEnabled ? <small>{audioCacheStatus === 'warming' ? `Подготавливаем используемые звуки: ${warmSounds.length}` : audioCacheStatus === 'fallback' ? 'Часть звуков будет загружаться обычным способом' : `Используемые звуки готовы: ${warmSounds.length}`}</small> : null}<div className="actions"><button type="button" disabled={!workspaceReady} onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : workspaceReady ? 'Включить звук' : 'Загружаем звуки…'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); speechQueue?.stop(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
       <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.filter((sound) => sound.status === 'active').map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
       <form className="control-card settings-card" onSubmit={(event) => void saveSettings(event)}><p className="section-kicker">Поведение серии</p><h2>Наложение</h2><label>Режим<select value={settings.playbackMode} onChange={(event) => setSettings((current) => ({ ...current, playbackMode: event.target.value as UpdateWorkspaceSettings['playbackMode'] }))}><option value="controlled_overlap">Умеренное наложение</option><option value="sequential">Последовательно</option><option value="strong_overlap">Сильное наложение</option></select></label><label>Перекрытие звука <output>{settings.overlapPercent}%</output><input type="range" min="0" max="100" value={settings.overlapPercent} onChange={(event) => setSettings((current) => ({ ...current, overlapPercent: event.target.valueAsNumber }))} /></label><div className="two-fields"><label>Одновременно<input type="number" min="1" max="32" value={settings.maxConcurrentSounds} onChange={(event) => setSettings((current) => ({ ...current, maxConcurrentSounds: event.target.valueAsNumber }))} /></label><label>Громкость <output>{settings.volumePercent}%</output><input type="range" min="0" max="100" value={settings.volumePercent} onChange={(event) => setSettings((current) => ({ ...current, volumePercent: event.target.valueAsNumber }))} /></label></div><button type="submit">Сохранить настройки</button></form>
     </section>

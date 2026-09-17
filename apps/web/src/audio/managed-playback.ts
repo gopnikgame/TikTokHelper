@@ -30,18 +30,20 @@ export class ManagedAudioPlayback {
     return { durationMs: buffer.duration * 1_000, stop: () => { try { source.stop(); } catch { /* already stopped */ } } };
   }
 
-  async warm(sounds: readonly SoundAsset[], concurrency = 2): Promise<void> {
+  async warm(sounds: readonly SoundAsset[], concurrency = 2): Promise<{ prepared: number; failed: number }> {
     const context = this.#context;
-    if (!context || context.state !== 'running') return;
+    if (!context || context.state !== 'running') return { prepared: 0, failed: sounds.length };
     let cursor = 0;
+    let prepared = 0; let failed = 0;
     const worker = async () => {
       while (cursor < sounds.length) {
         const sound = sounds[cursor++];
         if (!sound || sound.status !== 'active') continue;
-        try { await this.#loadBuffer(sound, context); } catch { /* Per-asset fallback stays available. */ }
+        try { await this.#loadBuffer(sound, context); prepared += 1; } catch { failed += 1; }
       }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, sounds.length) }, worker));
+    return { prepared, failed };
   }
 
   async reconcile(eligible: readonly SoundAsset[]): Promise<void> {
