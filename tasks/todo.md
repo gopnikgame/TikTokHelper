@@ -315,14 +315,14 @@
 
 **Acceptance criteria:**
 - [x] Every cacheable sound exposes a server-derived SHA-256, byte size, MIME type, status, and same-origin URL.
-- [ ] The browser persistently caches only sounds reachable from enabled rules and uses a bounded decoded `AudioBuffer` store.
-- [ ] Cache keys and namespaces follow `.agents/skills/browser-audio-cache/references/cache-contract.md`.
-- [ ] Authentication, workspace JSON, chat, TikTok events, and navigation responses never enter audio/model caches.
-- [ ] Cache, quota, or decode failure falls back to the existing media-element playback without breaking the live UI.
-- [ ] Cache names remain adoptable by a future Service Worker without migrating user data.
+- [x] The browser persistently caches only sounds reachable from enabled rules and uses a bounded decoded `AudioBuffer` store.
+- [x] Cache keys and namespaces follow `.agents/skills/browser-audio-cache/references/cache-contract.md`.
+- [x] Authentication, workspace JSON, chat, TikTok events, and navigation responses never enter audio/model caches.
+- [x] Cache, quota, or decode failure falls back to the existing media-element playback without breaking the live UI.
+- [x] Cache names remain adoptable by a future Service Worker without migrating user data.
 
 **Verification:**
-- [ ] Unit tests cover exact-version lookup, in-flight deduplication, changed hashes, bounded eviction, quarantine, and fallback.
+- [x] Unit tests cover exact-version lookup, in-flight deduplication, changed hashes, bounded eviction, quarantine, and fallback.
 - [ ] Chromium browser tests prove first-download and persistent reuse without a second media transfer.
 - [ ] Manual Firefox, Safari macOS/iPhone, Android Chromium, and Yandex checks are recorded separately when devices are available.
 
