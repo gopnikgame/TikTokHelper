@@ -43,7 +43,8 @@ export class SoundPlaybackQueue {
   get active(): number { return this.#active.size + this.#managedActive.size; }
 
   async unlock(instances: number, warmupUrl?: string): Promise<void> {
-    try { await this.managed?.enable(); } catch { /* HTMLAudio remains the compatibility path. */ }
+    let managedReady = false;
+    try { await this.managed?.enable(); managedReady = this.managed !== undefined; } catch { /* HTMLAudio remains the compatibility path. */ }
     const count = Math.min(8, Math.max(1, Math.trunc(instances)));
     const attempts: Promise<void>[] = [];
     for (let index = this.#unlocked.length; index < count; index += 1) {
@@ -55,7 +56,7 @@ export class SoundPlaybackQueue {
       }).catch(() => this.onError()));
     }
     await Promise.all(attempts);
-    if (this.#unlocked.length === 0) throw new Error('audio playback was not unlocked');
+    if (this.#unlocked.length === 0 && !managedReady) throw new Error('audio playback was not unlocked');
   }
 
   async preview(sound: SoundAsset, volumePercent: number): Promise<void> {

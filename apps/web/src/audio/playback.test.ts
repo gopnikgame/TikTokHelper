@@ -80,6 +80,15 @@ describe('SoundPlaybackQueue', () => {
     await expect(queue.unlock(1, '/real-sound.mp3')).rejects.toThrow('not unlocked');
   });
 
+  it('allows cached Web Audio when the media-element warm-up is offline', async () => {
+    const media = new FakeAudio();
+    media.play.mockRejectedValue(new Error('offline'));
+    const managed = { enable: vi.fn(async () => undefined) } as unknown as ManagedAudioPlayback;
+    const queue = new SoundPlaybackQueue(() => media, undefined, managed);
+    await expect(queue.unlock(1, '/real-sound.mp3')).resolves.toBeUndefined();
+    expect(managed.enable).toHaveBeenCalledOnce();
+  });
+
   it('starts preview playback immediately on a real source', async () => {
     const sound = new FakeAudio();
     const queue = new SoundPlaybackQueue((url) => { sound.src = url; return sound; });
