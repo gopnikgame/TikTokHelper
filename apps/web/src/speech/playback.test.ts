@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SpeechPlaybackQueue, type SpeechSynthesisLike, type UtteranceLike } from './playback.js';
+import { browserSpeechSynthesisSupported, SpeechPlaybackQueue, type SpeechSynthesisLike, type UtteranceLike } from './playback.js';
 
 function setup() {
   const spoken: UtteranceLike[] = [];
@@ -14,6 +14,11 @@ function setup() {
 }
 
 describe('browser speech queue', () => {
+  it('detects support by capability instead of browser name', () => {
+    expect(browserSpeechSynthesisSupported({ speechSynthesis: {}, SpeechSynthesisUtterance: class {} } as unknown as Window)).toBe(true);
+    expect(browserSpeechSynthesisSupported({ speechSynthesis: {} } as unknown as Window)).toBe(false);
+  });
+
   it('selects a language voice and advances after completion', () => {
     const { queue, spoken } = setup();
     queue.enqueue({ id: '1', text: 'Первое', language: 'ru', priority: 'normal' }, 5);

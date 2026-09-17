@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS } from './settings-model.js';
 import { chatContentParts } from './chat-content.js';
 import { beginLogin, endSession, loadSession } from './auth-client.js';
 import { SpeechPolicyEngine } from './speech/policy.js';
-import { SpeechPlaybackQueue } from './speech/playback.js';
+import { browserSpeechSynthesisSupported, SpeechPlaybackQueue } from './speech/playback.js';
 
 const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', events: [], generation: 0, lastSequence: 0, isTransportConnected: false };
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
@@ -80,7 +80,8 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   const lastSpokenSequence = useRef(0);
   const player = useRef(new SoundPlaybackQueue(undefined, () => setNotice('Браузер не смог воспроизвести звук')));
   const speechPolicy = useRef(new SpeechPolicyEngine());
-  const speechQueue = useRef(new SpeechPlaybackQueue());
+  const [speechSupported] = useState(() => browserSpeechSynthesisSupported());
+  const [speechQueue] = useState(() => speechSupported ? new SpeechPlaybackQueue() : null);
   const ownership = useRef<AudioOwnership | null>(null);
   const automationRef = useRef<AutomationConfiguration | null>(null);
   const soundsRef = useRef<SoundAsset[]>([]);
@@ -95,22 +96,22 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     const currentAutomation = automationRef.current;
     if (!audioEnabledRef.current || !currentAutomation) return;
     const reaction = speechPolicy.current.evaluateGrant(event, currentAutomation);
-    if (reaction.speech) speechQueue.current.enqueue(reaction.speech, currentAutomation.policy.maxQueueSize);
+    if (reaction.speech) speechQueue?.enqueue(reaction.speech, currentAutomation.policy.maxQueueSize);
     for (const soundAssetId of reaction.soundAssetIds) {
       const sound = soundsRef.current.find((item) => item.id === soundAssetId && item.status === 'active');
       if (sound) player.current.enqueue(sound.url, 1, settingsRef.current);
     }
-  }, []);
+  }, [speechQueue]);
 
   const playReaction = useCallback((reaction: ReturnType<SpeechPolicyEngine['evaluateParticipantSeen']>) => {
     const currentAutomation = automationRef.current;
     if (!audioEnabledRef.current || !currentAutomation) return;
-    if (reaction.speech) speechQueue.current.enqueue(reaction.speech, currentAutomation.policy.maxQueueSize);
+    if (reaction.speech) speechQueue?.enqueue(reaction.speech, currentAutomation.policy.maxQueueSize);
     for (const soundAssetId of reaction.soundAssetIds) {
       const sound = soundsRef.current.find((item) => item.id === soundAssetId && item.status === 'active');
       if (sound) player.current.enqueue(sound.url, 1, settingsRef.current);
     }
-  }, []);
+  }, [speechQueue]);
 
   const reloadSoundLibrary = useCallback(async (changedSoundId?: string) => {
     const workspacePath = encodeURIComponent(workspaceId);
@@ -169,7 +170,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     realtimeClient.current = client;
     return () => { realtimeClient.current = null; client.close(); };
   }, [handleSupportLevelGranted, reloadSoundLibrary, workspaceId]);
-  useEffect(() => { const playback = player.current; const speech = speechQueue.current; const owner = new AudioOwnership(() => { setAudioEnabled(false); playback.stopAll(); speech.stop(); setNotice('Звук включён в другой вкладке'); }); ownership.current = owner; return () => { owner.close(); playback.stopAll(); speech.stop(); }; }, []);
+  useEffect(() => { const playback = player.current; const owner = new AudioOwnership(() => { setAudioEnabled(false); playback.stopAll(); speechQueue?.stop(); setNotice('Звук включён в другой вкладке'); }); ownership.current = owner; return () => { owner.close(); playback.stopAll(); speechQueue?.stop(); }; }, [speechQueue]);
 
   const mappingByGift = useMemo(() => new Map(mappings.filter((item) => item.isEnabled).map((item) => [item.giftId, item])), [mappings]);
   const chatEvents = useMemo(() => realtime.events.filter((event): event is ChatEvent => event.type === 'chat.message'), [realtime.events]);
@@ -226,11 +227,11 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
         if (event.speakerContext?.isModerator) playReaction(speechPolicy.current.evaluateParticipantSeen('moderator_seen', event, automation));
         if (event.speakerContext?.isGiftGiver) playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, automation));
         const job = speechPolicy.current.evaluateChat(event, automation);
-        if (job) speechQueue.current.enqueue(job, automation.policy.maxQueueSize);
+        if (job) speechQueue?.enqueue(job, automation.policy.maxQueueSize);
       }
       if (event.type === 'gift.received') playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, automation));
     }
-  }, [audioEnabled, automation, playReaction, realtime.events]);
+  }, [audioEnabled, automation, playReaction, realtime.events, speechQueue]);
   useEffect(() => { if (followChat) chatFeed.current?.scrollTo({ top: chatFeed.current.scrollHeight, behavior: 'smooth' }); }, [chatEvents.length, followChat]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -260,8 +261,8 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     const preview = sounds.find((sound) => sound.id === selectedSoundId);
     try {
       await player.current.unlock(settings.maxConcurrentSounds, preview?.url);
-      speechQueue.current.unlock();
-      setAudioEnabled(true); setNotice('Звук и озвучивание включены в этой вкладке');
+      speechQueue?.unlock();
+      setAudioEnabled(true); setNotice(speechSupported ? 'Звук и озвучивание включены в этой вкладке' : 'Звуки включены, но этот браузер не поддерживает озвучивание текста');
     } catch {
       setAudioEnabled(false); setNotice('Браузер не разрешил звук. Нажмите ещё раз.');
     }
@@ -334,7 +335,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   function selectWorkspace(nextWorkspaceId: string) {
     sessionStorage.setItem('tiktok-helper.workspace', nextWorkspaceId);
     setNotice('Загружаем рабочее место…');
-    speechPolicy.current.reset(); speechQueue.current.stop();
+    speechPolicy.current.reset(); speechQueue?.stop();
     setRealtime(INITIAL_REALTIME_STATE);
     setSounds([]); setMappings([]); setGifts([]); setRecentChannels([]); setAutomation(null);
     setWorkspaceId(nextWorkspaceId);
@@ -392,7 +393,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
       </li>)}</ul>
     </details>
     <section className="control-grid" aria-label="Настройки звука">
-      <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Браузеру нужно разрешить звук одним нажатием.'}</p><div className="actions"><button type="button" onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); speechQueue.current.stop(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
+      <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? (speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.') : 'Браузеру нужно разрешить звук одним нажатием.'}</p><div className="actions"><button type="button" onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); speechQueue?.stop(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
       <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.filter((sound) => sound.status === 'active').map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
       <form className="control-card settings-card" onSubmit={(event) => void saveSettings(event)}><p className="section-kicker">Поведение серии</p><h2>Наложение</h2><label>Режим<select value={settings.playbackMode} onChange={(event) => setSettings((current) => ({ ...current, playbackMode: event.target.value as UpdateWorkspaceSettings['playbackMode'] }))}><option value="controlled_overlap">Умеренное наложение</option><option value="sequential">Последовательно</option><option value="strong_overlap">Сильное наложение</option></select></label><label>Перекрытие звука <output>{settings.overlapPercent}%</output><input type="range" min="0" max="100" value={settings.overlapPercent} onChange={(event) => setSettings((current) => ({ ...current, overlapPercent: event.target.valueAsNumber }))} /></label><div className="two-fields"><label>Одновременно<input type="number" min="1" max="32" value={settings.maxConcurrentSounds} onChange={(event) => setSettings((current) => ({ ...current, maxConcurrentSounds: event.target.valueAsNumber }))} /></label><label>Громкость <output>{settings.volumePercent}%</output><input type="range" min="0" max="100" value={settings.volumePercent} onChange={(event) => setSettings((current) => ({ ...current, volumePercent: event.target.valueAsNumber }))} /></label></div><button type="submit">Сохранить настройки</button></form>
     </section>

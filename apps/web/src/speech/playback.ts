@@ -11,6 +11,10 @@ export interface SpeechSynthesisLike {
   speak(utterance: UtteranceLike): void;
 }
 
+export function browserSpeechSynthesisSupported(browserWindow: Window = window): boolean {
+  return 'speechSynthesis' in browserWindow && 'SpeechSynthesisUtterance' in browserWindow;
+}
+
 export class SpeechPlaybackQueue {
   readonly #queue: SpeechJob[] = [];
   #active = false;
