@@ -1,5 +1,7 @@
 # TikTokHelper rewrite tasks
 
+> Актуальный снимок реализованного, автоматических доказательств и отложенных ручных проверок: [docs/project-status.md](../docs/project-status.md). Старые критерии ниже сохранены как история поэтапной разработки; незакрытая галочка означает отсутствие именно указанного доказательства, а не обязательно отсутствие функции в production.
+
 ## Task 1: Resolve connector license and replacement boundary
 
 **Description:** Determine whether the selected TikTok connector can be used in the intended privately hosted service and document acceptable alternatives without committing the rest of the product to one library.
@@ -174,14 +176,14 @@
 **Description:** Create a hardened application image and Compose model for the app, PostgreSQL, persistent media, and explicit migrations.
 
 **Acceptance criteria:**
-- [ ] Database and media use named persistent storage and are not publicly exposed.
-- [ ] App and database have meaningful healthchecks and graceful shutdown.
-- [ ] Secrets remain outside images, Git, and rendered diagnostic output.
+- [x] Database and media use named persistent storage and are not publicly exposed.
+- [x] App and database have meaningful healthchecks and graceful shutdown.
+- [x] Secrets remain outside images, Git, and rendered diagnostic output.
 
 **Verification:**
-- [ ] Image builds from a clean checkout.
-- [ ] `docker compose config --quiet` passes.
-- [ ] Fresh install, restart, migration failure, and persistence scenarios are exercised locally.
+- [x] Image builds from the reviewed checkout and the production image has been deployed.
+- [x] `docker compose config --quiet` passes.
+- [ ] Fresh install, restart, migration failure, persistence, and isolated restore scenarios are all exercised and recorded.
 
 **Dependencies:** Tasks 5 and 8
 
@@ -194,13 +196,13 @@
 **Description:** Provision or select the dedicated VM, deploy the reviewed release, establish access control, and verify the real browser workflow through the public endpoint.
 
 **Acceptance criteria:**
-- [ ] Live VM, storage, DNS, Caddy, resource, and backup state are inventoried before mutation.
-- [ ] A verified backup and rollback procedure exist before deployment.
-- [ ] Public access requires the agreed identity boundary and PostgreSQL is internal only.
+- [x] Live VM, storage, DNS, Caddy, resource, and backup state are inventoried before mutation.
+- [x] A verified backup and rollback procedure exist before deployment.
+- [x] Public access requires the agreed identity boundary and PostgreSQL is internal only.
 
 **Verification:**
-- [ ] Services and healthchecks pass; fresh logs contain no secret or chat leakage.
-- [ ] HTTPS, WebSocket, persistence, speech, sounds, reconnect, and operator workflow pass externally.
+- [x] Services and healthchecks pass; fresh logs contain no secret or chat leakage.
+- [ ] HTTPS, WebSocket, persistence, speech, sounds, reconnect, and operator workflow pass across the deferred real-device browser matrix.
 - [ ] PostgreSQL/media restore is tested or explicitly scheduled as an unresolved gate.
 
 **Dependencies:** Tasks 1, 2, and 9
@@ -211,8 +213,8 @@
 
 ## Checkpoint: production handoff
 
-- [ ] All acceptance criteria and verification commands are recorded with fresh results.
-- [ ] Known TikTok reliability/licensing limitations and rollback instructions are documented.
+- [ ] All acceptance criteria and verification commands, including deferred browsers and restore, are recorded with fresh results.
+- [x] Known TikTok reliability/licensing limitations and rollback instructions are documented.
 - [ ] Ivan and the operator accept the real browser flow.
 
 ## Task 11: Define configurable speech and reaction contracts
@@ -244,7 +246,7 @@
 - [x] Empty workspaces receive no enabled speech or event reactions.
 
 **Verification:**
-- [ ] Empty-database migration and production-backup gates pass.
+- [x] Production migration and pre-deploy backup gates pass; isolated restore rehearsal remains tracked in project status.
 - [x] API tests cover CRUD, ordering, validation, and cross-workspace isolation.
 
 **Dependencies:** Task 11
@@ -334,6 +336,6 @@
 
 ## Checkpoint: speech privileges
 
-- [ ] Tasks 11-15 pass `pnpm run verify`.
-- [ ] Production backup, migration, deploy, and rollback checks pass.
+- [x] Tasks 11-15 pass `pnpm run verify`.
+- [x] Production backup, migration, deploy, and rollback procedure checks pass; full restore rehearsal remains open.
 - [ ] Real LIVE verifies one moderator message, one threshold crossing, one announcement, and one event sound.
