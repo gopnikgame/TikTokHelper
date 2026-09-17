@@ -40,6 +40,12 @@ interface Props {
   onNotice(message: string): void;
 }
 
+export function AutomationStatus({ status, onRetry }: { status: 'loading' | 'error'; onRetry?(): void }) {
+  return status === 'loading'
+    ? <section className="automation-panel automation-status" aria-busy="true"><b>Загружаем правила озвучивания…</b><span>Остальные функции эфира уже доступны.</span></section>
+    : <section className="automation-panel automation-status" role="alert"><b>Правила озвучивания не загрузились</b><span>Настройки и звуки не удалены. Проверьте соединение и попробуйте снова.</span><button type="button" onClick={onRetry}>Повторить</button></section>;
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return await response.json() as T;

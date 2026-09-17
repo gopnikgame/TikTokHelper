@@ -8,7 +8,7 @@ import { chatContentParts } from './chat-content.js';
 import { beginLogin, endSession, loadSession } from './auth-client.js';
 import { SpeechPolicyEngine } from './speech/policy.js';
 import { browserSpeechSynthesisSupported, SpeechPlaybackQueue } from './speech/playback.js';
-import { AutomationEditor } from './automation/AutomationEditor.js';
+import { AutomationEditor, AutomationStatus } from './automation/AutomationEditor.js';
 
 const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', events: [], generation: 0, lastSequence: 0, isTransportConnected: false };
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
@@ -65,6 +65,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
   const [gifts, setGifts] = useState<ObservedGift[]>([]);
   const [recentChannels, setRecentChannels] = useState<RecentChannel[]>([]);
   const [automation, setAutomation] = useState<AutomationConfiguration | null>(null);
+  const [automationStatus, setAutomationStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [giftId, setGiftId] = useState('');
@@ -151,9 +152,10 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
       if (mappingsResponse.ok) setMappings(await mappingsResponse.json() as GiftSoundMapping[]);
       if (giftsResponse.ok) { const loaded = await giftsResponse.json() as ObservedGift[]; setGifts(loaded); setGiftId(loaded[0]?.giftId ?? ''); }
       if (recentChannelsResponse.ok) setRecentChannels(await recentChannelsResponse.json() as RecentChannel[]);
-      if (automationResponse.ok) setAutomation(await automationResponse.json() as AutomationConfiguration);
+      if (automationResponse.ok) { setAutomation(await automationResponse.json() as AutomationConfiguration); setAutomationStatus('ready'); }
+      else setAutomationStatus('error');
       setNotice('Готово к работе');
-    }).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === 'AbortError')) setNotice('Не удалось загрузить настройки'); });
+    }).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === 'AbortError')) { setAutomationStatus('error'); setNotice('Не удалось загрузить настройки'); } });
     return () => controller.abort();
   }, [onLoggedOut, workspaceId]);
 
@@ -257,6 +259,15 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     setNotice(result?.ok ? 'Команда принята — подключаемся…' : 'Сервер не принял команду подключения');
   }
   async function disconnectLive() { const result = await realtimeClient.current?.disconnectLive(); setNotice(result?.ok ? 'Подключение остановлено' : 'Не удалось остановить подключение'); }
+  async function reloadAutomation() {
+    setAutomationStatus('loading');
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/automation`);
+      if (response.status === 401) { onLoggedOut(); return; }
+      if (!response.ok) throw new Error();
+      setAutomation(await response.json() as AutomationConfiguration); setAutomationStatus('ready'); setNotice('Настройки озвучивания загружены');
+    } catch { setAutomationStatus('error'); setNotice('Настройки озвучивания пока недоступны'); }
+  }
   async function enableAudio() {
     lastPlayedSequence.current = realtime.lastSequence; lastSpokenSequence.current = realtime.lastSequence; ownership.current?.claim();
     const preview = sounds.find((sound) => sound.id === selectedSoundId);
@@ -338,7 +349,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
     setNotice('Загружаем рабочее место…');
     speechPolicy.current.reset(); speechQueue?.stop();
     setRealtime(INITIAL_REALTIME_STATE);
-    setSounds([]); setMappings([]); setGifts([]); setRecentChannels([]); setAutomation(null);
+    setSounds([]); setMappings([]); setGifts([]); setRecentChannels([]); setAutomation(null); setAutomationStatus('loading');
     setWorkspaceId(nextWorkspaceId);
   }
 
@@ -393,7 +404,9 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut }: { principal: Aut
         <div className="actions">{sound.status === 'active' ? <button type="button" className="secondary" onClick={() => { setSelectedSoundId(sound.id); previewSoundById(sound.id); }}>Прослушать</button> : null}{sound.canQuarantine ? <button type="button" className="danger" onClick={() => void quarantineSound(sound)}>В карантин</button> : null}{sound.canDelete ? <button type="button" className="danger" onClick={() => void deleteSound(sound)}>Удалить</button> : null}</div>
       </li>)}</ul>
     </details>
-    {automation ? <AutomationEditor key={workspaceId} workspaceId={workspaceId} configuration={automation} sounds={sounds} speechSupported={speechSupported} speechQueue={speechQueue} onConfigurationChange={setAutomation} onPreviewSound={previewSoundById} onNotice={setNotice} /> : null}
+    {automationStatus === 'loading' ? <AutomationStatus status="loading" /> : null}
+    {automationStatus === 'error' ? <AutomationStatus status="error" onRetry={() => void reloadAutomation()} /> : null}
+    {automationStatus === 'ready' && automation ? <AutomationEditor key={workspaceId} workspaceId={workspaceId} configuration={automation} sounds={sounds} speechSupported={speechSupported} speechQueue={speechQueue} onConfigurationChange={setAutomation} onPreviewSound={previewSoundById} onNotice={setNotice} /> : null}
     <section className="control-grid" aria-label="Настройки звука">
       <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? (speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.') : 'Браузеру нужно разрешить звук одним нажатием.'}</p><div className="actions"><button type="button" onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : 'Включить звук'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); speechQueue?.stop(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
       <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.filter((sound) => sound.status === 'active').map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>

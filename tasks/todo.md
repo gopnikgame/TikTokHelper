@@ -300,7 +300,7 @@
 - [x] Create, edit, reorder, disable, test, and delete flows work on mobile.
 
 **Verification:**
-- [ ] Component and Playwright tests cover empty, loading, error, long-name, and compact-width states.
+- [x] Component and Playwright tests cover empty, loading, error, long-name, and compact-width states.
 - [ ] Manual iPhone check confirms editing and test speech after one audio-unlock gesture.
 
 **Dependencies:** Tasks 12 and 14

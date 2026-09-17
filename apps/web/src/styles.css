@@ -135,6 +135,7 @@ button.channel-chip:hover { border-color: var(--cyan); background: #19282a; }
 .automation-panel > summary::-webkit-details-marker { display: none; }
 .automation-panel > summary > span:first-child { display: grid; gap: .2rem; }.automation-panel summary small, .automation-panel > summary > span:last-child { color: var(--muted); font-size: .8rem; }
 .automation-panel[open] > summary { border-bottom: 1px solid var(--line); }.automation-panel[open] > summary > span:last-child { font-size: 0; }.automation-panel[open] > summary > span:last-child::after { content: "Свернуть"; font-size: .8rem; }
+.automation-status { display: grid; gap: .4rem; padding: 1rem 1.2rem; }.automation-status span { color: var(--muted); font-size: .85rem; }.automation-status button { justify-self: start; margin-top: .35rem; }
 .automation-content { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; padding: 1rem; }
 .automation-section { min-width: 0; padding: 1rem; border: 1px solid #28313c; border-radius: .7rem; background: #0e1319; }
 .automation-section > header { display: flex; align-items: start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }.automation-section > header h2 { margin: 0; }
