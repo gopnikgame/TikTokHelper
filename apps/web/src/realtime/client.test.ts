@@ -58,4 +58,21 @@ describe('realtime client commands', () => {
     await client.connectLive('streamer');
     expect(emitted.filter((eventName) => eventName === 'workspace:subscribe')).toHaveLength(2);
   });
+
+  it('delivers support-level grants to the browser automation handler', () => {
+    const handlers = new Map<string, (payload?: unknown) => void>();
+    const socket = {
+      on(eventName: string, handler: (payload?: unknown) => void) { handlers.set(eventName, handler); return this; },
+      emit() { return this; }, close: vi.fn(),
+    } as unknown as Socket<ServerToClientEvents, ClientToServerEvents>;
+    const onGrant = vi.fn();
+    createRealtimeClient('primary', () => undefined, socket, undefined, onGrant);
+    const grant = {
+      eventId: 'grant-1', workspaceId: 'primary', senderDisplayName: 'Viewer', senderUsername: 'viewer',
+      levelId: '123e4567-e89b-42d3-a456-426614174000', levelName: 'Голос', thresholdPoints: 100,
+      pointsAdded: 10, streamTotal: 100, lifetimeTotal: 100, expiresAt: null,
+    };
+    handlers.get('support:level-granted')?.(grant);
+    expect(onGrant).toHaveBeenCalledWith(grant);
+  });
 });

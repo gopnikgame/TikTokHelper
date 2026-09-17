@@ -1,7 +1,7 @@
 import { io, type Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents, CommandAcknowledgement, RealtimeEvent, RealtimeSnapshot,
-  ServerToClientEvents,
+  ServerToClientEvents, SupportLevelGrantedEvent,
 } from '@tiktok-helper/contracts';
 
 export interface RealtimeViewState {
@@ -76,6 +76,7 @@ export function createRealtimeClient(
   onState: (state: RealtimeViewState) => void,
   socketOverride?: Socket<ServerToClientEvents, ClientToServerEvents>,
   onSoundLibraryChanged?: (soundId: string) => void,
+  onSupportLevelGranted?: (event: SupportLevelGrantedEvent) => void,
 ): RealtimeClient {
   const model = new RealtimeStateModel();
   const socket: Socket<ServerToClientEvents, ClientToServerEvents> = socketOverride ?? io({
@@ -97,6 +98,7 @@ export function createRealtimeClient(
     notify();
   });
   socket.on('sound-library:changed', ({ soundId }) => onSoundLibraryChanged?.(soundId));
+  socket.on('support:level-granted', (event) => onSupportLevelGranted?.(event));
 
   const command = <Payload extends { commandId: string; workspaceId: string }>(
     eventName: 'live:connect' | 'live:disconnect', payload: Payload,

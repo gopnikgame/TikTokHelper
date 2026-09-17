@@ -276,12 +276,12 @@
 **Description:** Evaluate moderator and earned privileges server-side, then send typed speech/sound actions for browser playback.
 
 **Acceptance criteria:**
-- [ ] No configured action means silence.
-- [ ] Speech respects language, cooldown, maximum length, duplicate suppression, and bounded queue policy.
-- [ ] Event sounds and gift sounds share browser audio ownership without uncontrolled overlap.
+- [x] No configured action means silence.
+- [x] Speech respects language, cooldown, maximum length, duplicate suppression, and bounded queue policy.
+- [x] Event sounds and gift sounds share browser audio ownership without uncontrolled overlap.
 
 **Verification:**
-- [ ] Unit tests cover template rendering and policy decisions.
+- [x] Unit tests cover template rendering and policy decisions.
 - [ ] Browser tests cover audio activation, voice fallback, queue overflow, and stop/clear.
 
 **Dependencies:** Task 13
