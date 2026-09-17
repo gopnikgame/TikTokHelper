@@ -385,3 +385,25 @@
 **Files likely touched:** `apps/server/test/supporter-points.integration.test.ts`, supporter task documentation
 
 **Estimated scope:** Small
+
+## Task 19: Add a conservative installable PWA shell
+
+**Description:** Make the browser application installable without caching authenticated state or silently replacing an active LIVE page.
+
+**Acceptance criteria:**
+- [x] The manifest has stable scope, Russian metadata, 192 px, 512 px and maskable icons.
+- [x] The Service Worker keeps app-shell, audio and future TTS-model caches separate.
+- [x] API, Socket.IO, chat, user data, uploaded media and online navigation HTML are never stored in the app-shell cache.
+- [x] Offline navigation shows a static connection-required page rather than stale operator state.
+- [x] A new worker waits for explicit approval and its update action is disabled during connecting, live and reconnecting states.
+
+**Verification:**
+- [x] Unit tests cover the active-LIVE update gate and Service Worker privacy boundaries.
+- [x] Chromium verifies registration, cache contents, mobile offline fallback, waiting update and explicit activation/reload.
+- [ ] Safari/iPhone, Android Chromium, Firefox and Yandex installation are recorded when devices are available.
+
+**Dependencies:** Tasks 10 and 16
+
+**Files likely touched:** `apps/web/public/`, `apps/web/src/pwa/`, `apps/web/vite.config.ts`, PWA documentation
+
+**Estimated scope:** Medium

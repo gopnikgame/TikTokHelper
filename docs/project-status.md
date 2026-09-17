@@ -62,9 +62,9 @@ PostgreSQL integration tests now cover duplicate events, concurrent updates, mul
 
 A production-format PostgreSQL dump and media archive were restored into disposable volumes on an internal Docker network with no published ports. Aggregate users, workspaces, memberships, mappings, automation rules and supporter-state counts matched production; the restored application started from the deployed image and passed readiness. Temporary resources were removed and the production containers remained healthy. Evidence and the deliberately retained empty-media limitation are documented in [restore-rehearsal.md](restore-rehearsal.md).
 
-### 4. First installable-PWA phase
+### 4. First installable-PWA phase — implemented
 
-Add a manifest, icons and a conservative service worker only after update behavior is specified. Keep app-shell, audio and future TTS-model caches separate. Never cache authenticated API responses, navigation containing user state, chat, participant data or live events. Do not force-refresh an active LIVE page; offer an explicit update action instead.
+The application now has a manifest, install icons, a static offline explanation and a conservative Service Worker. App-shell, audio and future TTS-model caches remain separate; authenticated APIs, navigation state, chat, participants and live events are network-only. New versions remain waiting and require an explicit operator action, which is disabled while a LIVE is connecting, active or reconnecting. Architecture and Chromium evidence are recorded in [pwa.md](pwa.md); the real-device install matrix remains deferred.
 
 ### 5. Local neural TTS investigation
 
@@ -91,6 +91,6 @@ For each browser, confirm audio unlock, preview, speech voice selection/fallback
 1. Deterministic fake source and Playwright workflow suite.
 2. Supporter-accounting concurrency and identity tests.
 3. Isolated database/media restore rehearsal (completed; repeat media verification after the first real upload).
-4. Conservative PWA shell and update UX.
+4. Conservative PWA shell and update UX (implemented; real-device installation remains pending).
 5. Neural TTS benchmark and architecture decision.
 6. Deferred real-device and real-LIVE acceptance matrix.
