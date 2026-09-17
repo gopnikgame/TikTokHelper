@@ -1,6 +1,6 @@
 # Project status and next steps
 
-Status date: 2026-09-17  
+Status date: 2026-09-17
 Current application branch: `rewrite/typescript`
 
 This document distinguishes shipped behavior from automated evidence and checks that still require a real device or TikTok LIVE. A checked implementation item does not automatically mean that every browser has been manually verified.
@@ -94,4 +94,3 @@ For each browser, confirm audio unlock, preview, speech voice selection/fallback
 4. Conservative PWA shell and update UX.
 5. Neural TTS benchmark and architecture decision.
 6. Deferred real-device and real-LIVE acceptance matrix.
-
