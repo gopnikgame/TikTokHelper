@@ -323,7 +323,7 @@
 
 **Verification:**
 - [x] Unit tests cover exact-version lookup, in-flight deduplication, changed hashes, bounded eviction, quarantine, and fallback.
-- [ ] Chromium browser tests prove first-download and persistent reuse without a second media transfer.
+- [x] Chromium browser tests prove first-download and persistent reuse without a second media transfer.
 - [ ] Manual Firefox, Safari macOS/iPhone, Android Chromium, and Yandex checks are recorded separately when devices are available.
 
 **Dependencies:** Tasks 8 and 14
