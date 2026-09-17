@@ -314,7 +314,7 @@
 **Description:** Cache only enabled gift/reaction/support-level sound bytes in the browser, reuse decoded buffers, and preserve a clean migration path to a future installable PWA.
 
 **Acceptance criteria:**
-- [ ] Every cacheable sound exposes a server-derived SHA-256, byte size, MIME type, status, and same-origin URL.
+- [x] Every cacheable sound exposes a server-derived SHA-256, byte size, MIME type, status, and same-origin URL.
 - [ ] The browser persistently caches only sounds reachable from enabled rules and uses a bounded decoded `AudioBuffer` store.
 - [ ] Cache keys and namespaces follow `.agents/skills/browser-audio-cache/references/cache-contract.md`.
 - [ ] Authentication, workspace JSON, chat, TikTok events, and navigation responses never enter audio/model caches.

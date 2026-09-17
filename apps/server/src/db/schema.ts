@@ -130,6 +130,7 @@ export const soundLibraryAssets = pgTable('sound_library_assets', {
   mimeType: varchar('mime_type', { length: 100 }).notNull(),
   durationMs: integer('duration_ms'),
   contentSha256: varchar('content_sha256', { length: 64 }),
+  byteSize: integer('byte_size'),
   status: varchar('status', { length: 16 }).notNull().default('active'),
   quarantineReason: varchar('quarantine_reason', { length: 500 }),
   quarantinedAt: timestamp('quarantined_at', { withTimezone: true }),
@@ -141,6 +142,7 @@ export const soundLibraryAssets = pgTable('sound_library_assets', {
   index('sound_library_assets_creator_idx').on(table.createdByUserId),
   check('sound_library_assets_duration_chk', sql`${table.durationMs} is null or ${table.durationMs} > 0`),
   check('sound_library_assets_sha256_chk', sql`${table.contentSha256} is null or ${table.contentSha256} ~ '^[0-9a-f]{64}$'`),
+  check('sound_library_assets_byte_size_chk', sql`${table.byteSize} is null or ${table.byteSize} > 0`),
   check('sound_library_assets_status_chk', sql`${table.status} in ('active', 'quarantined')`),
   check('sound_library_assets_quarantine_chk', sql`(${table.status} = 'active' and ${table.quarantineReason} is null and ${table.quarantinedAt} is null) or (${table.status} = 'quarantined' and ${table.quarantineReason} is not null and ${table.quarantinedAt} is not null)`),
 ]);

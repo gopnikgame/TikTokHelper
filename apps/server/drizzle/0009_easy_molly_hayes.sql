@@ -1,0 +1,2 @@
+ALTER TABLE "sound_library_assets" ADD COLUMN "byte_size" integer;--> statement-breakpoint
+ALTER TABLE "sound_library_assets" ADD CONSTRAINT "sound_library_assets_byte_size_chk" CHECK ("sound_library_assets"."byte_size" is null or "sound_library_assets"."byte_size" > 0);

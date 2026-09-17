@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { mkdir, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { buildApp } from './app.js';
 import { createDatabase } from './db/client.js';
 import { createSettingsRepository } from './settings/repository.js';
@@ -8,6 +9,7 @@ import { TikTokSessionManager } from './tiktok/session-manager.js';
 import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
 import { createSoundRepository } from './sounds/repository.js';
 import { createSoundUploadStore } from './sounds/upload.js';
+import { inspectSoundFile, synchronizeSoundMetadata } from './sounds/metadata.js';
 import { createGiftCatalogRepository } from './gifts/repository.js';
 import { createRecentChannelRepository } from './channels/repository.js';
 import { createAuthRepository } from './auth/repository.js';
@@ -53,10 +55,13 @@ const authService = authConfigured ? new AuthService(
 ) : undefined;
 if (soundRoot) {
   const files = (await readdir(soundRoot)).filter((name) => /\.wav$/i.test(name));
-  await soundRepository.seed(workspaceId, files.map((storageKey) => ({
+  await soundRepository.seed(workspaceId, await Promise.all(files.map(async (storageKey) => ({
     storageKey, displayName: storageKey.replace(/\.wav$/i, ''),
-  })));
+    ...await inspectSoundFile(join(soundRoot, storageKey)),
+  }))));
 }
+const soundMetadata = await synchronizeSoundMetadata(db, { soundRoot, soundUploadRoot });
+process.stdout.write(`${JSON.stringify({ level: 'info', component: 'sounds', event: 'metadata_synchronized', ...soundMetadata })}\n`);
 const realtimeRef: { current?: RealtimeServer } = {};
 const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
   if (event.type === 'gift.received') {

@@ -1,10 +1,10 @@
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, sql } from 'drizzle-orm';
 import type { GiftSoundMapping, SoundAsset, UpdateGiftSoundMapping } from '@tiktok-helper/contracts';
 import type { Database } from '../db/client.js';
 import { eventReactions, giftSoundRules, soundLibraryAssets, supportLevels, workspaces } from '../db/schema.js';
 import type { GiftCatalogRepository } from '../gifts/repository.js';
 
-export interface BuiltInSound { displayName: string; storageKey: string }
+export interface BuiltInSound { displayName: string; storageKey: string; contentSha256: string; byteSize: number; mimeType: string }
 export interface SoundActor { userId: string; isAdmin: boolean }
 export type DeleteSoundResult =
   | { ok: true; storageKey: string; removedMappings: number }
@@ -14,7 +14,7 @@ export interface SoundRepository {
   listSounds(workspaceId: string, actor?: SoundActor): Promise<SoundAsset[]>;
   listMappings(workspaceId: string): Promise<GiftSoundMapping[]>;
   saveMapping(workspaceId: string, input: UpdateGiftSoundMapping): Promise<GiftSoundMapping | null>;
-  createSound(workspaceId: string, sound: BuiltInSound & { mimeType: string }, createdByUserId?: string): Promise<SoundAsset>;
+  createSound(workspaceId: string, sound: BuiltInSound, createdByUserId?: string): Promise<SoundAsset>;
   quarantineSound(soundId: string, actor: SoundActor, reason: string): Promise<SoundAsset | null>;
   deleteSound(soundId: string, actor: SoundActor): Promise<DeleteSoundResult>;
 }
@@ -33,9 +33,11 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
     return Number(giftRows[0]?.value ?? 0) + Number(levelRows[0]?.value ?? 0) + Number(reactionRows[0]?.value ?? 0);
   }
   function present(row: typeof soundLibraryAssets.$inferSelect, actor?: SoundActor, used = 0): SoundAsset {
+    if (!row.contentSha256 || !row.byteSize) throw new Error(`Sound metadata is incomplete: ${row.id}`);
     const isOwnedByCurrentUser = actor !== undefined && row.createdByUserId === actor.userId;
     return {
       id: row.id, displayName: row.displayName, url: soundUrl(row.storageKey),
+      contentSha256: row.contentSha256, byteSize: row.byteSize, mimeType: row.mimeType,
       status: row.status as SoundAsset['status'], createdByUserId: row.createdByUserId,
       isOwnedByCurrentUser, usageCount: used, quarantineReason: row.quarantineReason,
       canQuarantine: actor?.isAdmin === true && row.status === 'active',
@@ -48,8 +50,16 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
       await db.insert(workspaces).values({ id: workspaceId, displayName: workspaceId }).onConflictDoNothing();
       await db.insert(soundLibraryAssets).values(sounds.map((sound) => ({
         originalWorkspaceId: workspaceId,
-        storageKey: sound.storageKey, displayName: sound.displayName, mimeType: 'audio/wav',
-      }))).onConflictDoNothing();
+        ...sound,
+      }))).onConflictDoUpdate({
+        target: soundLibraryAssets.storageKey,
+        set: {
+          displayName: sql`excluded.display_name`,
+          mimeType: sql`excluded.mime_type`,
+          contentSha256: sql`excluded.content_sha256`,
+          byteSize: sql`excluded.byte_size`,
+        },
+      });
     },
     async listSounds(_workspaceId, actor) {
       const [rows, giftUsage, levelUsage, reactionUsage] = await Promise.all([

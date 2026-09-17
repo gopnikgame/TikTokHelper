@@ -14,6 +14,9 @@ describe('sound upload storage', () => {
     const data = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(4), Buffer.from('WAVEfmt ')]);
     const stored = await createSoundUploadStore(root).save(data, 'application/octet-stream');
     expect(stored.storageKey).toMatch(/^uploaded\/[0-9a-f-]+\.wav$/);
+    expect(stored.mimeType).toBe('audio/wav');
+    expect(stored.byteSize).toBe(data.byteLength);
+    expect(stored.contentSha256).toMatch(/^[0-9a-f]{64}$/);
     expect(await readFile(join(root, stored.storageKey.slice('uploaded/'.length)))).toEqual(data);
   });
 

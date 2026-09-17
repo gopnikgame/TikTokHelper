@@ -77,7 +77,7 @@ describe('sound ownership and moderation authorization', () => {
 
     const admin = memoryAuth('admin'); let reason = '';
     const allowed = buildApp({ logger: false, authService: admin.service, soundRepository: sounds({
-      async quarantineSound(_id, actor, suppliedReason) { reason = suppliedReason; return { id: soundId, displayName: 'Test', url: '/sounds/test.wav', status: 'quarantined', createdByUserId: null, isOwnedByCurrentUser: false, usageCount: 2, quarantineReason: suppliedReason, canQuarantine: false, canDelete: actor.isAdmin }; },
+      async quarantineSound(_id, actor, suppliedReason) { reason = suppliedReason; return { id: soundId, displayName: 'Test', url: '/sounds/test.wav', contentSha256: '0'.repeat(64), byteSize: 12, mimeType: 'audio/wav', status: 'quarantined', createdByUserId: null, isOwnedByCurrentUser: false, usageCount: 2, quarantineReason: suppliedReason, canQuarantine: false, canDelete: actor.isAdmin }; },
     }) }); apps.add(allowed);
     const response = await allowed.inject({ method: 'PATCH', url: `/api/workspaces/${workspaceId}/sounds/${soundId}/quarantine`, headers: { cookie: await login(allowed) }, payload: { reason: 'Нарушение авторских прав' } });
     expect(response.statusCode).toBe(200); expect(reason).toBe('Нарушение авторских прав'); expect(response.json()).toMatchObject({ status: 'quarantined', canDelete: true });

@@ -35,7 +35,10 @@ export const soundRoutes: FastifyPluginAsync<SoundRoutesOptions> = async (app, o
       }
       try {
         const createdByUserId = request.authPrincipal?.userId === LOCAL_ACCESS_USER_ID ? undefined : request.authPrincipal?.userId;
-        const sound = await options.repository.createSound(request.params.workspaceId, { displayName, storageKey: stored.storageKey, mimeType: stored.mimeType }, createdByUserId);
+        const sound = await options.repository.createSound(request.params.workspaceId, {
+          displayName, storageKey: stored.storageKey, mimeType: stored.mimeType,
+          contentSha256: stored.contentSha256, byteSize: stored.byteSize,
+        }, createdByUserId);
         return reply.code(201).send(sound);
       } catch (error) {
         await stored.remove();

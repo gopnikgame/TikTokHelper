@@ -2,6 +2,9 @@ export interface SoundAsset {
   id: string;
   displayName: string;
   url: string;
+  contentSha256: string;
+  byteSize: number;
+  mimeType: string;
   status: 'active' | 'quarantined';
   createdByUserId: string | null;
   isOwnedByCurrentUser: boolean;
@@ -43,9 +46,11 @@ export interface UpdateGiftSoundMapping {
 const uuid = { type: 'string', format: 'uuid' } as const;
 export const soundAssetSchema = {
   type: 'object', additionalProperties: false,
-  required: ['id', 'displayName', 'url', 'status', 'createdByUserId', 'isOwnedByCurrentUser', 'usageCount', 'quarantineReason', 'canQuarantine', 'canDelete'],
+  required: ['id', 'displayName', 'url', 'contentSha256', 'byteSize', 'mimeType', 'status', 'createdByUserId', 'isOwnedByCurrentUser', 'usageCount', 'quarantineReason', 'canQuarantine', 'canDelete'],
   properties: {
     id: uuid, displayName: { type: 'string' }, url: { type: 'string' },
+    contentSha256: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+    byteSize: { type: 'integer', minimum: 1 }, mimeType: { type: 'string', pattern: '^audio/' },
     status: { type: 'string', enum: ['active', 'quarantined'] },
     createdByUserId: { anyOf: [uuid, { type: 'null' }] },
     isOwnedByCurrentUser: { type: 'boolean' }, usageCount: { type: 'integer', minimum: 0 },
