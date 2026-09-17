@@ -105,6 +105,7 @@ describe('realtime server', () => {
       type: 'chat.message' as const, generation: 1, sequence: 1, eventId: 'chat-1',
       senderDisplayName: 'Viewer', senderUsername: 'viewer', text: 'Hello', language: 'ru',
       participant: { userId: '42', secUidAvailable: true, moderator: true },
+      speakerContext: { isModerator: true, isGiftGiver: false, speechLevels: [] },
     };
     const memberPrincipal = { userId: randomUUID(), displayName: 'Member', isAdmin: false, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
     const member = await setup(
@@ -116,7 +117,8 @@ describe('realtime server', () => {
     member.realtime.publish('mine', diagnosticEvent);
     await expect(memberEvent).resolves.toEqual({
       type: 'chat.message', generation: 1, sequence: 1, eventId: 'chat-1',
-      senderDisplayName: 'Viewer', senderUsername: 'viewer', text: 'Hello',
+      senderDisplayName: 'Viewer', senderUsername: 'viewer', text: 'Hello', language: 'ru',
+      speakerContext: { isModerator: true, isGiftGiver: false, speechLevels: [] },
     });
 
     const adminPrincipal = { userId: randomUUID(), displayName: 'Admin', isAdmin: true, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
@@ -128,6 +130,21 @@ describe('realtime server', () => {
     const adminEvent = new Promise<unknown>((resolve) => admin.client.once('event', resolve));
     admin.realtime.publish('mine', diagnosticEvent);
     await expect(adminEvent).resolves.toEqual(diagnosticEvent);
+  });
+
+  it('publishes declarative level grants only to the matching workspace room', async () => {
+    const { client, realtime } = await setup();
+    expect(await subscribe(client, 'primary')).toEqual({ ok: true });
+    const received = new Promise<unknown>((resolve) => client.once('support:level-granted', resolve));
+    const event = {
+      eventId: 'grant:one', workspaceId: 'primary', senderDisplayName: 'Viewer',
+      senderUsername: 'viewer', levelId: '123e4567-e89b-42d3-a456-426614174000',
+      levelName: 'Голос эфира', thresholdPoints: 10_000, pointsAdded: 100,
+      streamTotal: 2_000, lifetimeTotal: 10_050, expiresAt: null,
+    };
+    realtime.publishSupportLevelGranted('other', event);
+    realtime.publishSupportLevelGranted('primary', event);
+    await expect(received).resolves.toEqual(event);
   });
 
   it('rejects unauthorized and malformed subscriptions', async () => {

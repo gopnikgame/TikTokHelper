@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import {
   type ClientToServerEvents, type CommandAcknowledgement, type RealtimeEvent,
   type RealtimeSnapshot, type ServerToClientEvents, validateClientEvent,
+  type SupportLevelGrantedEvent,
 } from '@tiktok-helper/contracts';
 import type { TikTokSessionManager } from '../tiktok/session-manager.js';
 import { RecentEventBuffer } from './buffer.js';
@@ -18,6 +19,9 @@ function eventForPrincipal(event: RealtimeEvent, isAdmin: boolean): RealtimeEven
     type: event.type, generation: event.generation, sequence: event.sequence, eventId: event.eventId,
     senderDisplayName: event.senderDisplayName, senderUsername: event.senderUsername, text: event.text,
     ...(event.emotes ? { emotes: event.emotes } : {}),
+    ...(event.language ? { language: event.language } : {}),
+    ...(event.mentionedUsernames ? { mentionedUsernames: event.mentionedUsernames } : {}),
+    ...(event.speakerContext ? { speakerContext: event.speakerContext } : {}),
   };
 }
 const invalidCommand: CommandAcknowledgement = {
@@ -36,6 +40,7 @@ export interface RealtimeServerOptions {
 export interface RealtimeServer {
   publish(workspaceId: string, event: RealtimeEvent): void;
   publishSoundLibraryChanged(soundId: string): void;
+  publishSupportLevelGranted(workspaceId: string, event: SupportLevelGrantedEvent): void;
   close(): Promise<void>;
 }
 
@@ -139,6 +144,11 @@ export function attachRealtimeServer(
       io.to(roomFor(workspaceId, true)).emit('event', event);
     },
     publishSoundLibraryChanged(soundId) { io.emit('sound-library:changed', { soundId }); },
+    publishSupportLevelGranted(workspaceId, event) {
+      if (event.workspaceId !== workspaceId) return;
+      io.to(roomFor(workspaceId, false)).emit('support:level-granted', event);
+      io.to(roomFor(workspaceId, true)).emit('support:level-granted', event);
+    },
     async close() { io.local.disconnectSockets(true); },
   };
 }

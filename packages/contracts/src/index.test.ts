@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { Ajv } from 'ajv';
 import {
   hasOnlyKnownTemplateVariables, healthResponseSchema, saveEventReactionSchema,
-  saveSupportLevelSchema, updateWorkspaceSpeechPolicySchema, validateClientEvent,
+  saveSupportLevelSchema, supportLevelGrantedEventSchema, chatSpeakerContextSchema,
+  updateWorkspaceSpeechPolicySchema, validateClientEvent,
 } from './index.js';
 
 describe('health response contract', () => {
@@ -81,5 +82,38 @@ describe('configurable speech contracts', () => {
     expect(validateLevel({ ...base, isAdmin: true })).toBe(false);
     expect(validateLevel({ ...base, privilegeDuration: 'days', privilegeDurationDays: null })).toBe(false);
     expect(validateLevel({ ...base, privilegeDuration: 'permanent', privilegeDurationDays: 30 })).toBe(false);
+  });
+});
+
+describe('browser-owned speech event contracts', () => {
+  const ajv = new Ajv({ strict: false, formats: {
+    uuid: /^[0-9a-f-]{36}$/i,
+    'date-time': true,
+  } });
+
+  it('exposes only declarative speaker entitlements', () => {
+    const validate = ajv.compile(chatSpeakerContextSchema);
+    expect(validate({
+      isModerator: true, isGiftGiver: false,
+      speechLevels: [{
+        levelId: '123e4567-e89b-42d3-a456-426614174000', levelName: 'Голос эфира',
+        cooldownSeconds: 30, expiresAt: null,
+      }],
+    })).toBe(true);
+    expect(validate({
+      isModerator: false, isGiftGiver: true, speechLevels: [], identityKey: 'must-not-leak',
+    })).toBe(false);
+  });
+
+  it('bounds level-granted facts and rejects executable speech instructions', () => {
+    const validate = ajv.compile(supportLevelGrantedEventSchema);
+    const event = {
+      eventId: 'grant:one', workspaceId: 'primary', senderDisplayName: 'Зритель',
+      senderUsername: 'viewer', levelId: '123e4567-e89b-42d3-a456-426614174000',
+      levelName: 'Голос эфира', thresholdPoints: 10_000, pointsAdded: 100,
+      streamTotal: 2_000, lifetimeTotal: 10_050, expiresAt: null,
+    };
+    expect(validate(event)).toBe(true);
+    expect(validate({ ...event, speakNow: '<script>alert(1)</script>' })).toBe(false);
   });
 });

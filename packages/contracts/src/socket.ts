@@ -90,6 +90,18 @@ export interface ChatEvent {
   participant?: ChatParticipantDiagnostic;
   language?: string;
   mentionedUsernames?: string[];
+  speakerContext?: ChatSpeakerContext;
+}
+export interface SpeechLevelEntitlement {
+  levelId: string;
+  levelName: string;
+  cooldownSeconds: number;
+  expiresAt: string | null;
+}
+export interface ChatSpeakerContext {
+  isModerator: boolean;
+  isGiftGiver: boolean;
+  speechLevels: SpeechLevelEntitlement[];
 }
 export interface ChatEmote { emoteId: string; imageUrl: string; position: number; }
 export interface ChatParticipantDiagnostic {
@@ -114,6 +126,62 @@ export interface GiftEvent {
   giftId: string; giftName: string; senderDisplayName: string; senderUsername: string; repeatCount: number;
   imageUrl?: string; diamondCount?: number;
 }
+export interface SupportLevelGrantedEvent {
+  eventId: string;
+  workspaceId: string;
+  senderDisplayName: string;
+  senderUsername: string;
+  levelId: string;
+  levelName: string;
+  thresholdPoints: number;
+  pointsAdded: number;
+  streamTotal: number;
+  lifetimeTotal: number;
+  expiresAt: string | null;
+}
+
+const uuidSchema = { type: 'string', format: 'uuid' } as const;
+export const speechLevelEntitlementSchema = {
+  type: 'object', additionalProperties: false,
+  required: ['levelId', 'levelName', 'cooldownSeconds', 'expiresAt'],
+  properties: {
+    levelId: uuidSchema,
+    levelName: { type: 'string', minLength: 1, maxLength: 80 },
+    cooldownSeconds: { type: 'integer', minimum: 5, maximum: 3600 },
+    expiresAt: { anyOf: [{ type: 'string', format: 'date-time' }, { type: 'null' }] },
+  },
+} as const;
+
+export const chatSpeakerContextSchema = {
+  type: 'object', additionalProperties: false,
+  required: ['isModerator', 'isGiftGiver', 'speechLevels'],
+  properties: {
+    isModerator: { type: 'boolean' },
+    isGiftGiver: { type: 'boolean' },
+    speechLevels: { type: 'array', maxItems: 20, items: speechLevelEntitlementSchema },
+  },
+} as const;
+
+export const supportLevelGrantedEventSchema = {
+  type: 'object', additionalProperties: false,
+  required: [
+    'eventId', 'workspaceId', 'senderDisplayName', 'senderUsername', 'levelId', 'levelName',
+    'thresholdPoints', 'pointsAdded', 'streamTotal', 'lifetimeTotal', 'expiresAt',
+  ],
+  properties: {
+    eventId: { type: 'string', minLength: 1, maxLength: 160 },
+    workspaceId: { type: 'string', pattern: identifierPattern },
+    senderDisplayName: { type: 'string', minLength: 1, maxLength: 120 },
+    senderUsername: { type: 'string', minLength: 1, maxLength: 64 },
+    levelId: uuidSchema,
+    levelName: { type: 'string', minLength: 1, maxLength: 80 },
+    thresholdPoints: { type: 'integer', minimum: 1, maximum: 2_147_483_647 },
+    pointsAdded: { type: 'integer', minimum: 1, maximum: Number.MAX_SAFE_INTEGER },
+    streamTotal: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+    lifetimeTotal: { type: 'integer', minimum: 0, maximum: Number.MAX_SAFE_INTEGER },
+    expiresAt: { anyOf: [{ type: 'string', format: 'date-time' }, { type: 'null' }] },
+  },
+} as const;
 export type RealtimeEvent = ConnectionStateEvent | ChatEvent | GiftEvent;
 export interface RealtimeSnapshot {
   workspaceId: string; generation: number; lastSequence: number;
@@ -124,5 +192,6 @@ export interface RealtimeSnapshot {
 export interface ServerToClientEvents {
   snapshot: (snapshot: RealtimeSnapshot) => void;
   event: (event: RealtimeEvent) => void;
+  'support:level-granted': (event: SupportLevelGrantedEvent) => void;
   'sound-library:changed': (payload: { soundId: string }) => void;
 }
