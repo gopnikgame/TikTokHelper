@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import type { ConnectionStateEvent, GiftEvent } from '@tiktok-helper/contracts';
 import { normalizeChat, normalizeGift } from './normalizer.js';
 import type {
@@ -25,6 +26,7 @@ interface Session {
   tiktokUsername: string;
   seenEventIds: Set<string>;
   giftStreakCounts: Map<string, number>;
+  streamId: string;
 }
 
 export interface TikTokDiagnostic {
@@ -54,6 +56,7 @@ export class TikTokSessionManager {
     private readonly scheduler: Scheduler = systemScheduler,
     private readonly diagnostics: (entry: TikTokDiagnostic) => void = () => undefined,
     private readonly connectionRequested: (workspaceId: string, username: string) => void = () => undefined,
+    private readonly giftObserved: (workspaceId: string, streamId: string, gift: GiftEvent, senderIdentityKey: string) => void = () => undefined,
   ) {}
 
   async start(workspaceId: string, username: string): Promise<LiveSessionSnapshot> {
@@ -67,7 +70,7 @@ export class TikTokSessionManager {
     const session: Session = {
       connector: null, generation: (this.#sessions.get(workspaceId)?.generation ?? 0) + 1,
       sequence: 0, state: 'stopped', stopped: false, reconnectAttempt: 0,
-      tiktokUsername: normalizedUsername, seenEventIds: new Set(), giftStreakCounts: new Map(),
+      tiktokUsername: normalizedUsername, seenEventIds: new Set(), giftStreakCounts: new Map(), streamId: randomUUID(),
     };
     this.#sessions.set(workspaceId, session);
     await this.#connect(workspaceId, session, false);
@@ -159,7 +162,7 @@ export class TikTokSessionManager {
   #onGift(workspaceId: string, session: Session, raw: unknown): void {
     const event = normalizeGift(raw, session.generation, session.sequence + 1);
     if (!event || !this.#accept(session, event.eventId)) return;
-    const streakKey = `${event.senderDisplayName}\u001f${event.giftId}`;
+    const streakKey = `${event.senderIdentityKey}\u001f${event.giftId}`;
     const previousCount = session.giftStreakCounts.get(streakKey) ?? 0;
     const increment = event.streakable ? Math.max(0, event.repeatCount - previousCount) : event.repeatCount;
     if (event.streakable && !event.repeatEnd) session.giftStreakCounts.set(streakKey, event.repeatCount);
@@ -169,6 +172,10 @@ export class TikTokSessionManager {
     const projectEvent: GiftEvent = { ...event, repeatCount: increment };
     delete (projectEvent as Partial<typeof event>).repeatEnd;
     delete (projectEvent as Partial<typeof event>).streakable;
+    delete (projectEvent as Partial<typeof event>).senderIdentityKey;
+    const workspaceIdentityKey = createHash('sha256')
+      .update(workspaceId).update('\0').update(event.senderIdentityKey).digest('hex');
+    this.giftObserved(workspaceId, session.streamId, projectEvent, workspaceIdentityKey);
     this.sink(workspaceId, projectEvent);
   }
 

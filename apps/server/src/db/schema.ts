@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
-  boolean, check, foreignKey, index, integer, pgTable, primaryKey, smallint, text,
+  bigint, boolean, check, foreignKey, index, integer, pgTable, primaryKey, smallint, text,
   timestamp, unique, uniqueIndex, uuid, varchar,
 } from 'drizzle-orm/pg-core';
 
@@ -260,6 +260,50 @@ export const eventReactions = pgTable('event_reactions', {
   check('event_reactions_type_chk', sql`${table.eventType} in ('moderator_seen', 'donor_seen', 'support_level_reached')`),
   check('event_reactions_cooldown_chk', sql`${table.cooldownSeconds} between 0 and 86400`),
   check('event_reactions_position_chk', sql`${table.position} between 0 and 10000`),
+]);
+
+export const supporters = pgTable('supporters', {
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  identityKey: varchar('identity_key', { length: 64 }).notNull(),
+  username: varchar('username', { length: 64 }).notNull(),
+  displayName: varchar('display_name', { length: 120 }).notNull(),
+  lifetimePoints: bigint('lifetime_points', { mode: 'number' }).notNull().default(0),
+  firstSupportedAt: timestamp('first_supported_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSupportedAt: timestamp('last_supported_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.workspaceId, table.identityKey] }),
+  index('supporters_workspace_points_idx').on(table.workspaceId, table.lifetimePoints),
+  check('supporters_identity_key_chk', sql`${table.identityKey} ~ '^[0-9a-f]{64}$'`),
+  check('supporters_lifetime_points_chk', sql`${table.lifetimePoints} >= 0`),
+]);
+
+export const supporterStreamTotals = pgTable('supporter_stream_totals', {
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  streamId: uuid('stream_id').notNull(),
+  identityKey: varchar('identity_key', { length: 64 }).notNull(),
+  points: bigint('points', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.workspaceId, table.streamId, table.identityKey] }),
+  foreignKey({ columns: [table.workspaceId, table.identityKey], foreignColumns: [supporters.workspaceId, supporters.identityKey] }).onDelete('cascade'),
+  check('supporter_stream_totals_points_chk', sql`${table.points} >= 0`),
+]);
+
+export const supporterLevelGrants = pgTable('supporter_level_grants', {
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  identityKey: varchar('identity_key', { length: 64 }).notNull(),
+  supportLevelId: uuid('support_level_id').notNull(),
+  grantKey: varchar('grant_key', { length: 80 }).notNull(),
+  grantedAt: timestamp('granted_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+}, (table) => [
+  primaryKey({ columns: [table.workspaceId, table.identityKey, table.supportLevelId, table.grantKey] }),
+  foreignKey({ columns: [table.workspaceId, table.identityKey], foreignColumns: [supporters.workspaceId, supporters.identityKey] }).onDelete('cascade'),
+  foreignKey({ columns: [table.workspaceId, table.supportLevelId], foreignColumns: [supportLevels.workspaceId, supportLevels.id] }).onDelete('cascade'),
+  index('supporter_level_grants_active_idx').on(table.workspaceId, table.identityKey, table.expiresAt),
 ]);
 
 export const processedGiftEvents = pgTable('processed_gift_events', {

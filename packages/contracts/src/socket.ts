@@ -111,7 +111,7 @@ export interface ChatParticipantDiagnostic {
 }
 export interface GiftEvent {
   type: 'gift.received'; generation: number; sequence: number; eventId: string;
-  giftId: string; giftName: string; senderDisplayName: string; repeatCount: number;
+  giftId: string; giftName: string; senderDisplayName: string; senderUsername: string; repeatCount: number;
   imageUrl?: string; diamondCount?: number;
 }
 export type RealtimeEvent = ConnectionStateEvent | ChatEvent | GiftEvent;

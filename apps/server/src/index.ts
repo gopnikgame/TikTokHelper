@@ -15,6 +15,7 @@ import { HttpIdentityBridge } from './auth/bridge-client.js';
 import { AuthService, parseCookie } from './auth/service.js';
 import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
 import { createAutomationRepository } from './automation/repository.js';
+import { createSupporterRepository } from './supporters/repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -28,6 +29,7 @@ const giftCatalogRepository = createGiftCatalogRepository(db);
 const recentChannelRepository = createRecentChannelRepository(db);
 const soundRepository = createSoundRepository(db, giftCatalogRepository);
 const authRepository = createAuthRepository(db);
+const supporterRepository = createSupporterRepository(db);
 const authEnvironment = {
   authorizeUrl: process.env.VLINE_BRIDGE_AUTHORIZE_URL,
   tokenUrl: process.env.VLINE_BRIDGE_TOKEN_URL,
@@ -67,6 +69,13 @@ const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspace
   void recentChannelRepository.record(workspaceId, username).catch((error: unknown) => {
     process.stderr.write(`${JSON.stringify({
       level: 'error', component: 'recent_channels', event: 'connection_record_failed',
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    })}\n`);
+  });
+}, (workspaceId, streamId, gift, identityKey) => {
+  void supporterRepository.processGift(workspaceId, streamId, gift, identityKey).catch((error: unknown) => {
+    process.stderr.write(`${JSON.stringify({
+      level: 'error', component: 'supporters', event: 'gift_support_processing_failed',
       errorName: error instanceof Error ? error.name : 'UnknownError',
     })}\n`);
   });

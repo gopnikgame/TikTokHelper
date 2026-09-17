@@ -57,6 +57,13 @@
       "when": 1789595187239,
       "tag": "0007_perfect_wolfpack",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789619991388,
+      "tag": "0008_worried_kabuki",
+      "breakpoints": true
     }
   ]
 }

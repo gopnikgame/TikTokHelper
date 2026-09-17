@@ -141,6 +141,7 @@ export function normalizeChat(rawValue: unknown, generation: number, sequence: n
 export interface NormalizedGift extends GiftEvent {
   repeatEnd: boolean;
   streakable: boolean;
+  senderIdentityKey: string;
 }
 
 export function normalizeGift(rawValue: unknown, generation: number, sequence: number): NormalizedGift | undefined {
@@ -153,12 +154,15 @@ export function normalizeGift(rawValue: unknown, generation: number, sequence: n
   const giftId = text(raw.giftId);
   const repeatCount = positiveInteger(raw.repeatCount) ?? 1;
   if (!author || !giftId) return undefined;
+  const user = record(raw.user);
+  const identitySource = text(user?.secUid) ?? author.username.toLocaleLowerCase('en-US');
+  const senderIdentityKey = createHash('sha256').update(identitySource).digest('hex');
   const streakable = Number(giftDetails?.giftType) === 1;
   return {
     type: 'gift.received', generation, sequence,
     eventId: eventId(raw, ['gift', author.username, giftId, String(repeatCount), String(Boolean(raw.repeatEnd))]),
     giftId, giftName: text(gift?.name) ?? text(giftDetails?.giftName) ?? text(extendedGift?.name) ?? giftId,
-    senderDisplayName: author.displayName, repeatCount,
+    senderDisplayName: author.displayName, senderUsername: author.username, senderIdentityKey, repeatCount,
     imageUrl: firstImageUrl(gift?.image, gift?.icon, gift?.previewImage, giftDetails?.giftImage, extendedGift?.image),
     diamondCount: nonNegativeInteger(gift?.diamondCount ?? giftDetails?.diamondCount ?? raw.diamondCount),
     repeatEnd: Boolean(raw.repeatEnd), streakable,

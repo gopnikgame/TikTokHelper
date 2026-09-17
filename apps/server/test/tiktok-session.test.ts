@@ -118,6 +118,32 @@ describe('TikTok session manager', () => {
     expect(events.filter((event) => event.type === 'gift.received').map((event) => event.repeatCount)).toEqual([1, 2]);
   });
 
+  it('uses a private stable sender key for incremental support accounting', async () => {
+    const connector = new FakeConnector();
+    const observed: Array<{ count: number; key: string; username: string }> = [];
+    const manager = new TikTokSessionManager(
+      () => connector, () => undefined, undefined, undefined, undefined,
+      (_workspaceId, _streamId, event, key) => observed.push({ count: event.repeatCount, key, username: event.senderUsername }),
+    );
+    await manager.start('family', 'streamer');
+    const securedGift = (repeatCount: number, repeatEnd: boolean, msgId: string) => ({
+      ...gift(repeatCount, repeatEnd, msgId), diamondCount: 5,
+      user: { uniqueId: 'viewer', nickname: 'Зритель', secUid: 'private-sec-uid' },
+    });
+    connector.emit('gift', securedGift(1, false, 'secure-1'));
+    connector.emit('gift', {
+      ...securedGift(3, false, 'secure-2'),
+      user: { uniqueId: 'viewer_renamed', nickname: 'Новое имя', secUid: 'private-sec-uid' },
+    });
+    connector.emit('gift', securedGift(3, true, 'secure-3'));
+    expect(observed.map(({ count }) => count)).toEqual([1, 2]);
+    expect(observed[0]?.username).toBe('viewer');
+    expect(observed[0]?.key).toMatch(/^[0-9a-f]{64}$/);
+    expect(observed[1]?.username).toBe('viewer_renamed');
+    expect(observed[1]?.key).toBe(observed[0]?.key);
+    expect(JSON.stringify(observed)).not.toContain('private-sec-uid');
+  });
+
   it('extracts current connector gift metadata without the optional catalogue request', async () => {
     const connector = new FakeConnector();
     const events: RealtimeEvent[] = [];

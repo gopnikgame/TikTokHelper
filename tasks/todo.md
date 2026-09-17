@@ -258,9 +258,9 @@
 **Description:** Identify gift senders, aggregate support points, and create idempotent level achievements without retaining raw events.
 
 **Acceptance criteria:**
-- [ ] Gift series increment totals exactly once.
-- [ ] Crossing a threshold grants its configured privilege once.
-- [ ] Current-stream and lifetime totals are distinguishable.
+- [x] Gift series increment totals exactly once.
+- [x] Crossing a threshold grants its configured privilege once.
+- [x] Current-stream and lifetime totals are distinguishable.
 
 **Verification:**
 - [ ] Tests cover duplicate events, series, multiple crossed levels, username changes, and concurrent updates.
