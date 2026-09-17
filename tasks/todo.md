@@ -295,9 +295,9 @@
 **Description:** Add a dedicated progressive-disclosure settings surface for levels, moderator speech, event reactions, templates, sounds, and test playback.
 
 **Acceptance criteria:**
-- [ ] Users edit rules using human labels, not JSON or internal event names.
-- [ ] Available variables are shown next to each template and can be inserted by tapping.
-- [ ] Create, edit, reorder, disable, test, and delete flows work on mobile.
+- [x] Users edit rules using human labels, not JSON or internal event names.
+- [x] Available variables are shown next to each template and can be inserted by tapping.
+- [x] Create, edit, reorder, disable, test, and delete flows work on mobile.
 
 **Verification:**
 - [ ] Component and Playwright tests cover empty, loading, error, long-name, and compact-width states.

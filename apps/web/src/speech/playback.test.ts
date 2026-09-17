@@ -4,11 +4,11 @@ import { browserSpeechSynthesisSupported, SpeechPlaybackQueue, type SpeechSynthe
 function setup() {
   const spoken: UtteranceLike[] = [];
   const synthesis: SpeechSynthesisLike = {
-    cancel: vi.fn(), getVoices: () => [{ lang: 'en-US' }, { lang: 'ru-RU' }],
+    cancel: vi.fn(), getVoices: () => [{ name: 'English', lang: 'en-US' }, { name: 'Russian', lang: 'ru-RU' }],
     speak: (utterance) => { spoken.push(utterance); },
   };
   const create = (text: string): UtteranceLike => ({
-    text, lang: '', volume: 1, voice: null, onend: null, onerror: null,
+    text, lang: '', volume: 1, rate: 1, voice: null, onend: null, onerror: null,
   });
   return { queue: new SpeechPlaybackQueue(synthesis, create), synthesis, spoken };
 }
@@ -45,5 +45,12 @@ describe('browser speech queue', () => {
     queue.stop();
     expect(queue.pending).toBe(0);
     expect(synthesis.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('applies device-specific voice, speed, and volume preferences', () => {
+    const { queue, spoken } = setup();
+    queue.setPreferences({ voiceName: 'English', rate: 1.4, volume: .6 });
+    queue.enqueue({ id: '1', text: 'Тест', language: 'ru-RU', priority: 'normal' }, 5);
+    expect(spoken[0]).toMatchObject({ voice: { name: 'English' }, rate: 1.4, volume: .6 });
   });
 });

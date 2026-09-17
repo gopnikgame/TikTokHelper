@@ -1,8 +1,8 @@
 import type { SpeechJob } from './policy.js';
 
-export interface SpeechVoiceLike { lang: string }
+export interface SpeechVoiceLike { name: string; lang: string }
 export interface UtteranceLike {
-  text: string; lang: string; volume: number; voice: SpeechVoiceLike | null;
+  text: string; lang: string; volume: number; rate: number; voice: SpeechVoiceLike | null;
   onend: (() => void) | null; onerror: (() => void) | null;
 }
 export interface SpeechSynthesisLike {
@@ -15,9 +15,12 @@ export function browserSpeechSynthesisSupported(browserWindow: Window = window):
   return 'speechSynthesis' in browserWindow && 'SpeechSynthesisUtterance' in browserWindow;
 }
 
+export interface SpeechPlaybackPreferences { voiceName: string; rate: number; volume: number }
+
 export class SpeechPlaybackQueue {
   readonly #queue: SpeechJob[] = [];
   #active = false;
+  #preferences: SpeechPlaybackPreferences = { voiceName: '', rate: 1, volume: 1 };
 
   constructor(
     private readonly synthesis: SpeechSynthesisLike = window.speechSynthesis as unknown as SpeechSynthesisLike,
@@ -25,6 +28,15 @@ export class SpeechPlaybackQueue {
   ) {}
 
   get pending(): number { return this.#queue.length; }
+  get voices(): SpeechVoiceLike[] { return this.synthesis.getVoices(); }
+
+  setPreferences(preferences: SpeechPlaybackPreferences): void {
+    this.#preferences = {
+      voiceName: preferences.voiceName,
+      rate: Math.min(2, Math.max(.5, preferences.rate)),
+      volume: Math.min(1, Math.max(0, preferences.volume)),
+    };
+  }
 
   unlock(): void {
     const utterance = this.createUtterance('\u00a0');
@@ -62,7 +74,10 @@ export class SpeechPlaybackQueue {
     const utterance = this.createUtterance(job.text);
     const requested = job.language.toLocaleLowerCase();
     utterance.lang = job.language;
-    utterance.voice = this.synthesis.getVoices().find((voice) => voice.lang.toLocaleLowerCase() === requested)
+    utterance.rate = this.#preferences.rate;
+    utterance.volume = this.#preferences.volume;
+    utterance.voice = this.synthesis.getVoices().find((voice) => voice.name === this.#preferences.voiceName)
+      ?? this.synthesis.getVoices().find((voice) => voice.lang.toLocaleLowerCase() === requested)
       ?? this.synthesis.getVoices().find((voice) => voice.lang.toLocaleLowerCase().split('-')[0] === requested.split('-')[0])
       ?? null;
     const finish = () => { this.#active = false; this.#pump(); };
