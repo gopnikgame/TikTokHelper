@@ -58,9 +58,9 @@ The current harness and focused integration tests cover:
 
 PostgreSQL integration tests now cover duplicate events, concurrent updates, multiple crossed levels, username changes with stable identity, and separation of current-stream and lifetime totals. The database-backed suite is explicitly enabled with `TEST_DATABASE_URL`; ordinary verification remains independent of a running database. The first complete run used a disposable PostgreSQL 18.1 container bound only to VM loopback and removed immediately afterwards.
 
-### 3. Restore rehearsal
+### 3. Restore rehearsal — implemented
 
-Restore a production-format PostgreSQL dump and media backup into an isolated Compose project. Verify users, workspaces, mappings, rules, uploaded media and application startup without touching the running production volumes.
+A production-format PostgreSQL dump and media archive were restored into disposable volumes on an internal Docker network with no published ports. Aggregate users, workspaces, memberships, mappings, automation rules and supporter-state counts matched production; the restored application started from the deployed image and passed readiness. Temporary resources were removed and the production containers remained healthy. Evidence and the deliberately retained empty-media limitation are documented in [restore-rehearsal.md](restore-rehearsal.md).
 
 ### 4. First installable-PWA phase
 
@@ -90,7 +90,7 @@ For each browser, confirm audio unlock, preview, speech voice selection/fallback
 
 1. Deterministic fake source and Playwright workflow suite.
 2. Supporter-accounting concurrency and identity tests.
-3. Isolated database/media restore rehearsal.
+3. Isolated database/media restore rehearsal (completed; repeat media verification after the first real upload).
 4. Conservative PWA shell and update UX.
 5. Neural TTS benchmark and architecture decision.
 6. Deferred real-device and real-LIVE acceptance matrix.

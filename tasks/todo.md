@@ -203,7 +203,7 @@
 **Verification:**
 - [x] Services and healthchecks pass; fresh logs contain no secret or chat leakage.
 - [ ] HTTPS, WebSocket, persistence, speech, sounds, reconnect, and operator workflow pass across the deferred real-device browser matrix.
-- [ ] PostgreSQL/media restore is tested or explicitly scheduled as an unresolved gate.
+- [x] PostgreSQL/media restore is tested in isolated disposable resources; the current media volume is empty, so non-empty upload verification remains a documented follow-up.
 
 **Dependencies:** Tasks 1, 2, and 9
 
@@ -246,7 +246,7 @@
 - [x] Empty workspaces receive no enabled speech or event reactions.
 
 **Verification:**
-- [x] Production migration and pre-deploy backup gates pass; isolated restore rehearsal remains tracked in project status.
+- [x] Production migration, pre-deploy backup gates, and the isolated restore rehearsal pass; non-empty uploaded-media verification remains tracked in project status.
 - [x] API tests cover CRUD, ordering, validation, and cross-workspace isolation.
 
 **Dependencies:** Task 11
@@ -337,7 +337,7 @@
 ## Checkpoint: speech privileges
 
 - [x] Tasks 11-15 pass `pnpm run verify`.
-- [x] Production backup, migration, deploy, and rollback procedure checks pass; full restore rehearsal remains open.
+- [x] Production backup, migration, deploy, rollback procedure checks, and isolated restore rehearsal pass; non-empty uploaded-media verification remains open.
 - [ ] Real LIVE verifies one moderator message, one threshold crossing, one announcement, and one event sound.
 
 ## Task 17: Add a deterministic browser workflow source
