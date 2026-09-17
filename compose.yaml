@@ -31,7 +31,10 @@ services:
     secrets: [db_password]
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        SOURCE_REVISION: ${SOURCE_REVISION:-development}
     restart: unless-stopped
     depends_on:
       db:

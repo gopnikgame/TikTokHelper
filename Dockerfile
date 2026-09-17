@@ -1,4 +1,6 @@
 FROM node:24.18.0-bookworm-slim AS build
+ARG SOURCE_REVISION=development
+ENV VITE_SOURCE_REVISION=$SOURCE_REVISION
 WORKDIR /workspace
 RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.base.json eslint.config.mjs ./
