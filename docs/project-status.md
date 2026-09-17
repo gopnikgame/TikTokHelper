@@ -25,7 +25,7 @@ The repository verification command covers linting, TypeScript, unit/integration
 pnpm run verify
 ```
 
-The current branch passes 112 repository tests and the latest responsive release was inspected at representative viewport sizes from 280 px to 2560 px wide. Production Chromium previously verified persistent reuse of all enabled mapped sounds with the network disabled; details and the deliberately deferred browser matrix are in [audio-cache-verification.md](audio-cache-verification.md).
+The current branch passes 112 database-independent repository tests plus 3 PostgreSQL integration tests when `TEST_DATABASE_URL` is provided. The latest responsive release was inspected at representative viewport sizes from 280 px to 2560 px wide. Production Chromium previously verified persistent reuse of all enabled mapped sounds with the network disabled; details and the deliberately deferred browser matrix are in [audio-cache-verification.md](audio-cache-verification.md).
 
 Automated coverage currently includes:
 
@@ -54,9 +54,9 @@ The current harness and focused integration tests cover:
 - sound overlap, fallback and single-tab ownership;
 - a representative mobile viewport; the broader responsive matrix remains covered by the separate responsive inspection.
 
-### 2. Supporter-accounting edge cases
+### 2. Supporter-accounting edge cases — implemented
 
-Complete deterministic tests for duplicate events, concurrent updates, one streak crossing multiple levels, username changes with stable identity, and separation of current-stream and lifetime totals.
+PostgreSQL integration tests now cover duplicate events, concurrent updates, multiple crossed levels, username changes with stable identity, and separation of current-stream and lifetime totals. The database-backed suite is explicitly enabled with `TEST_DATABASE_URL`; ordinary verification remains independent of a running database. The first complete run used a disposable PostgreSQL 18.1 container bound only to VM loopback and removed immediately afterwards.
 
 ### 3. Restore rehearsal
 

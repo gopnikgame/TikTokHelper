@@ -156,3 +156,17 @@ Replace the archived ASP.NET/Node hybrid with a browser-first TypeScript applica
 - The production startup path cannot select or expose the fake source.
 - Server tests prove scripted events use the same session/realtime boundary and do not create duplicate connectors after browser reload.
 - Browser scenarios are deterministic, require no TikTok account, and leave no runtime test controls in the public application.
+
+## Phase 9: supporter-accounting edge cases
+
+- Exercise `processGift` against an isolated real PostgreSQL database rather than a mocked Drizzle chain.
+- Prove same-event idempotency and additive totals under concurrent transactions.
+- Prove one gift can cross multiple configured levels while each achievement is granted only once.
+- Prove a stable private identity survives username changes and keeps stream totals separate from lifetime totals.
+
+### Checkpoint: transactional supporter accounting
+
+- Concurrent duplicates change totals exactly once.
+- Concurrent distinct events lose no points and create no duplicate grants.
+- Database rows retain the newest public username without changing the identity key.
+- Integration tests are opt-in through `TEST_DATABASE_URL` and run against an isolated disposable database.

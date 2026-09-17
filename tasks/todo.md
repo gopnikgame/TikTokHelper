@@ -265,7 +265,7 @@
 - [x] Current-stream and lifetime totals are distinguishable.
 
 **Verification:**
-- [ ] Tests cover duplicate events, series, multiple crossed levels, username changes, and concurrent updates.
+- [x] Tests cover duplicate events, series, multiple crossed levels, username changes, and concurrent updates.
 
 **Dependencies:** Task 12
 
@@ -365,3 +365,23 @@
 - [x] Scripted events traverse the same normalized contracts and Socket.IO path as real events.
 - [x] Reloading a browser does not create a second scripted connector.
 - [x] The automated suite remains isolated from production runtime configuration.
+
+## Task 18: Verify transactional supporter accounting
+
+**Description:** Verify supporter totals and level grants against an isolated real PostgreSQL database under duplicate and concurrent gift processing.
+
+**Acceptance criteria:**
+- [x] Concurrent copies of one event increment stream and lifetime totals exactly once.
+- [x] Concurrent distinct events lose no points and multiple crossed levels are granted once each.
+- [x] Stable identity preserves lifetime totals across username changes while stream totals remain separate.
+
+**Verification:**
+- [x] PostgreSQL integration tests pass with `TEST_DATABASE_URL` against a disposable database.
+- [x] Ordinary `pnpm run verify` remains independent of a running database.
+- [x] No production database or volume is used by the integration run.
+
+**Dependencies:** Tasks 12 and 13
+
+**Files likely touched:** `apps/server/test/supporter-points.integration.test.ts`, supporter task documentation
+
+**Estimated scope:** Small
