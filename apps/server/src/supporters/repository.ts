@@ -1,5 +1,5 @@
-import { and, eq, sql } from 'drizzle-orm';
-import type { GiftEvent, SupportLevel } from '@tiktok-helper/contracts';
+import { and, eq, gt, or, sql } from 'drizzle-orm';
+import type { GiftEvent, SpeechLevelEntitlement, SupportLevel } from '@tiktok-helper/contracts';
 
 import type { Database } from '../db/client.js';
 import {
@@ -22,6 +22,9 @@ export interface SupportProcessingResult {
 
 export interface SupporterRepository {
   processGift(workspaceId: string, streamId: string, gift: GiftEvent, identityKey: string): Promise<SupportProcessingResult>;
+  listActiveSpeechEntitlements(workspaceId: string, streamId: string): Promise<Array<{
+    identityKey: string; entitlement: SpeechLevelEntitlement;
+  }>>;
 }
 
 function presentLevel(row: typeof supportLevels.$inferSelect): SupportLevel {
@@ -44,6 +47,30 @@ export function giftPoints(gift: Pick<GiftEvent, 'diamondCount' | 'repeatCount'>
 
 export function createSupporterRepository(db: Database): SupporterRepository {
   return {
+    async listActiveSpeechEntitlements(workspaceId, streamId) {
+      const now = new Date();
+      const rows = await db.select({
+        identityKey: supporterLevelGrants.identityKey,
+        levelId: supportLevels.id, levelName: supportLevels.name,
+        cooldownSeconds: supportLevels.chatSpeechCooldownSeconds,
+        expiresAt: supporterLevelGrants.expiresAt,
+      }).from(supporterLevelGrants).innerJoin(supportLevels, and(
+        eq(supportLevels.workspaceId, supporterLevelGrants.workspaceId),
+        eq(supportLevels.id, supporterLevelGrants.supportLevelId),
+      )).where(and(
+        eq(supporterLevelGrants.workspaceId, workspaceId),
+        eq(supportLevels.isEnabled, true), eq(supportLevels.grantsChatSpeech, true),
+        or(eq(supporterLevelGrants.grantKey, 'achievement'), eq(supporterLevelGrants.grantKey, streamId)),
+        or(sql`${supporterLevelGrants.expiresAt} is null`, gt(supporterLevelGrants.expiresAt, now)),
+      ));
+      return rows.map((row) => ({
+        identityKey: row.identityKey,
+        entitlement: {
+          levelId: row.levelId, levelName: row.levelName,
+          cooldownSeconds: row.cooldownSeconds, expiresAt: row.expiresAt?.toISOString() ?? null,
+        },
+      }));
+    },
     async processGift(workspaceId, streamId, gift, identityKey) {
       const pointsAdded = giftPoints(gift);
       if (pointsAdded === 0) return { duplicate: false, pointsAdded: 0, streamTotal: 0, lifetimeTotal: 0, grantedLevels: [] };

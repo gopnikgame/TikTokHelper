@@ -92,6 +92,39 @@ describe('TikTok session manager', () => {
     expect(JSON.stringify(events)).not.toContain('must-not-leave-the-adapter');
   });
 
+  it('prepares entitlements once and attaches safe speaker context without exposing identity keys', async () => {
+    const connector = new FakeConnector();
+    const events: RealtimeEvent[] = [];
+    const prepared: Array<[string, string]> = [];
+    const manager = new TikTokSessionManager(
+      () => connector, (_workspace, event) => events.push(event), undefined, undefined, undefined, undefined,
+      async (workspaceId, streamId) => { prepared.push([workspaceId, streamId]); },
+      (_workspaceId, identityKey, roles) => ({
+        ...roles,
+        speechLevels: [{
+          levelId: '123e4567-e89b-42d3-a456-426614174000', levelName: 'Голос эфира',
+          cooldownSeconds: 30, expiresAt: null,
+        }],
+      }),
+    );
+    await manager.start('family', 'streamer');
+    connector.emit('chat', {
+      common: { msgId: 'entitled-chat' },
+      user: { displayId: 'viewer', nickname: 'Viewer', secUid: 'private-speaker-identity' },
+      userIdentity: { isModeratorOfAnchor: true, isGiftGiverOfAnchor: true }, content: 'Read me',
+    });
+    expect(prepared).toHaveLength(1);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: 'chat.message',
+      speakerContext: {
+        isModerator: true, isGiftGiver: true,
+        speechLevels: [expect.objectContaining({ levelName: 'Голос эфира' })],
+      },
+    }));
+    expect(JSON.stringify(events)).not.toContain('private-speaker-identity');
+    expect(JSON.stringify(events)).not.toContain('senderIdentityKey');
+  });
+
   it('keeps current connector emote images in the project chat contract', async () => {
     const connector = new FakeConnector();
     const events: RealtimeEvent[] = [];

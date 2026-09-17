@@ -16,6 +16,7 @@ import { AuthService, parseCookie } from './auth/service.js';
 import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
 import { createAutomationRepository } from './automation/repository.js';
 import { createSupporterRepository } from './supporters/repository.js';
+import { EntitlementCache } from './supporters/entitlement-cache.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
@@ -30,6 +31,8 @@ const recentChannelRepository = createRecentChannelRepository(db);
 const soundRepository = createSoundRepository(db, giftCatalogRepository);
 const authRepository = createAuthRepository(db);
 const supporterRepository = createSupporterRepository(db);
+const entitlementCache = new EntitlementCache(supporterRepository);
+const automationRepository = createAutomationRepository(db);
 const authEnvironment = {
   authorizeUrl: process.env.VLINE_BRIDGE_AUTHORIZE_URL,
   tokenUrl: process.env.VLINE_BRIDGE_TOKEN_URL,
@@ -73,13 +76,30 @@ const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspace
     })}\n`);
   });
 }, (workspaceId, streamId, gift, identityKey) => {
-  void supporterRepository.processGift(workspaceId, streamId, gift, identityKey).catch((error: unknown) => {
+  void supporterRepository.processGift(workspaceId, streamId, gift, identityKey).then((result) => {
+    entitlementCache.addGranted(workspaceId, identityKey, result.grantedLevels);
+    for (const grant of result.grantedLevels) realtimeRef.current?.publishSupportLevelGranted(workspaceId, {
+      eventId: `${gift.eventId}:${grant.level.id}`, workspaceId,
+      senderDisplayName: gift.senderDisplayName, senderUsername: gift.senderUsername,
+      levelId: grant.level.id, levelName: grant.level.name,
+      thresholdPoints: grant.level.thresholdPoints, pointsAdded: result.pointsAdded,
+      streamTotal: result.streamTotal, lifetimeTotal: result.lifetimeTotal,
+      expiresAt: grant.expiresAt,
+    });
+  }).catch((error: unknown) => {
     process.stderr.write(`${JSON.stringify({
       level: 'error', component: 'supporters', event: 'gift_support_processing_failed',
       errorName: error instanceof Error ? error.name : 'UnknownError',
     })}\n`);
   });
-});
+}, async (workspaceId, streamId) => {
+  await entitlementCache.prepare(workspaceId, streamId).catch((error: unknown) => {
+    process.stderr.write(`${JSON.stringify({
+      level: 'error', component: 'supporters', event: 'entitlement_cache_prepare_failed',
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    })}\n`);
+  });
+}, (workspaceId, identityKey, roles) => entitlementCache.speakerContext(workspaceId, identityKey, roles));
 const app = buildApp({
   readinessCheck: async () => {
     try { await db.execute(sql`select 1`); return true; } catch { return false; }
@@ -88,7 +108,7 @@ const app = buildApp({
   soundRepository,
   giftCatalogRepository,
   recentChannelRepository,
-  automationRepository: createAutomationRepository(db),
+  automationRepository,
   soundRoot,
   soundUploadRoot,
   soundUploadStore: soundUploadRoot ? createSoundUploadStore(soundUploadRoot) : undefined,
@@ -96,6 +116,14 @@ const app = buildApp({
   authService,
   localWorkspaceId: workspaceId,
   onSoundChanged: (soundId) => realtimeRef.current?.publishSoundLibraryChanged(soundId),
+  onAutomationChanged: (changedWorkspaceId) => {
+    void entitlementCache.refresh(changedWorkspaceId).catch((error: unknown) => {
+      process.stderr.write(`${JSON.stringify({
+        level: 'error', component: 'supporters', event: 'entitlement_cache_refresh_failed',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      })}\n`);
+    });
+  },
   staticRoot: process.env.WEB_ROOT,
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {

@@ -118,7 +118,9 @@ function mentionedUsernames(raw: UnknownRecord): string[] {
   }))].slice(0, 20);
 }
 
-export function normalizeChat(rawValue: unknown, generation: number, sequence: number): ChatEvent | undefined {
+export interface NormalizedChat extends ChatEvent { senderIdentityKey: string }
+
+export function normalizeChat(rawValue: unknown, generation: number, sequence: number): NormalizedChat | undefined {
   const raw = record(rawValue);
   if (!raw) return undefined;
   const author = sender(raw);
@@ -127,10 +129,13 @@ export function normalizeChat(rawValue: unknown, generation: number, sequence: n
   const emotes = chatEmotes(raw.emotes);
   const mentions = mentionedUsernames(raw);
   const language = boundedText(raw.contentLanguage, 16);
+  const user = record(raw.user);
+  const identitySource = text(user?.secUid) ?? author.username.toLocaleLowerCase('en-US');
+  const senderIdentityKey = createHash('sha256').update(identitySource).digest('hex');
   return {
     type: 'chat.message', generation, sequence,
     eventId: eventId(raw, ['chat', author.username, comment]),
-    senderDisplayName: author.displayName, senderUsername: author.username, text: comment,
+    senderDisplayName: author.displayName, senderUsername: author.username, senderIdentityKey, text: comment,
     ...(emotes.length > 0 ? { emotes } : {}),
     participant: participantDiagnostic(raw),
     ...(language ? { language } : {}),

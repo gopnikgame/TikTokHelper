@@ -46,6 +46,7 @@ export interface BuildAppOptions {
   authService?: AuthService;
   localWorkspaceId?: string;
   onSoundChanged?: (soundId: string) => void;
+  onAutomationChanged?: (workspaceId: string) => void;
 }
 
 export const LOG_REDACTION_PATHS = [
@@ -210,7 +211,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
 
   if (options.automationRepository) {
-    app.register(automationRoutes, { repository: options.automationRepository });
+    app.register(automationRoutes, { repository: options.automationRepository, onChanged: options.onAutomationChanged });
   }
 
   if (options.soundRoot) {

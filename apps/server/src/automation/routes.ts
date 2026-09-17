@@ -9,7 +9,10 @@ import {
 
 import type { AutomationRepository } from './repository.js';
 
-export interface AutomationRoutesOptions { repository: AutomationRepository }
+export interface AutomationRoutesOptions {
+  repository: AutomationRepository;
+  onChanged?: (workspaceId: string) => void;
+}
 
 function missing(reply: FastifyReply, requestId: string): FastifyReply {
   return reply.code(404).send({ error: {
@@ -34,6 +37,7 @@ export const automationRoutes: FastifyPluginAsync<AutomationRoutesOptions> = asy
     { schema: { params: workspaceParamsSchema, body: saveSupportLevelSchema } },
     async (request, reply) => {
       const item = await options.repository.createSupportLevel(request.params.workspaceId, request.body);
+      if (item) options.onChanged?.(request.params.workspaceId);
       return item ? reply.code(201).send(item) : missing(reply, request.id);
     },
   );
@@ -42,14 +46,17 @@ export const automationRoutes: FastifyPluginAsync<AutomationRoutesOptions> = asy
     { schema: { params: automationItemParamsSchema, body: saveSupportLevelSchema } },
     async (request, reply) => {
       const item = await options.repository.updateSupportLevel(request.params.workspaceId, request.params.itemId, request.body);
+      if (item) options.onChanged?.(request.params.workspaceId);
       return item ?? missing(reply, request.id);
     },
   );
   app.delete<{ Params: AutomationItemParams }>('/api/workspaces/:workspaceId/automation/support-levels/:itemId', {
     schema: { params: automationItemParamsSchema },
-  }, async (request, reply) => await options.repository.deleteSupportLevel(request.params.workspaceId, request.params.itemId)
-    ? reply.code(204).send()
-    : missing(reply, request.id));
+  }, async (request, reply) => {
+    const deleted = await options.repository.deleteSupportLevel(request.params.workspaceId, request.params.itemId);
+    if (deleted) options.onChanged?.(request.params.workspaceId);
+    return deleted ? reply.code(204).send() : missing(reply, request.id);
+  });
 
   app.post<{ Params: WorkspaceParams; Body: SaveEventReaction; Reply: EventReaction | ApiErrorResponse }>(
     '/api/workspaces/:workspaceId/automation/event-reactions',

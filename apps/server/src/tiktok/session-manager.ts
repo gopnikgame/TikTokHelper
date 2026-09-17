@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { ConnectionStateEvent, GiftEvent } from '@tiktok-helper/contracts';
+import type { ChatSpeakerContext, ConnectionStateEvent, GiftEvent } from '@tiktok-helper/contracts';
 import { normalizeChat, normalizeGift } from './normalizer.js';
 import type {
   LiveConnector, LiveConnectorFactory, LiveConnectionState, LiveSessionSnapshot, RealtimeEventSink,
@@ -57,6 +57,11 @@ export class TikTokSessionManager {
     private readonly diagnostics: (entry: TikTokDiagnostic) => void = () => undefined,
     private readonly connectionRequested: (workspaceId: string, username: string) => void = () => undefined,
     private readonly giftObserved: (workspaceId: string, streamId: string, gift: GiftEvent, senderIdentityKey: string) => void = () => undefined,
+    private readonly sessionPrepared: (workspaceId: string, streamId: string) => Promise<void> = async () => undefined,
+    private readonly resolveSpeakerContext: (
+      workspaceId: string, senderIdentityKey: string,
+      roles: { isModerator: boolean; isGiftGiver: boolean },
+    ) => ChatSpeakerContext = (_workspaceId, _identityKey, roles) => ({ ...roles, speechLevels: [] }),
   ) {}
 
   async start(workspaceId: string, username: string): Promise<LiveSessionSnapshot> {
@@ -73,6 +78,7 @@ export class TikTokSessionManager {
       tiktokUsername: normalizedUsername, seenEventIds: new Set(), giftStreakCounts: new Map(), streamId: randomUUID(),
     };
     this.#sessions.set(workspaceId, session);
+    await this.sessionPrepared(workspaceId, session.streamId);
     await this.#connect(workspaceId, session, false);
     return this.status(workspaceId);
   }
@@ -156,7 +162,16 @@ export class TikTokSessionManager {
     const event = normalizeChat(raw, session.generation, session.sequence + 1);
     if (!event || !this.#accept(session, event.eventId)) return;
     session.sequence = event.sequence;
-    this.sink(workspaceId, event);
+    const identityKey = this.#workspaceIdentityKey(workspaceId, event.senderIdentityKey);
+    const projectEvent = {
+      ...event,
+      speakerContext: this.resolveSpeakerContext(workspaceId, identityKey, {
+        isModerator: event.participant?.moderator === true,
+        isGiftGiver: event.participant?.giftGiver === true,
+      }),
+    };
+    delete (projectEvent as Partial<typeof event>).senderIdentityKey;
+    this.sink(workspaceId, projectEvent);
   }
 
   #onGift(workspaceId: string, session: Session, raw: unknown): void {
@@ -173,10 +188,13 @@ export class TikTokSessionManager {
     delete (projectEvent as Partial<typeof event>).repeatEnd;
     delete (projectEvent as Partial<typeof event>).streakable;
     delete (projectEvent as Partial<typeof event>).senderIdentityKey;
-    const workspaceIdentityKey = createHash('sha256')
-      .update(workspaceId).update('\0').update(event.senderIdentityKey).digest('hex');
+    const workspaceIdentityKey = this.#workspaceIdentityKey(workspaceId, event.senderIdentityKey);
     this.giftObserved(workspaceId, session.streamId, projectEvent, workspaceIdentityKey);
     this.sink(workspaceId, projectEvent);
+  }
+
+  #workspaceIdentityKey(workspaceId: string, senderIdentityKey: string): string {
+    return createHash('sha256').update(workspaceId).update('\0').update(senderIdentityKey).digest('hex');
   }
 
   #accept(session: Session, eventId: string): boolean {
