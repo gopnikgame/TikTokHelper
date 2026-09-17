@@ -309,6 +309,29 @@
 
 **Estimated scope:** Medium
 
+## Task 16: Add a versioned browser audio cache
+
+**Description:** Cache only enabled gift/reaction/support-level sound bytes in the browser, reuse decoded buffers, and preserve a clean migration path to a future installable PWA.
+
+**Acceptance criteria:**
+- [ ] Every cacheable sound exposes a server-derived SHA-256, byte size, MIME type, status, and same-origin URL.
+- [ ] The browser persistently caches only sounds reachable from enabled rules and uses a bounded decoded `AudioBuffer` store.
+- [ ] Cache keys and namespaces follow `.agents/skills/browser-audio-cache/references/cache-contract.md`.
+- [ ] Authentication, workspace JSON, chat, TikTok events, and navigation responses never enter audio/model caches.
+- [ ] Cache, quota, or decode failure falls back to the existing media-element playback without breaking the live UI.
+- [ ] Cache names remain adoptable by a future Service Worker without migrating user data.
+
+**Verification:**
+- [ ] Unit tests cover exact-version lookup, in-flight deduplication, changed hashes, bounded eviction, quarantine, and fallback.
+- [ ] Chromium browser tests prove first-download and persistent reuse without a second media transfer.
+- [ ] Manual Firefox, Safari macOS/iPhone, Android Chromium, and Yandex checks are recorded separately when devices are available.
+
+**Dependencies:** Tasks 8 and 14
+
+**Files likely touched:** `packages/contracts/src/sounds.ts`, `apps/server/src/sounds/`, `apps/web/src/audio/`
+
+**Estimated scope:** Medium
+
 ## Checkpoint: speech privileges
 
 - [ ] Tasks 11-15 pass `pnpm run verify`.

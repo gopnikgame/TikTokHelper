@@ -126,3 +126,20 @@ Replace the archived ASP.NET/Node hybrid with a browser-first TypeScript applica
 - Duplicate gift events cannot grant points or achievements twice.
 - Moderator speech and earned speech privileges respect cooldown, length, queue, and content filters.
 - Mobile users can create, test, reorder, disable, and delete rules without editing JSON.
+
+## Phase 7: browser media cache and future PWA foundation
+
+- Add server-derived content hashes and byte sizes for built-in and uploaded sounds.
+- Warm only media referenced by enabled gift mappings, support levels, and event reactions after the browser audio gesture.
+- Keep persistent full responses in a versioned audio Cache and decoded `AudioBuffer` objects in a bounded in-memory store.
+- Keep the current media-element route as a compatibility fallback for unsupported formats, unavailable storage, quota pressure, and decode failures.
+- Reserve separate namespaces for the later app shell and downloadable neural TTS models; do not cache authenticated APIs or live/user data.
+- Introduce a Service Worker only when implementing the installable PWA, using an explicit update flow that cannot silently disrupt an active LIVE session.
+
+### Checkpoint: cache without stale application state
+
+- Repeated playback avoids a second media download and repeated decoding while preserving series overlap semantics.
+- Changed, quarantined, deleted, and unreferenced assets stop being selected and are pruned safely.
+- Cache eviction or unavailability degrades to network playback without affecting chat or TikTok connection state.
+- Browser storage contains no session, workspace, chat, participant, or live-event responses.
+- The future Service Worker can adopt the audio cache namespace and key contract without rewriting cached media.

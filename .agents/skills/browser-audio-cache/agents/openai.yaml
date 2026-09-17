@@ -1,0 +1,4 @@
+interface:
+  display_name: "TikTokHelper audio cache"
+  short_description: "Safe browser audio caching and future PWA migration"
+  default_prompt: "Design or review TikTokHelper audio caching using the project cache contract and browser fallbacks."

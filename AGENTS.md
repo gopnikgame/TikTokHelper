@@ -30,6 +30,8 @@
 - Speech and sound playback occur in the browser that owns the output device. Account for the browser's required user gesture before autoplay.
 - Treat browser voice availability and selected audio output as client-specific state.
 - Reconnect must restore a server snapshot before applying live deltas; do not claim Socket.IO automatically restores missed history.
+- A full installable PWA is a future product requirement. Keep app-shell, audio, and TTS-model caches separate so media caching can evolve without caching authenticated API responses or silently replacing an active LIVE page.
+- For browser audio caching work, follow `.agents/skills/browser-audio-cache/SKILL.md` and its versioned content-identity contract.
 
 ## Verification and deployment
 
