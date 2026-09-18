@@ -1,4 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AuthRepository, AppSession, AppUser, WorkspaceMembership } from '../src/auth/repository.js';
 import { AuthService, type IdentityBridge } from '../src/auth/service.js';
@@ -11,7 +14,7 @@ const user: AppUser = {
   status: 'active', globalRole: 'admin', createdAt: new Date(), updatedAt: new Date(), lastLoginAt: new Date(),
 };
 
-function memoryRepository() {
+function memoryRepository(globalRole: AppUser['globalRole'] = 'admin') {
   const sessions = new Map<string, AppSession>();
   let revoked = false;
   const repository: AuthRepository = {
@@ -33,7 +36,7 @@ function memoryRepository() {
     async findActiveSession(tokenHash, now) {
       const session = sessions.get(tokenHash);
       return !session || revoked || session.idleExpiresAt <= now || session.absoluteExpiresAt <= now
-        ? null : { session, user };
+        ? null : { session, user: { ...user, globalRole } };
     },
     async touchSession() {},
     async revokeSession() { revoked = true; return true; },
@@ -56,6 +59,44 @@ const apps = new Set<ReturnType<typeof buildApp>>();
 afterEach(async () => { await Promise.all([...apps].map((app) => app.close())); apps.clear(); });
 
 describe('VLine-backed application sessions', () => {
+  it('serves neural TTS packages only to an authenticated administrator', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tiktok-helper-tts-'));
+    const voiceId = 'ru-RU-irina-medium-int8';
+    const fileName = 'sherpa-onnx-tts.worker.js';
+    await mkdir(join(root, voiceId));
+    await writeFile(join(root, voiceId, fileName), 'worker-payload');
+    const bridge: IdentityBridge = {
+      async exchange() { return { subject: 'solo-user-1', displayName: 'Иван', authenticatedAt: new Date().toISOString() }; },
+    };
+    const makeService = (role: AppUser['globalRole']) => new AuthService(memoryRepository(role), bridge, {
+      bridgeAuthorizeUrl: 'https://vline.online/integrations/tiktok-helper/authorize',
+      clientId: 'tiktok-helper', redirectUri: 'https://tiktok.vpnline.online/auth/callback',
+    });
+    const login = async (app: ReturnType<typeof buildApp>): Promise<string> => {
+      const start = await app.inject({ method: 'GET', url: '/api/auth/login' });
+      const state = new URL(start.json<{ authorizationUrl: string }>().authorizationUrl).searchParams.get('state')!;
+      const callback = await app.inject({ method: 'GET', url: `/auth/callback?code=${'c'.repeat(43)}&state=${state}` });
+      const setCookie = callback.headers['set-cookie']!;
+      return (Array.isArray(setCookie) ? setCookie[0]! : setCookie).split(';', 1)[0]!;
+    };
+    try {
+      const admin = buildApp({ logger: false, authService: makeService('admin'), ttsAssetRoot: root }); apps.add(admin);
+      const member = buildApp({ logger: false, authService: makeService('user'), ttsAssetRoot: root }); apps.add(member);
+      const url = `/tts-assets/voices/${voiceId}/${fileName}`;
+      expect((await admin.inject({ method: 'GET', url })).statusCode).toBe(401);
+      const memberResponse = await member.inject({ method: 'GET', url, headers: { cookie: await login(member) } });
+      expect(memberResponse.statusCode).toBe(403);
+      const response = await admin.inject({ method: 'GET', url, headers: { cookie: await login(admin) } });
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toBe('worker-payload');
+      expect(response.headers['cache-control']).toBe('private, max-age=31536000, immutable');
+      expect(response.headers['x-content-type-options']).toBe('nosniff');
+      expect((await admin.inject({
+        method: 'GET', url: `/tts-assets/voices/${voiceId}/../secret`, headers: { cookie: await login(admin) },
+      })).statusCode).toBe(404);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
   it('allows only the trusted proxy marker to use the local workspace', async () => {
     const bridge: IdentityBridge = {
       async exchange() { return { subject: 'solo-user-1', displayName: null, authenticatedAt: new Date().toISOString() }; },

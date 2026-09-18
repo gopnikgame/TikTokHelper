@@ -119,6 +119,7 @@ const app = buildApp({
   soundUploadStore: soundUploadRoot ? createSoundUploadStore(soundUploadRoot) : undefined,
   tiktokManager,
   authService,
+  ttsAssetRoot: process.env.TTS_ASSET_ROOT,
   localWorkspaceId: workspaceId,
   onSoundChanged: (soundId) => realtimeRef.current?.publishSoundLibraryChanged(soundId),
   onAutomationChanged: (changedWorkspaceId) => {

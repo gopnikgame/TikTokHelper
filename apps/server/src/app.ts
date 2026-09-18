@@ -22,6 +22,7 @@ import { parseCookie, type AuthService } from './auth/service.js';
 import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
 import { automationRoutes } from './automation/routes.js';
 import type { AutomationRepository } from './automation/repository.js';
+import { ttsAssetRoutes } from './tts-assets/routes.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -44,6 +45,7 @@ export interface BuildAppOptions {
   tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
   authService?: AuthService;
+  ttsAssetRoot?: string;
   localWorkspaceId?: string;
   onSoundChanged?: (soundId: string) => void;
   onAutomationChanged?: (workspaceId: string) => void;
@@ -212,6 +214,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.automationRepository) {
     app.register(automationRoutes, { repository: options.automationRepository, onChanged: options.onAutomationChanged });
+  }
+
+  if (options.ttsAssetRoot && options.authService) {
+    app.register(ttsAssetRoutes, { root: options.ttsAssetRoot, authService: options.authService });
   }
 
   if (options.soundRoot) {

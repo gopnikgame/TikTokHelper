@@ -45,6 +45,7 @@ services:
       POSTGRES_USER: tiktok_helper
       TIKTOK_PROXY_URL: ${TIKTOK_PROXY_URL:-}
       SOUND_UPLOAD_ROOT: /app/data/media/sounds
+      TTS_ASSET_ROOT: /app/data/tts-assets/voices
       VLINE_BRIDGE_AUTHORIZE_URL: ${VLINE_BRIDGE_AUTHORIZE_URL:-}
       VLINE_BRIDGE_TOKEN_URL: ${VLINE_BRIDGE_TOKEN_URL:-}
       VLINE_BRIDGE_CLIENT_ID: ${VLINE_BRIDGE_CLIENT_ID:-}
@@ -56,6 +57,7 @@ services:
       - "${APP_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
       - media_data:/app/data/media
+      - ./tts-assets/voices:/app/data/tts-assets/voices:ro
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 15s

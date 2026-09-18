@@ -2,6 +2,11 @@
 
 This Compose model is an interim single-VM foundation. The app binds to loopback by default; set `APP_BIND_ADDRESS` in the VM-only `.env` to its trusted LAN address when Caddy runs on another host. PostgreSQL has no host port. Restrict port 3000 to the trusted LAN at the VM or Proxmox firewall before public routing. Runtime secrets belong in `secrets/`, which is ignored by Git.
 
+Experimental neural TTS packages are host-managed binary assets and must not be committed. Place
+the two allowlisted voice directories below `tts-assets/voices/`; Compose mounts that directory
+read-only and the application serves its five allowlisted files only to an authenticated global
+administrator. The route is not enabled without both VLine authentication and `TTS_ASSET_ROOT`.
+
 ```bash
 export SOURCE_REVISION="$(git rev-parse HEAD)"
 test "$(printf '%s' "$SOURCE_REVISION" | wc -c)" -eq 40

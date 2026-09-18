@@ -6,6 +6,7 @@
 .env.*
 !.env.example
 secrets/
+/tts-assets/
 # User-specific files
 *.rsuser
 *.suo
