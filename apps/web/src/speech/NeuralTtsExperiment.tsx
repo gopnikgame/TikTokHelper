@@ -41,7 +41,7 @@ export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
       setMessage(error instanceof Error && error.message.includes('TTS package is not published')
         ? 'Пакеты ещё не опубликованы на сервере. Рабочая озвучка не изменена.'
         : error instanceof NeuralAssetError
-          ? `Сбой на этапе «${error.stage}», файл ${error.fileName}. Код: ${error.cause instanceof Error ? error.cause.name : 'UnknownError'}. Неполный пакет удалён.`
+          ? `Сбой на этапе «${error.stage}», файл ${error.fileName}. Причина: ${error.reason}. Неполный пакет удалён.`
           : 'Не удалось скачать и проверить пакет. Неполный пакет удалён.');
     }
   }

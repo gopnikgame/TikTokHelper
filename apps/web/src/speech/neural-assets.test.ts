@@ -42,6 +42,17 @@ describe('NeuralAssetCache', () => {
     expect([...cache.stores.keys()]).toEqual([TTS_MODEL_CACHE_NAME]);
   });
 
+  it('validates decoded bytes instead of a compressed transport content-length', async () => {
+    const cache = environment();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(bytes.slice(0), {
+      status: 200, headers: { 'content-length': '7', 'content-encoding': 'br' },
+    })));
+    const assets = new NeuralAssetCache();
+    await expect(assets.download(asset)).resolves.toBeUndefined();
+    await expect(assets.state(asset)).resolves.toBe('ready');
+    expect(cache.destination()?.entries.size).toBe(1);
+  });
+
   it('does not cache corrupt or partial data', async () => {
     const cache = environment();
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new TextEncoder().encode('wrong'), { status: 200 })));

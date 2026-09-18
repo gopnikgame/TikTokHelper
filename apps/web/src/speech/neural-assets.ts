@@ -29,10 +29,16 @@ export const NEURAL_VOICE_PACKAGES: readonly NeuralVoicePackage[] = [
 export type NeuralAssetState = 'unsupported' | 'missing' | 'ready';
 export type NeuralAssetStage = 'download' | 'verify' | 'store';
 export class NeuralAssetError extends Error {
+  readonly reason: string;
   constructor(readonly stage: NeuralAssetStage, readonly fileName: string, cause: unknown) {
     const causeName = cause instanceof DOMException || cause instanceof Error ? cause.name : 'UnknownError';
+    const causeMessage = cause instanceof Error ? cause.message : '';
     super(`TTS ${stage} failed for ${fileName} (${causeName})`, { cause });
     this.name = 'NeuralAssetError';
+    this.reason = [
+      'TTS package is not published', 'Invalid TTS package response',
+      'TTS package integrity mismatch',
+    ].includes(causeMessage) ? causeMessage : causeName;
   }
 }
 export function packageByteSize(asset: NeuralVoicePackage): number { return asset.files.reduce((sum, file) => sum + file.byteSize, 0); }
@@ -58,8 +64,6 @@ export async function sha256Hex(data: ArrayBuffer): Promise<string> {
 
 async function verifiedBytes(response: Response, file: NeuralPackageFile): Promise<ArrayBuffer> {
   if (response.status !== 200 || response.redirected || response.type === 'opaque' || response.headers.has('content-range')) throw new Error(response.status === 404 ? 'TTS package is not published' : 'Invalid TTS package response');
-  const declaredLength = response.headers.get('content-length');
-  if (declaredLength !== null && Number(declaredLength) !== file.byteSize) throw new Error('TTS package length mismatch');
   const bytes = await response.arrayBuffer();
   if (bytes.byteLength !== file.byteSize || await sha256Hex(bytes) !== file.sha256) throw new Error('TTS package integrity mismatch');
   return bytes;
