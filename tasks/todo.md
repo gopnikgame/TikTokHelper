@@ -407,3 +407,27 @@
 **Files likely touched:** `apps/web/public/`, `apps/web/src/pwa/`, `apps/web/vite.config.ts`, PWA documentation
 
 **Estimated scope:** Medium
+
+## Task 20: Prototype and benchmark local neural TTS
+
+**Description:** Evaluate browser-local neural speech without adding server inference or replacing the current cross-browser fallback prematurely.
+
+**Acceptance criteria:**
+- [x] Compare Sherpa-ONNX Web, direct Piper browser integration and browser `speechSynthesis` from primary sources.
+- [x] Select a runtime, initial Russian candidates, cache boundary and explicit opt-in policy in an ADR.
+- [x] Record exact upstream archive sizes and a repeatable sanitized benchmark corpus.
+- [ ] Assemble pinned Sherpa-ONNX Wasm and `ru_RU-irina-medium-int8` assets with licenses and SHA-256 metadata.
+- [ ] Add an administrator-only opt-in experiment with a dedicated Worker and `tiktok-helper-tts-models-v1` cache.
+- [ ] Fall back to `speechSynthesis` after unsupported Wasm, quota, integrity, initialization, cancellation or inference failure.
+
+**Verification:**
+- [ ] Chromium cold/warm runs record download bytes, initialization, generation duration, audio duration and RTF.
+- [ ] A second load performs no model transfer and no API/chat/user data enters the model cache.
+- [ ] Queue cancellation and failure do not interrupt gift audio, the UI or the LIVE connection.
+- [ ] Firefox, Safari macOS/iPhone, Android Chromium and Yandex results are recorded when devices are available.
+
+**Dependencies:** Tasks 14, 16, 17, and 19
+
+**Files likely touched:** `apps/web/src/speech/`, `apps/web/src/audio/`, `apps/web/public/tts/`, TTS documentation
+
+**Estimated scope:** Large, staged behind an administrator-only experiment

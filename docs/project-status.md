@@ -1,6 +1,6 @@
 # Project status and next steps
 
-Status date: 2026-09-17
+Status date: 2026-09-18
 Current application branch: `rewrite/typescript`
 
 This document distinguishes shipped behavior from automated evidence and checks that still require a real device or TikTok LIVE. A checked implementation item does not automatically mean that every browser has been manually verified.
@@ -66,9 +66,9 @@ A production-format PostgreSQL dump and media archive were restored into disposa
 
 The application now has a manifest, install icons, a static offline explanation and a conservative Service Worker. App-shell, audio and future TTS-model caches remain separate; authenticated APIs, navigation state, chat, participants and live events are network-only. New versions remain waiting and require an explicit operator action, which is disabled while a LIVE is connecting, active or reconnecting. Architecture and Chromium evidence are recorded in [pwa.md](pwa.md); the real-device install matrix remains deferred.
 
-### 5. Local neural TTS investigation
+### 5. Local neural TTS investigation — runtime selected, benchmark pending
 
-Benchmark Piper and Sherpa-ONNX Web in a Worker before selecting either. Record model licenses, first-download size, memory use, start latency and real-time factor on representative desktop and mobile hardware. Keep browser `speechSynthesis` as a fallback until the local model path is proven.
+The source review selected Sherpa-ONNX Web for an administrator-only experiment: upstream provides browser Wasm TTS and a Worker reference, while the maintained Piper project does not document an equivalent supported browser integration. The first candidates are Russian Piper-derived VITS medium-int8 voices. Browser `speechSynthesis` remains the production default and fallback. Exact asset assembly, integrity hashes, Chromium measurements and the real-device matrix remain pending; see [ADR-0006](decisions/0006-local-neural-tts.md) and [the benchmark plan](neural-tts-benchmark.md).
 
 ## Explicitly deferred manual checks
 
@@ -92,5 +92,5 @@ For each browser, confirm audio unlock, preview, speech voice selection/fallback
 2. Supporter-accounting concurrency and identity tests.
 3. Isolated database/media restore rehearsal (completed; repeat media verification after the first real upload).
 4. Conservative PWA shell and update UX (implemented; real-device installation remains pending).
-5. Neural TTS benchmark and architecture decision.
+5. Assemble the pinned Sherpa-ONNX Russian experimental bundle and run the first desktop Chromium benchmark.
 6. Deferred real-device and real-LIVE acceptance matrix.
