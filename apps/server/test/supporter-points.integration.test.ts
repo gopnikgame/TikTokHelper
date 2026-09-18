@@ -129,4 +129,29 @@ describe.skipIf(!integration)('supporter repository PostgreSQL integration', () 
     expect(new Map(streams.map((stream) => [stream.streamId, stream.points])))
       .toEqual(new Map([[streamOne, 10], [streamTwo, 15]]));
   });
+
+  it('resets totals and grants without removing rules or gift idempotency records', async () => {
+    if (!integration) return;
+    const workspaceId = 'support-reset';
+    await seedLevels(workspaceId);
+    const repository = createSupporterRepository(integration.db);
+    await repository.processGift(workspaceId, streamOne, gift('reset-event', 25), identityKey);
+
+    expect(await repository.resetWorkspaceStatistics(workspaceId)).toBe(1);
+
+    const [supporterCount] = await integration.db.select({ value: count() }).from(supporters)
+      .where(eq(supporters.workspaceId, workspaceId));
+    const [streamCount] = await integration.db.select({ value: count() }).from(supporterStreamTotals)
+      .where(eq(supporterStreamTotals.workspaceId, workspaceId));
+    const [grantCount] = await integration.db.select({ value: count() }).from(supporterLevelGrants)
+      .where(eq(supporterLevelGrants.workspaceId, workspaceId));
+    const [levelCount] = await integration.db.select({ value: count() }).from(supportLevels)
+      .where(eq(supportLevels.workspaceId, workspaceId));
+    const [eventCount] = await integration.db.select({ value: count() }).from(processedGiftEvents)
+      .where(eq(processedGiftEvents.workspaceId, workspaceId));
+    expect({
+      supporters: supporterCount?.value, streams: streamCount?.value, grants: grantCount?.value,
+      levels: levelCount?.value, processedEvents: eventCount?.value,
+    }).toEqual({ supporters: 0, streams: 0, grants: 0, levels: 2, processedEvents: 1 });
+  });
 });

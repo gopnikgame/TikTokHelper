@@ -48,4 +48,11 @@ describe('supporter entitlement cache', () => {
       .toEqual([active]);
     expect(list).toHaveBeenCalledTimes(1);
   });
+
+  it('removes cached speech rights when supporter statistics are reset', async () => {
+    const cache = new EntitlementCache({ listActiveSpeechEntitlements: async () => [{ identityKey: 'viewer-key', entitlement: active }] });
+    await cache.prepare('primary', '123e4567-e89b-42d3-a456-426614174001');
+    cache.clear('primary');
+    expect(cache.speakerContext('primary', 'viewer-key', { isModerator: false, isGiftGiver: true }).speechLevels).toEqual([]);
+  });
 });

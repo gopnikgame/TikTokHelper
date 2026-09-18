@@ -114,6 +114,7 @@ const app = buildApp({
   giftCatalogRepository,
   recentChannelRepository,
   automationRepository,
+  supporterRepository,
   soundRoot,
   soundUploadRoot,
   soundUploadStore: soundUploadRoot ? createSoundUploadStore(soundUploadRoot) : undefined,
@@ -130,6 +131,7 @@ const app = buildApp({
       })}\n`);
     });
   },
+  onSupporterStatisticsReset: (changedWorkspaceId) => entitlementCache.clear(changedWorkspaceId),
   staticRoot: process.env.WEB_ROOT,
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {

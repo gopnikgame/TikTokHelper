@@ -30,6 +30,10 @@ export class EntitlementCache {
     if (current) await this.prepare(workspaceId, current.streamId);
   }
 
+  clear(workspaceId: string): void {
+    this.#workspaces.delete(workspaceId);
+  }
+
   speakerContext(
     workspaceId: string, identityKey: string,
     roles: { isModerator: boolean; isGiftGiver: boolean },

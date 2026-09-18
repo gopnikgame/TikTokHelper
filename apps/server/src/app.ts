@@ -23,6 +23,8 @@ import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
 import { automationRoutes } from './automation/routes.js';
 import type { AutomationRepository } from './automation/repository.js';
 import { ttsAssetRoutes } from './tts-assets/routes.js';
+import { supporterRoutes } from './supporters/routes.js';
+import type { SupporterRepository } from './supporters/repository.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -39,6 +41,7 @@ export interface BuildAppOptions {
   giftCatalogRepository?: GiftCatalogRepository;
   recentChannelRepository?: RecentChannelRepository;
   automationRepository?: AutomationRepository;
+  supporterRepository?: Pick<SupporterRepository, 'resetWorkspaceStatistics'>;
   soundRoot?: string;
   soundUploadRoot?: string;
   soundUploadStore?: SoundUploadStore;
@@ -49,6 +52,7 @@ export interface BuildAppOptions {
   localWorkspaceId?: string;
   onSoundChanged?: (soundId: string) => void;
   onAutomationChanged?: (workspaceId: string) => void;
+  onSupporterStatisticsReset?: (workspaceId: string) => void;
 }
 
 export const LOG_REDACTION_PATHS = [
@@ -214,6 +218,13 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.automationRepository) {
     app.register(automationRoutes, { repository: options.automationRepository, onChanged: options.onAutomationChanged });
+  }
+
+  if (options.supporterRepository) {
+    app.register(supporterRoutes, {
+      repository: options.supporterRepository,
+      onReset: options.onSupporterStatisticsReset,
+    });
   }
 
   if (options.ttsAssetRoot && options.authService) {

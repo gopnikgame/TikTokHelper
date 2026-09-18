@@ -36,6 +36,8 @@ describe('automation editor states', () => {
     expect(html).toContain('Пока нет уровней');
     expect(html).toContain('Реакций пока нет');
     expect(html).not.toContain('moderator_seen');
+    expect(html).toContain('Сбросить статистику донатеров');
+    expect(html).toContain('Подарки, звуки, привязки и правила не изменятся');
   });
 
   it('preserves long user-facing rule names', () => {

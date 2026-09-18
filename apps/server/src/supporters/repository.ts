@@ -21,6 +21,7 @@ export interface SupportProcessingResult {
 }
 
 export interface SupporterRepository {
+  resetWorkspaceStatistics(workspaceId: string): Promise<number>;
   processGift(workspaceId: string, streamId: string, gift: GiftEvent, identityKey: string): Promise<SupportProcessingResult>;
   listActiveSpeechEntitlements(workspaceId: string, streamId: string): Promise<Array<{
     identityKey: string; entitlement: SpeechLevelEntitlement;
@@ -47,6 +48,11 @@ export function giftPoints(gift: Pick<GiftEvent, 'diamondCount' | 'repeatCount'>
 
 export function createSupporterRepository(db: Database): SupporterRepository {
   return {
+    async resetWorkspaceStatistics(workspaceId) {
+      const deleted = await db.delete(supporters).where(eq(supporters.workspaceId, workspaceId))
+        .returning({ identityKey: supporters.identityKey });
+      return deleted.length;
+    },
     async listActiveSpeechEntitlements(workspaceId, streamId) {
       const now = new Date();
       const rows = await db.select({

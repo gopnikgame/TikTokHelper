@@ -169,6 +169,9 @@ button.channel-chip:hover { border-color: var(--cyan); background: #19282a; }
 .rule-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }.rule-heading > div { display: grid; min-width: 0; gap: .15rem; }.rule-heading span, .rule-heading small { color: var(--muted); font-size: .78rem; }.rule-state { padding: .25rem .45rem; border-radius: 999px; background: #242d38; white-space: nowrap; }
 .rule-actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .75rem; }.rule-actions button { padding: .5rem .65rem; }
 .automation-empty { margin: 0; padding: 1rem; color: var(--muted); text-align: center; }
+.danger-zone { border-color: #743047; background: #211118; }
+.danger-zone > p { color: var(--muted); line-height: 1.45; }
+.danger-zone > button { width: fit-content; }
 .control-grid { display: grid; grid-template-columns: .75fr 1fr 1.25fr; gap: 1rem; margin-top: 1rem; }
 .control-card { align-content: start; min-width: 0; padding: 1.2rem; border: 1px solid var(--line); background: var(--panel); }.control-card > p:not(.section-kicker) { color: var(--muted); }.control-card label + label, .control-card label + .two-fields, .control-card .two-fields + button { margin-top: 1rem; }.audio-card { background: linear-gradient(145deg, #18212a, #12161d); }.helper { margin: .85rem 0 0; font-size: .8rem; }
 .two-fields { display: grid; grid-template-columns: .7fr 1.3fr; gap: 1rem; }output { justify-self: end; color: var(--cyan); font-family: Consolas, monospace; }
