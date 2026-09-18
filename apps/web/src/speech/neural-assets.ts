@@ -15,14 +15,15 @@ export interface NeuralVoicePackage {
 const SHARED_FILES: readonly NeuralPackageFile[] = [
   { name: 'sherpa-onnx-tts.worker.js', byteSize: 2_780, sha256: '2aa4cfebfb468de2b112613b5a583e8a0f27c2c7b1d295ab11993592b5bf0aa2' },
   { name: 'sherpa-onnx-tts.js', byteSize: 34_361, sha256: '1e2b99d64246a142e9f1d4d0738879f61d7859176ec8b054cdbb666cefe9ee94' },
-  { name: 'sherpa-onnx-wasm-main-tts.js', byteSize: 109_902, sha256: 'b45c4949ba25e60f9c4d8dde3947d5d98c4cc84fb276ce197e1f103f668b5040' },
   { name: 'sherpa-onnx-wasm-main-tts.wasm', byteSize: 13_730_283, sha256: '77b1fccbb571b1a87c23e7695f3e16af334d849b2881fc27b953ca57a47a5738' },
 ];
 
 export const NEURAL_VOICE_PACKAGES: readonly NeuralVoicePackage[] = [
   { id: 'ru-RU-irina-medium-int8', language: 'ru-RU', displayName: 'Ирина', files: [...SHARED_FILES,
+    { name: 'sherpa-onnx-wasm-main-tts.js', byteSize: 109_902, sha256: 'b45c4949ba25e60f9c4d8dde3947d5d98c4cc84fb276ce197e1f103f668b5040' },
     { name: 'sherpa-onnx-wasm-main-tts.data', byteSize: 36_575_087, sha256: 'aff8be7cdb19e2041ba77d7a6ebcd31624520780e29cfed458d7888d922568bb' }] },
   { id: 'en-US-lessac-medium-int8', language: 'en-US', displayName: 'Lessac', files: [...SHARED_FILES,
+    { name: 'sherpa-onnx-wasm-main-tts.js', byteSize: 109_902, sha256: '52c08b09f454bfed4ef645f87e8f17ec027eaa4baac88cde6c583f989f4f78d6' },
     { name: 'sherpa-onnx-wasm-main-tts.data', byteSize: 36_575_112, sha256: '35ba7f66fa7f4490f9d69c8d96e9ee9d9558a7fcf65f72d543f4a3bacb8d32ce' }] },
 ] as const;
 
