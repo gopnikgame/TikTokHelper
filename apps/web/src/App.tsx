@@ -8,6 +8,7 @@ import { chatContentParts } from './chat-content.js';
 import { beginLogin, endSession, loadSession } from './auth-client.js';
 import { SpeechPolicyEngine } from './speech/policy.js';
 import { browserSpeechSynthesisSupported, SpeechPlaybackQueue } from './speech/playback.js';
+import { NeuralTtsExperiment } from './speech/NeuralTtsExperiment.js';
 import { AutomationEditor, AutomationStatus } from './automation/AutomationEditor.js';
 import { APPLICATION_SOURCE } from './source-link.js';
 import { genericInstallInstructions, type PwaLifecycle, updateBlockedByLive, usePwaLifecycle } from './pwa/lifecycle.js';
@@ -442,6 +443,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         </li>;
       })}</ul>}
     </details> : null}
+    {principal.isAdmin ? <NeuralTtsExperiment liveActive={updateBlockedByLive(realtime.connectionState)} /> : null}
     <details className="catalog-panel">
       <summary><span><b>Каталог подарков и звуков</b><small>{observedGifts.length} подарков · {mappings.length} привязок</small></span><span aria-hidden="true">Развернуть</span></summary>
       <div className="catalog-tools"><label>Поиск по названию, ID или звуку<input type="search" value={catalogQuery} placeholder="Например: Rose, 5655 или Пук" onChange={(event) => setCatalogQuery(event.target.value)} /></label><fieldset><legend>Показывать</legend><div className="filter-pills"><button type="button" className={catalogFilter === 'all' ? 'active' : ''} aria-pressed={catalogFilter === 'all'} onClick={() => setCatalogFilter('all')}>Все <span>{observedGifts.length}</span></button><button type="button" className={catalogFilter === 'unassigned' ? 'active' : ''} aria-pressed={catalogFilter === 'unassigned'} onClick={() => setCatalogFilter('unassigned')}>Без звука <span>{observedGifts.length - assignedGiftCount}</span></button><button type="button" className={catalogFilter === 'assigned' ? 'active' : ''} aria-pressed={catalogFilter === 'assigned'} onClick={() => setCatalogFilter('assigned')}>Настроенные <span>{assignedGiftCount}</span></button></div></fieldset></div>
