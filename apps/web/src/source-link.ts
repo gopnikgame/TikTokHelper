@@ -1,4 +1,4 @@
-const SOURCE_REPOSITORY = 'https://github.com/gopnikgame/TikTokHelper_ASP.NET';
+const SOURCE_REPOSITORY = 'https://github.com/gopnikgame/TikTokHelper';
 const FALLBACK_BRANCH = 'rewrite/typescript';
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{40}$/i;
 

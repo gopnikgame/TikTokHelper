@@ -10,7 +10,7 @@ describe('application source link', () => {
       exact: true,
       label: '9a343e5',
       revision,
-      url: `https://github.com/gopnikgame/TikTokHelper_ASP.NET/tree/${revision}`,
+      url: `https://github.com/gopnikgame/TikTokHelper/tree/${revision}`,
     });
   });
 
