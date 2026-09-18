@@ -22,7 +22,7 @@ Verified release archive sizes for the Russian medium candidates:
 | `ru_RU-ruslan-medium` | 67,210,684 | 64.10 |
 | `en_US-lessac-medium-int8` | 20,969,179 | 20.00 |
 
-These are compressed model archives, not the complete first-download size. The locally reproduced universal runtime is 15,222,938 bytes (JS + Wasm), and the shared unpacked phonemizer tree is 17,991,651 bytes. Russian and English archives contain byte-identical phonemizer trees, so they must not be duplicated in the browser cache. The final transferred figure still depends on the packaging and HTTP compression selected for publication.
+These are compressed model archives, not the complete first-download size. The locally reproduced universal runtime is 15,222,938 bytes (JS + Wasm), and the shared unpacked phonemizer tree is 17,991,651 bytes. Russian and English archives contain byte-identical phonemizer trees. The current official-style Emscripten prototype preloads a complete voice into each `.data` file, so each browser package is approximately 50.45 MB and duplicates that shared tree. Deduplicating the phonemizer is a later size optimization, not a prerequisite for validating inference.
 
 ## Benchmark corpus
 
@@ -61,6 +61,15 @@ For a cold first run and a warm cached run, record:
 - Limit input length and queue depth before posting work to the Worker.
 - On any failure, stop the Worker and return to browser `speechSynthesis` without affecting gift sounds or the LIVE connection.
 
-## Current result
+## Chromium baseline, 18 September 2026
 
-Runtime selection and asset boundaries are decided. A model-independent Sherpa-ONNX v1.13.8 Web runtime and the Russian/English int8 archives were reproduced locally, inspected and hashed; see `tools/tts/assets-manifest.json`. Performance and quality are deliberately **not yet claimed**: the verified assets still need a browser packaging/loader layer and the first repeatable Chromium benchmark.
+The official Sherpa-ONNX Worker pattern was compiled with Emscripten 4.0.23 into separate Russian and English packages and executed from localhost in Headless Chrome 153 on Windows with 12 reported logical processors. Each phrase was generated three times after one model initialization.
+
+| Voice | Initialization | Run 1 RTF | Run 2 RTF | Run 3 RTF |
+| --- | ---: | ---: | ---: | ---: |
+| `ru-RU-irina-medium-int8` | 1547.1 ms | 0.358 | 0.337 | 0.327 |
+| `en-US-lessac-medium-int8` | 1681.4 ms | 0.407 | 0.308 | 0.310 |
+
+Both models generated valid PCM in the Worker. The figures prove functional browser inference and faster-than-real-time generation on this desktop only. They do not prove pronunciation quality, mobile performance, Safari/Firefox compatibility, warm persistent-cache behavior or LIVE integration.
+
+The application now knows the exact five-file package manifests, stages and verifies every file before exposing it in `tiktok-helper-tts-models-v1`, and can run a one-phrase admin benchmark through a bounded Worker client. The binary packages remain local and are not part of Git or production.

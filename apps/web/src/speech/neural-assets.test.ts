@@ -4,8 +4,10 @@ import { NeuralAssetCache, TTS_MODEL_CACHE_NAME, type NeuralVoicePackage } from 
 
 const bytes = new TextEncoder().encode('verified model package').buffer;
 const asset: NeuralVoicePackage = {
-  id: 'en-US-lessac-medium-int8', language: 'en-US', displayName: 'Test', url: '/tts-assets/voices/test.tar.bz2',
-  byteSize: bytes.byteLength, sha256: createHash('sha256').update(new Uint8Array(bytes)).digest('hex'),
+  id: 'en-US-lessac-medium-int8', language: 'en-US', displayName: 'Test', files: [{
+    name: 'test.data', byteSize: bytes.byteLength,
+    sha256: createHash('sha256').update(new Uint8Array(bytes)).digest('hex'),
+  }],
 };
 
 class MemoryCache {
@@ -18,10 +20,13 @@ class MemoryCache {
 afterEach(() => vi.unstubAllGlobals());
 
 function environment() {
-  const cache = new MemoryCache();
+  const stores = new Map<string, MemoryCache>();
   vi.stubGlobal('window', { location: { origin: 'https://example.test' }, caches: {}, setTimeout, clearTimeout });
-  vi.stubGlobal('caches', { open: vi.fn(async (name: string) => { expect(name).toBe(TTS_MODEL_CACHE_NAME); return cache; }) });
-  return cache;
+  vi.stubGlobal('caches', {
+    open: vi.fn(async (name: string) => { const cache = stores.get(name) ?? new MemoryCache(); stores.set(name, cache); return cache; }),
+    delete: vi.fn(async (name: string) => stores.delete(name)),
+  });
+  return { stores, destination: () => stores.get(TTS_MODEL_CACHE_NAME) };
 }
 
 describe('NeuralAssetCache', () => {
@@ -33,21 +38,24 @@ describe('NeuralAssetCache', () => {
     await assets.download(asset);
     await expect(assets.state(asset)).resolves.toBe('ready');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(cache.entries.size).toBe(1);
+    expect(cache.destination()?.entries.size).toBe(2);
+    expect([...cache.stores.keys()]).toEqual([TTS_MODEL_CACHE_NAME]);
   });
 
   it('does not cache corrupt or partial data', async () => {
     const cache = environment();
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new TextEncoder().encode('wrong'), { status: 200 })));
     await expect(new NeuralAssetCache().download(asset)).rejects.toThrow('integrity');
-    expect(cache.entries.size).toBe(0);
+    expect(cache.destination()?.entries.size ?? 0).toBe(0);
   });
 
-  it('evicts a corrupt cached response during inspection', async () => {
+  it('reports a corrupt cached response as missing', async () => {
     const cache = environment();
-    const url = `https://example.test${asset.url}?sha256=${asset.sha256}`;
-    cache.entries.set(url, new Response(new TextEncoder().encode('wrong'), { status: 200 }));
+    const file = asset.files[0]!;
+    const destination = new MemoryCache(); cache.stores.set(TTS_MODEL_CACHE_NAME, destination);
+    const url = `https://example.test/tts-assets/voices/${asset.id}/${file.name}?sha256=${file.sha256}`;
+    destination.entries.set(url, new Response(new TextEncoder().encode('wrong'), { status: 200 }));
     await expect(new NeuralAssetCache().state(asset)).resolves.toBe('missing');
-    expect(cache.entries.size).toBe(0);
+    expect(destination.entries.size).toBe(1);
   });
 });

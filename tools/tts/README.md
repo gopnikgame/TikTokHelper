@@ -43,9 +43,9 @@ The two official archives contain identical 355-file `espeak-ng-data` trees. Pub
 - 18.58 MB Russian model plus metadata;
 - 18.59 MB English model plus metadata.
 
-The administrator-only browser loader is implemented, but its same-origin `/tts-assets/voices/` packages are not published yet. It downloads only after an explicit click, refuses to run during an active live session, verifies the recorded byte size and SHA-256, and writes only verified bytes to the separate `tiktok-helper-tts-models-v1` cache. Authorization responses, chat, workspace data and user audio are never stored there.
+The administrator-only browser loader is implemented, but its same-origin `/tts-assets/voices/` packages are not published yet. It downloads only after an explicit click, refuses to run during an active live session, stages all five files, verifies their recorded byte sizes and SHA-256 values, and only then writes them to the separate `tiktok-helper-tts-models-v1` cache. Authorization responses, chat, workspace data and user audio are never stored there.
 
-The current loader uses the pinned upstream archives as a transport/integrity checkpoint. It is not yet an inference engine: unpacking into the Sherpa virtual filesystem, the shared phonemizer/runtime package and Worker benchmark remain the next stage. Until that stage passes, the existing browser `speechSynthesis` path remains unchanged.
+Local browser-ready packages were built with upstream's `--preload-file assets@.` layout and benchmarked through the upstream Worker protocol. Exact outputs and desktop measurements are recorded in `assets-manifest.json` and `docs/neural-tts-benchmark.md`. The existing browser `speechSynthesis` path remains unchanged until the packages are deliberately published and real-device quality checks pass.
 
 ## Licenses
 

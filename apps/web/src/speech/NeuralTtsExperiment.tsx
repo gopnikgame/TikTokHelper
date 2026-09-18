@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
-  formatPackageSize, NEURAL_VOICE_PACKAGES, NeuralAssetCache,
+  formatPackageSize, NEURAL_VOICE_PACKAGES, NeuralAssetCache, packageByteSize,
   type NeuralAssetState, type NeuralVoicePackage,
 } from './neural-assets.js';
+import { NeuralTtsWorkerClient, type NeuralBenchmarkResult } from './neural-worker.js';
 
 type PackageStates = Record<NeuralVoicePackage['id'], NeuralAssetState | 'checking' | 'downloading' | 'error'>;
 const INITIAL_STATES: PackageStates = { 'ru-RU-irina-medium-int8': 'checking', 'en-US-lessac-medium-int8': 'checking' };
@@ -15,6 +16,8 @@ export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
   const [assetCache] = useState(() => new NeuralAssetCache());
   const [states, setStates] = useState<PackageStates>(INITIAL_STATES);
   const [message, setMessage] = useState('Модели загружаются только по вашей команде и не содержат данных пользователей.');
+  const [benchmarks, setBenchmarks] = useState<Partial<Record<NeuralVoicePackage['id'], NeuralBenchmarkResult>>>({});
+  const [benchmarking, setBenchmarking] = useState<NeuralVoicePackage['id'] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +47,17 @@ export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
     setMessage(`Пакет ${asset.displayName} удалён только из этого браузера.`);
   }
 
+  async function benchmark(asset: NeuralVoicePackage) {
+    setBenchmarking(asset.id); setMessage(`Проверяем скорость ${asset.displayName}…`);
+    const text = asset.language === 'ru-RU' ? 'Ваше сообщение теперь будет прочитано вслух.' : 'Your message will now be read aloud.';
+    try {
+      const result = await new NeuralTtsWorkerClient().benchmark(asset, text);
+      setBenchmarks((current) => ({ ...current, [asset.id]: result }));
+      setMessage(`${asset.displayName}: генерация ${(result.generationMs / 1000).toFixed(2)} с, RTF ${result.rtf.toFixed(2)}.`);
+    } catch { setMessage('Не удалось запустить Worker. Рабочая озвучка не изменена.'); }
+    finally { setBenchmarking(null); }
+  }
+
   return <details className="neural-tts-panel">
     <summary><span><b>Нейросетевая озвучка</b><small>Эксперимент для администра · RU / EN</small></span><span aria-hidden="true">Развернуть</span></summary>
     <div className="neural-tts-content">
@@ -51,7 +65,8 @@ export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
       <ul>{NEURAL_VOICE_PACKAGES.map((asset) => {
         const state = states[asset.id];
         const busy = state === 'checking' || state === 'downloading';
-        return <li key={asset.id}><div><strong>{asset.displayName}</strong><span>{asset.language} · {formatPackageSize(asset.byteSize)}</span><small>{STATE_LABELS[state]}</small></div><div className="actions">{state === 'ready' ? <button type="button" className="danger" disabled={liveActive} onClick={() => void remove(asset)}>Удалить из браузера</button> : <button type="button" className="secondary" disabled={liveActive || busy || state === 'unsupported'} onClick={() => void download(asset)}>{state === 'downloading' ? 'Загружаем…' : 'Скачать и проверить'}</button>}</div></li>;
+        const result = benchmarks[asset.id];
+        return <li key={asset.id}><div><strong>{asset.displayName}</strong><span>{asset.language} · {formatPackageSize(packageByteSize(asset))}</span><small>{STATE_LABELS[state]}{result ? ` · RTF ${result.rtf.toFixed(2)}` : ''}</small></div><div className="actions">{state === 'ready' ? <><button type="button" className="secondary" disabled={liveActive || benchmarking !== null} onClick={() => void benchmark(asset)}>{benchmarking === asset.id ? 'Проверяем…' : 'Проверить скорость'}</button><button type="button" className="danger" disabled={liveActive || benchmarking !== null} onClick={() => void remove(asset)}>Удалить из браузера</button></> : <button type="button" className="secondary" disabled={liveActive || busy || state === 'unsupported'} onClick={() => void download(asset)}>{state === 'downloading' ? 'Загружаем…' : 'Скачать и проверить'}</button>}</div></li>;
       })}</ul>
       <small>Пакеты хранятся в отдельном кэше этого браузера. Авторизация, чат и настройки туда не попадают.</small>
     </div>

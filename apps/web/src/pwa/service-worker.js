@@ -2,6 +2,7 @@
 
 const SOURCE_REVISION = __SOURCE_REVISION__;
 const APP_SHELL_CACHE = 'tiktok-helper-app-shell-v1';
+const TTS_MODEL_CACHE = 'tiktok-helper-tts-models-v1';
 const OFFLINE_URL = '/offline.html';
 const PRECACHE_URLS = [
   OFFLINE_URL,
@@ -36,6 +37,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) return;
+
+  if (url.pathname.startsWith('/tts-assets/voices/')) {
+    event.respondWith(caches.open(TTS_MODEL_CACHE).then(async (cache) => (await cache.match(request)) ?? fetch(request)));
+    return;
+  }
 
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request).catch(async () => {

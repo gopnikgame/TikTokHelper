@@ -17,12 +17,15 @@ describe('PWA lifecycle policy', () => {
     expect(genericInstallInstructions()).toContain('Добавить на экран Домой');
   });
 
-  it('keeps private runtime routes outside the service-worker cache', () => {
+  it('keeps private routes outside caches and isolates verified TTS assets', () => {
     const worker = readFileSync(new URL('./service-worker.js', import.meta.url), 'utf8');
     expect(worker).toContain("url.pathname.startsWith('/api/')");
     expect(worker).toContain("url.pathname.startsWith('/socket.io/')");
     expect(worker).not.toContain('tiktok-helper-audio-v1');
-    expect(worker).not.toContain('tiktok-helper-tts-models-v1');
+    expect(worker).toContain("const TTS_MODEL_CACHE = 'tiktok-helper-tts-models-v1'");
+    const ttsHandler = worker.slice(worker.indexOf("url.pathname.startsWith('/tts-assets/voices/')"), worker.indexOf("if (request.mode === 'navigate')"));
+    expect(ttsHandler).toContain('cache.match(request)');
+    expect(ttsHandler).not.toContain('cache.put');
     expect(worker).not.toContain('caches.match(');
   });
 
