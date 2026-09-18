@@ -20,8 +20,9 @@ Verified release archive sizes for the Russian medium candidates:
 | `ru_RU-ruslan-medium-int8` | 21,127,907 | 20.15 |
 | `ru_RU-ruslan-medium-fp16` | 35,924,102 | 34.26 |
 | `ru_RU-ruslan-medium` | 67,210,684 | 64.10 |
+| `en_US-lessac-medium-int8` | 20,969,179 | 20.00 |
 
-These are compressed model archives, not the complete first-download size. The final figure must include the Wasm runtime, tokens, espeak-ng data and HTTP compression behavior.
+These are compressed model archives, not the complete first-download size. The locally reproduced universal runtime is 15,222,938 bytes (JS + Wasm), and the shared unpacked phonemizer tree is 17,991,651 bytes. Russian and English archives contain byte-identical phonemizer trees, so they must not be duplicated in the browser cache. The final transferred figure still depends on the packaging and HTTP compression selected for publication.
 
 ## Benchmark corpus
 
@@ -62,4 +63,4 @@ For a cold first run and a warm cached run, record:
 
 ## Current result
 
-Runtime selection and asset boundaries are decided. Performance and quality are deliberately **not yet claimed**: no official prebuilt Russian browser bundle is published as a directly embeddable package, so the pinned Wasm/runtime assets and Russian model bundle must be assembled and hashed before the first repeatable Chromium benchmark.
+Runtime selection and asset boundaries are decided. A model-independent Sherpa-ONNX v1.13.8 Web runtime and the Russian/English int8 archives were reproduced locally, inspected and hashed; see `tools/tts/assets-manifest.json`. Performance and quality are deliberately **not yet claimed**: the verified assets still need a browser packaging/loader layer and the first repeatable Chromium benchmark.

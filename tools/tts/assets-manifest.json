@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "status": "experimental-not-published",
+  "runtime": {
+    "name": "sherpa-onnx-web",
+    "version": "1.13.8",
+    "sourceCommit": "11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf",
+    "emscriptenVersion": "4.0.23",
+    "files": [
+      {
+        "name": "sherpa-onnx-wasm-web.js",
+        "byteSize": 93041,
+        "sha256": "1d9ad11cae03540ffbc6e79a1c8b54d51ef4bc27537708fe41b1646b99a88c5f"
+      },
+      {
+        "name": "sherpa-onnx-wasm-web.wasm",
+        "byteSize": 15129897,
+        "sha256": "44c1b0315daf1c5ef0eed3c47c8ba91e428f74416ff2250e0835046e7a57b03a"
+      }
+    ]
+  },
+  "sharedPhonemizer": {
+    "directory": "espeak-ng-data",
+    "fileCount": 355,
+    "byteSize": 17991651,
+    "canonicalManifestSha256": "266d210f64260f0aa3d2980a0f33dbcdd15c63c0046755994d643d859619f2f9"
+  },
+  "voices": [
+    {
+      "id": "ru-RU-irina-medium-int8",
+      "language": "ru-RU",
+      "displayName": "Ирина",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-irina-medium-int8.tar.bz2",
+      "archiveByteSize": 21149417,
+      "archiveSha256": "b0000a509f7551a80742eed5c43b8eb03f469cb9f0a42f6feee96ce0da0ebab8",
+      "model": {
+        "name": "ru_RU-irina-medium.onnx",
+        "byteSize": 18579710,
+        "sha256": "024e07e0c2d3bacde9ebbb1b0801642662a07fe769b0899471b0a44a62c70bae"
+      },
+      "tokensSha256": "da19d3f9a439574f66c072baafced1d1c79f42d8c5981619ea9274a7ab0dbba5"
+    },
+    {
+      "id": "en-US-lessac-medium-int8",
+      "language": "en-US",
+      "displayName": "Lessac",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-lessac-medium-int8.tar.bz2",
+      "archiveByteSize": 20969179,
+      "archiveSha256": "f1c6d0295cf16087b05f80fdca5b44daca5cd78e2c425d419a42ba34929805f9",
+      "model": {
+        "name": "en_US-lessac-medium.onnx",
+        "byteSize": 18579713,
+        "sha256": "96a843df9c4da007e0fc224816cc6020fdc3482b47cb2684b8aab11fec8385ca"
+      },
+      "tokensSha256": "87c8ef66eae5473ed0cc0366b3964c736ca6c5f676c979522ea31234e47430b9"
+    }
+  ]
+}

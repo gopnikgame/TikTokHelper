@@ -68,7 +68,7 @@ The application now has a manifest, install icons, a static offline explanation 
 
 ### 5. Local neural TTS investigation — runtime selected, benchmark pending
 
-The source review selected Sherpa-ONNX Web for an administrator-only experiment: upstream provides browser Wasm TTS and a Worker reference, while the maintained Piper project does not document an equivalent supported browser integration. The first candidates are Russian Piper-derived VITS medium-int8 voices. Browser `speechSynthesis` remains the production default and fallback. Exact asset assembly, integrity hashes, Chromium measurements and the real-device matrix remain pending; see [ADR-0006](decisions/0006-local-neural-tts.md) and [the benchmark plan](neural-tts-benchmark.md).
+The source review selected Sherpa-ONNX Web for an administrator-only experiment: upstream provides browser Wasm TTS and a Worker reference, while the maintained Piper project does not document an equivalent supported browser integration. Russian `irina` and English `lessac` medium-int8 voices plus a model-independent v1.13.8 Web runtime were reproduced locally, inspected and hashed; large binaries are not committed or deployed. Browser `speechSynthesis` remains the production default and fallback. Browser packaging, Chromium measurements and the real-device matrix remain pending; see [ADR-0006](decisions/0006-local-neural-tts.md) and [the benchmark plan](neural-tts-benchmark.md).
 
 ## Explicitly deferred manual checks
 
@@ -92,5 +92,5 @@ For each browser, confirm audio unlock, preview, speech voice selection/fallback
 2. Supporter-accounting concurrency and identity tests.
 3. Isolated database/media restore rehearsal (completed; repeat media verification after the first real upload).
 4. Conservative PWA shell and update UX (implemented; real-device installation remains pending).
-5. Assemble the pinned Sherpa-ONNX Russian experimental bundle and run the first desktop Chromium benchmark.
+5. Add the verified Russian/English asset loader and run the first desktop Chromium benchmark.
 6. Deferred real-device and real-LIVE acceptance matrix.

@@ -416,7 +416,7 @@
 - [x] Compare Sherpa-ONNX Web, direct Piper browser integration and browser `speechSynthesis` from primary sources.
 - [x] Select a runtime, initial Russian candidates, cache boundary and explicit opt-in policy in an ADR.
 - [x] Record exact upstream archive sizes and a repeatable sanitized benchmark corpus.
-- [ ] Assemble pinned Sherpa-ONNX Wasm and `ru_RU-irina-medium-int8` assets with licenses and SHA-256 metadata.
+- [x] Assemble pinned Sherpa-ONNX Wasm plus Russian and English int8 assets with licenses and SHA-256 metadata outside production.
 - [ ] Add an administrator-only opt-in experiment with a dedicated Worker and `tiktok-helper-tts-models-v1` cache.
 - [ ] Fall back to `speechSynthesis` after unsupported Wasm, quota, integrity, initialization, cancellation or inference failure.
 

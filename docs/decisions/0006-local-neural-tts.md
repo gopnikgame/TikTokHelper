@@ -17,7 +17,7 @@ The first proposed estimate of a 20–40 MB total download is not a safe plannin
 ## Decision
 
 - Use Sherpa-ONNX Web as the first experimental runtime because its upstream project publishes a browser WebAssembly TTS implementation and a Worker-based reference implementation.
-- Start with one Russian Piper-derived VITS medium-int8 voice. `ru_RU-irina-medium-int8` is the initial candidate; `ru_RU-ruslan-medium-int8` is the comparison voice.
+- Start with two Piper-derived VITS medium-int8 voices: `ru_RU-irina-medium-int8` for Russian and `en_US-lessac-medium-int8` for English. `ru_RU-ruslan-medium-int8` remains a possible Russian comparison voice.
 - Keep inference entirely inside a dedicated Web Worker. Transfer generated `Float32Array` samples back to the main thread and play them through the existing unlocked `AudioContext`.
 - Keep `speechSynthesis` as the default and automatic fallback until real desktop and mobile measurements pass.
 - Never download a model automatically on page load or when a LIVE starts. An administrator must explicitly opt into the experiment and confirm the first download size.
@@ -25,6 +25,8 @@ The first proposed estimate of a 20–40 MB total download is not a safe plannin
 - Do not store generated speech, chat text, usernames, authorization data or API responses in the model cache.
 - Do not require WebGPU. The first prototype targets Wasm SIMD; WebGPU may be evaluated later as an optional acceleration path.
 - Do not publish the model/runtime in the normal application bundle until license notices, integrity verification, cancellation and memory limits are implemented.
+
+The pinned runtime and both voice archives have now been assembled outside the repository and hashed. One model-independent Sherpa runtime is used for both languages, and the archives' 355-file `espeak-ng-data` trees are byte-identical, so the phonemizer data can be published and cached once. The exact experimental inventory is recorded in `tools/tts/assets-manifest.json`; the binaries are not yet part of Git or production.
 
 ## Why not Piper directly in the browser
 
@@ -48,6 +50,10 @@ The experiment cannot become the default until all of the following are recorded
 6. Subjective comparison of pronunciation and intelligibility against each target platform's system voice.
 7. Graceful fallback to `speechSynthesis` after unsupported Wasm, quota, integrity, initialization or inference failure.
 
+## TikFinity comparison
+
+TikFinity's public documentation confirms two voice classes: free standard voices with speed, pitch and volume controls, and premium AI voices with a credit budget. It also describes the desktop implementation as browser-based. The public docs and the developer's public repositories do not identify the underlying standard or premium TTS provider/model, so this project must not claim that TikFinity uses Piper, Sherpa-ONNX, ElevenLabs or any other specific engine without further primary evidence.
+
 ## Sources
 
 - Sherpa-ONNX browser TTS build: https://k2-fsa.github.io/sherpa/onnx/tts/wasm/build.html
@@ -55,3 +61,6 @@ The experiment cannot become the default until all of the following are recorded
 - Sherpa-ONNX Russian model catalogue: https://k2-fsa.github.io/sherpa/onnx/tts/all/Russian/vits-piper-ru_RU-irina-medium.html
 - Piper project: https://github.com/OHF-Voice/piper1-gpl
 - Russian Piper voices: https://huggingface.co/rhasspy/piper-voices/tree/main/ru/ru_RU
+- English Lessac voice and dataset provenance: https://huggingface.co/rhasspy/piper-voices/blob/main/en/en_US/lessac/medium/MODEL_CARD
+- TikFinity public TTS guide: https://blog.tikfinity.com/tikfinity-mobile-text-to-speech/
+- TikFinity public FAQ: https://github.com/zerodytrash/TikFinity-Public-Docs/blob/main/faq-en.md
