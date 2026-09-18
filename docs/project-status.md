@@ -66,9 +66,9 @@ A production-format PostgreSQL dump and media archive were restored into disposa
 
 The application now has a manifest, install icons, a static offline explanation and a conservative Service Worker. App-shell, audio and future TTS-model caches remain separate; authenticated APIs, navigation state, chat, participants and live events are network-only. New versions remain waiting and require an explicit operator action, which is disabled while a LIVE is connecting, active or reconnecting. Architecture and Chromium evidence are recorded in [pwa.md](pwa.md); the real-device install matrix remains deferred.
 
-### 5. Local neural TTS investigation — runtime selected, benchmark pending
+### 5. Local neural TTS experiment — administrator-only pilot deployed
 
-The source review selected Sherpa-ONNX Web for an administrator-only experiment: upstream provides browser Wasm TTS and a Worker reference, while the maintained Piper project does not document an equivalent supported browser integration. Russian `irina` and English `lessac` medium-int8 voices plus a model-independent v1.13.8 Web runtime were reproduced locally, inspected and hashed; large binaries are not committed or deployed. Browser `speechSynthesis` remains the production default and fallback. Browser packaging, Chromium measurements and the real-device matrix remain pending; see [ADR-0006](decisions/0006-local-neural-tts.md) and [the benchmark plan](neural-tts-benchmark.md).
+The source review selected Sherpa-ONNX Web for an administrator-only experiment: upstream provides browser Wasm TTS and a Worker reference, while the maintained Piper project does not document an equivalent supported browser integration. Russian `irina` and English `lessac` medium-int8 voices plus a v1.13.8 Web runtime were reproduced, hashed and benchmarked in desktop Chromium. The binary packages are mounted outside Git and their HTTP route requires a current global-administrator session. Browser `speechSynthesis` remains the production default and fallback. Real-device quality and compatibility checks remain pending; see [ADR-0006](decisions/0006-local-neural-tts.md) and [the benchmark plan](neural-tts-benchmark.md).
 
 ## Explicitly deferred manual checks
 

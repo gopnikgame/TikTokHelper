@@ -26,7 +26,7 @@ The first proposed estimate of a 20–40 MB total download is not a safe plannin
 - Do not require WebGPU. The first prototype targets Wasm SIMD; WebGPU may be evaluated later as an optional acceleration path.
 - Do not publish the model/runtime in the normal application bundle until license notices, integrity verification, cancellation and memory limits are implemented.
 
-The pinned runtime and both voice archives have now been assembled outside the repository and hashed. One model-independent Sherpa runtime is used for both languages, and the archives' 355-file `espeak-ng-data` trees are byte-identical, so the phonemizer data can be published and cached once. The exact experimental inventory is recorded in `tools/tts/assets-manifest.json`; the binaries are not yet part of Git or production.
+The pinned runtime and both voice archives were assembled outside the repository, hashed and deployed as an administrator-only pilot. The packages remain outside Git and are mounted read-only at runtime. Their route requires a current global-administrator session, while the browser still verifies every file before moving it from staging into the separate TTS cache. The exact experimental inventory is recorded in `tools/tts/assets-manifest.json`.
 
 ## Why not Piper directly in the browser
 

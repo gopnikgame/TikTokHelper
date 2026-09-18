@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "status": "experimental-not-published",
+  "status": "experimental-admin-only",
   "runtime": {
     "name": "sherpa-onnx-web",
     "version": "1.13.8",
