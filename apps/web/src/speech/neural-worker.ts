@@ -13,8 +13,9 @@ export function measurePcm(samples: Float32Array): { signalPeak: number; signalR
 }
 
 export class NeuralTtsWorkerClient {
-  async synthesize(asset: NeuralVoicePackage, text: string): Promise<NeuralSynthesisResult> {
+  async synthesize(asset: NeuralVoicePackage, text: string, speed = 1): Promise<NeuralSynthesisResult> {
     if (text.length < 1 || text.length > 240) throw new Error('Benchmark text length is invalid');
+    if (!Number.isFinite(speed) || speed < 0.7 || speed > 1.3) throw new Error('Speech speed is invalid');
     const startedAt = performance.now();
     const worker = new Worker(new URL('sherpa-onnx-tts.worker.js', neuralPackageBaseUrl(asset)));
     return new Promise((resolve, reject) => {
@@ -25,7 +26,7 @@ export class NeuralTtsWorkerClient {
       worker.onmessage = (event: MessageEvent<WorkerResult>) => {
         const data = event.data;
         if (data.type === 'error') { finish(() => reject(new Error(data.message || 'TTS worker failed'))); return; }
-        if (data.type === 'sherpa-onnx-tts-ready') { readyAt = performance.now(); worker.postMessage({ type: 'generate', text, sid: 0, speed: 1 }); return; }
+        if (data.type === 'sherpa-onnx-tts-ready') { readyAt = performance.now(); worker.postMessage({ type: 'generate', text, sid: 0, speed }); return; }
         if (data.type !== 'sherpa-onnx-tts-result' || !data.samples || !data.sampleRate || readyAt === 0) return;
         const finishedAt = performance.now(); const audioSeconds = data.samples.length / data.sampleRate;
         const signal = measurePcm(data.samples);

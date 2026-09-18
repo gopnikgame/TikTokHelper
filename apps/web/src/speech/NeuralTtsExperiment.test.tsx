@@ -7,6 +7,8 @@ describe('NeuralTtsExperiment', () => {
     const html = renderToStaticMarkup(<NeuralTtsExperiment liveActive />);
     expect(html).toContain('Эксперимент для администра');
     expect(html).toContain('сначала остановите эфир');
-    expect(html.match(/disabled=""/g)).toHaveLength(2);
+    expect(html).toContain('Настройки теста');
+    expect(html).toContain('Прослушать с настройками');
+    expect(html.match(/disabled=""/g)).toHaveLength(3);
   });
 });

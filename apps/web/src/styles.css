@@ -88,6 +88,10 @@ button.channel-chip:hover { border-color: var(--cyan); background: #19282a; }
 .neural-tts-panel[open] summary > span:last-child::after { content: "Свернуть"; font-size: .8rem; }
 .neural-tts-content { display: grid; gap: 1rem; padding: 1rem 1.2rem 1.2rem; }
 .neural-tts-warning { margin: 0; color: var(--muted); }
+.neural-tts-controls { display: grid; gap: 1rem; padding: 1rem; border: 1px solid #31595b; border-radius: .65rem; background: #0e1719; }
+.neural-tts-controls h2 { margin: 0; }
+.neural-tts-controls label > small { justify-self: end; font-weight: 500; }
+.neural-tts-controls > small { color: var(--muted); }
 .neural-tts-content > ul { display: grid; gap: .65rem; }
 .neural-tts-content > ul > li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem; border: 1px solid #31595b; border-radius: .65rem; background: #0e1719; }
 .neural-tts-content > ul > li > div:first-child { display: grid; gap: .15rem; }
