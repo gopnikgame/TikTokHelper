@@ -14,8 +14,8 @@ import { createGiftCatalogRepository } from './gifts/repository.js';
 import { createRecentChannelRepository } from './channels/repository.js';
 import { createAuthRepository } from './auth/repository.js';
 import { HttpIdentityBridge } from './auth/bridge-client.js';
-import { AuthService, parseCookie } from './auth/service.js';
-import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
+import { AuthService } from './auth/service.js';
+import { resolveAccessPrincipal } from './auth/local-access.js';
 import { createAutomationRepository } from './automation/repository.js';
 import { createSupporterRepository } from './supporters/repository.js';
 import { EntitlementCache } from './supporters/entitlement-cache.js';
@@ -136,9 +136,7 @@ const app = buildApp({
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
   ...(authService ? { authenticate: async (headers: import('node:http').IncomingHttpHeaders) => (
-    isTrustedLocalAccess(headers)
-      ? localPrincipal(workspaceId)
-      : (await authService.resolve(parseCookie(headers.cookie, authService.cookieName)))?.principal ?? null
+    (await resolveAccessPrincipal(headers, authService, workspaceId))?.principal ?? null
   ) } : {}),
   authorizeWorkspace: authService
     ? (requestedWorkspaceId, principal) => principal?.workspaces.some((workspace) => workspace.id === requestedWorkspaceId) ?? false

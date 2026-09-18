@@ -4,7 +4,7 @@ import {
   type ApiErrorResponse, type AuthCallbackQuery, type AuthLoginResponse, type AuthSessionResponse,
 } from '@tiktok-helper/contracts';
 import { clearSessionCookie, parseCookie, sessionCookie, type AuthService } from './service.js';
-import { isTrustedLocalAccess, localPrincipal } from './local-access.js';
+import { resolveAccessPrincipal } from './local-access.js';
 
 export const authRoutes: FastifyPluginAsync<{ service: AuthService; localWorkspaceId?: string }> = async (app, { service, localWorkspaceId }) => {
   app.get<{ Reply: AuthLoginResponse }>('/api/auth/login', {
@@ -32,12 +32,9 @@ export const authRoutes: FastifyPluginAsync<{ service: AuthService; localWorkspa
     schema: { response: { 200: authSessionSchema, 401: apiErrorSchema } },
   }, async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    if (localWorkspaceId && isTrustedLocalAccess(request.headers)) {
-      return { authenticated: true, mode: 'local', user: localPrincipal(localWorkspaceId) };
-    }
-    const active = await service.resolve(parseCookie(request.headers.cookie, service.cookieName));
-    if (!active) return reply.code(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required', requestId: request.id } });
-    return { authenticated: true, mode: 'vline', user: active.principal };
+    const access = await resolveAccessPrincipal(request.headers, service, localWorkspaceId);
+    if (!access) return reply.code(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required', requestId: request.id } });
+    return { authenticated: true, mode: access.mode, user: access.principal };
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

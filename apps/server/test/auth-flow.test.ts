@@ -97,7 +97,7 @@ describe('VLine-backed application sessions', () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 
-  it('allows only the trusted proxy marker to use the local workspace', async () => {
+  it('uses a valid VLine session before falling back to trusted local access', async () => {
     const bridge: IdentityBridge = {
       async exchange() { return { subject: 'solo-user-1', displayName: null, authenticatedAt: new Date().toISOString() }; },
     };
@@ -127,6 +127,21 @@ describe('VLine-backed application sessions', () => {
     expect((await app.inject({
       method: 'GET', url: '/api/workspaces/other/settings', headers,
     })).statusCode).toBe(403);
+
+    const login = await app.inject({ method: 'GET', url: '/api/auth/login' });
+    const state = new URL(login.json<{ authorizationUrl: string }>().authorizationUrl).searchParams.get('state')!;
+    const callback = await app.inject({ method: 'GET', url: `/auth/callback?code=${'c'.repeat(43)}&state=${state}` });
+    const setCookie = callback.headers['set-cookie']!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0]! : setCookie).split(';', 1)[0]!;
+    const authenticatedHeaders = { ...headers, cookie };
+    const authenticatedSession = await app.inject({ method: 'GET', url: '/api/auth/session', headers: authenticatedHeaders });
+    expect(authenticatedSession.statusCode).toBe(200);
+    expect(authenticatedSession.json()).toMatchObject({
+      mode: 'vline', user: { userId, isAdmin: true, workspaces: [{ id: 'primary' }] },
+    });
+    expect((await app.inject({
+      method: 'GET', url: '/api/workspaces/primary/settings', headers: authenticatedHeaders,
+    })).statusCode).toBe(200);
   });
 
   it('completes PKCE login and isolates protected workspaces', async () => {

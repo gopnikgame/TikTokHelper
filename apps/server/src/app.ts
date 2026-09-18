@@ -18,8 +18,8 @@ import type { GiftCatalogRepository } from './gifts/repository.js';
 import { recentChannelRoutes } from './channels/routes.js';
 import type { RecentChannelRepository } from './channels/repository.js';
 import { authRoutes } from './auth/routes.js';
-import { parseCookie, type AuthService } from './auth/service.js';
-import { isTrustedLocalAccess, localPrincipal } from './auth/local-access.js';
+import type { AuthService } from './auth/service.js';
+import { localPrincipal, resolveAccessPrincipal } from './auth/local-access.js';
 import { automationRoutes } from './automation/routes.js';
 import type { AutomationRepository } from './automation/repository.js';
 import { ttsAssetRoutes } from './tts-assets/routes.js';
@@ -166,9 +166,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       const route = request.routeOptions.url ?? '';
       const protectedRoute = route.startsWith('/api/workspaces/') || route.startsWith('/api/live/');
       if (!protectedRoute) return;
-      const active = options.localWorkspaceId && isTrustedLocalAccess(request.headers)
-        ? { principal: localPrincipal(options.localWorkspaceId) }
-        : await authService.resolve(parseCookie(request.headers.cookie, authService.cookieName));
+      const active = await resolveAccessPrincipal(request.headers, authService, options.localWorkspaceId);
       if (!active) {
         return reply.code(401).send(errorResponse('UNAUTHENTICATED', 'Authentication required', request.id));
       }
