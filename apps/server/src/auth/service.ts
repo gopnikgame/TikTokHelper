@@ -65,6 +65,13 @@ export class AuthService {
     return url.toString();
   }
 
+  consumeDeniedLogin(state: string): boolean {
+    const key = digest(state);
+    const pending = this.#pending.get(key);
+    this.#pending.delete(key);
+    return Boolean(pending && pending.expiresAt > this.now());
+  }
+
   async completeLogin(code: string, state: string): Promise<{ token: string; principal: AuthPrincipal }> {
     const pending = this.#pending.get(digest(state));
     this.#pending.delete(digest(state));

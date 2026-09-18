@@ -17,8 +17,16 @@ export const authRoutes: FastifyPluginAsync<{ service: AuthService; localWorkspa
   app.get<{ Querystring: AuthCallbackQuery }>('/auth/callback', {
     schema: { querystring: authCallbackQuerySchema },
   }, async (request, reply) => {
+    if (request.query.error === 'access_denied' && request.query.error_code) {
+      if (!service.consumeDeniedLogin(request.query.state)) {
+        return reply.code(400).send({ error: {
+          code: 'AUTH_CALLBACK_FAILED', message: 'Authentication response is invalid or expired', requestId: request.id,
+        } });
+      }
+      return reply.redirect(`/?auth_error=${encodeURIComponent(request.query.error_code)}`);
+    }
     try {
-      const result = await service.completeLogin(request.query.code, request.query.state);
+      const result = await service.completeLogin(request.query.code!, request.query.state);
       reply.header('set-cookie', sessionCookie(service.cookieName, result.token, service.cookieMaxAgeSeconds));
       return reply.redirect('/');
     } catch {

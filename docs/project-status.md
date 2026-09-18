@@ -11,6 +11,8 @@ This document distinguishes shipped behavior from automated evidence and checks 
 - Isolated `tiktok-live-connector` adapter, normalized project events, bounded reconnect and one upstream connection per workspace.
 - Socket.IO snapshot-first recovery, authorized workspace rooms and bounded recent event buffers.
 - VLine Auth Bridge login with workspace isolation and trusted local-network access.
+- VLine subscription entitlement is checked by an update-safe SoloBot module at
+  new VLine logins; denials are state-bound and shown as safe user-facing reasons.
 - Shared sound library, user uploads, administrator quarantine/deletion and personal gift mappings.
 - Gift catalogue discovery with image metadata, gift-series accounting and configurable percentage-based sound overlap.
 - Browser-owned playback, single-tab audio ownership and persistent SHA-256-addressed caching of enabled sounds.

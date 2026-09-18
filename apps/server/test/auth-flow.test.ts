@@ -196,6 +196,22 @@ describe('VLine-backed application sessions', () => {
     expect(replay.body).not.toContain('solo-user-1');
   });
 
+  it('consumes a state-bound subscription denial and exposes only a safe reason code', async () => {
+    const bridge: IdentityBridge = { async exchange() { throw new Error('must not exchange a denied login'); } };
+    const service = new AuthService(memoryRepository(), bridge, {
+      bridgeAuthorizeUrl: 'https://vline.online/integrations/tiktok-helper/authorize', clientId: 'tiktok-helper',
+      redirectUri: 'https://tiktok.vpnline.online/auth/callback',
+    });
+    const app = buildApp({ logger: false, authService: service }); apps.add(app);
+    const login = await app.inject({ method: 'GET', url: '/api/auth/login' });
+    const state = new URL(login.json<{ authorizationUrl: string }>().authorizationUrl).searchParams.get('state')!;
+    const url = `/auth/callback?error=access_denied&error_code=subscription_expired&state=${state}`;
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe('/?auth_error=subscription_expired');
+    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(400);
+  });
+
   it('rejects an expired application session', async () => {
     let now = Date.now();
     const bridge: IdentityBridge = { async exchange() { return { subject: 'solo-user-1', displayName: null, authenticatedAt: new Date(now).toISOString() }; } };

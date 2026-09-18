@@ -17,6 +17,12 @@ const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', 
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
 const CONNECTION_NOTICE = { live: 'Эфир подключён — принимаем чат и подарки', reconnecting: 'Связь прервалась — подключаемся снова…', offline: 'Эфир завершён или аккаунт сейчас не в эфире', failed: 'Не удалось подключиться к эфиру' } as const;
 type SessionState = { status: 'loading' } | { status: 'anonymous' } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
+const AUTH_ERROR_COPY: Record<string, string> = {
+  subscription_required: 'Для доступа нужна активная подписка VLine.',
+  subscription_expired: 'Срок подписки VLine закончился. Продлите её и попробуйте войти снова.',
+  subscription_frozen: 'Подписка VLine сейчас заморожена. Возобновите её и попробуйте войти снова.',
+  account_disabled: 'Учётная запись VLine недоступна. Обратитесь в поддержку.',
+};
 
 function diagnosticBoolean(value: boolean | undefined): string {
   return value === undefined ? 'нет данных' : value ? 'да' : 'нет';
@@ -24,6 +30,12 @@ function diagnosticBoolean(value: boolean | undefined): string {
 
 export function App() {
   const [sessionState, setSessionState] = useState<SessionState>({ status: 'loading' });
+  const [authError] = useState(() => {
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get('auth_error');
+    if (code) { url.searchParams.delete('auth_error'); window.history.replaceState({}, '', url.pathname + url.search + url.hash); }
+    return code && AUTH_ERROR_COPY[code] ? AUTH_ERROR_COPY[code] : null;
+  });
   const [liveSessionActive, setLiveSessionActive] = useState(false);
   const pwa = usePwaLifecycle();
   useEffect(() => {
@@ -39,7 +51,7 @@ export function App() {
   const onLoggedOut = useCallback(() => setSessionState({ status: 'anonymous' }), []);
   let content;
   if (sessionState.status === 'loading') content = <AccessScreen title="Проверяем вход…" message="Подготавливаем ваше рабочее место." />;
-  else if (sessionState.status === 'anonymous') content = <LoginScreen />;
+  else if (sessionState.status === 'anonymous') content = <LoginScreen authError={authError} />;
   else if (sessionState.status === 'error') content = <AccessScreen title="Сервис входа недоступен" message="Обновите страницу через минуту. Настройки и звуки останутся на месте." retry />;
   else content = <AuthenticatedApp principal={sessionState.principal} authMode={sessionState.mode} onLoggedOut={onLoggedOut} pwa={pwa} onLiveSessionActiveChange={setLiveSessionActive} />;
 
@@ -63,14 +75,14 @@ function AccessScreen({ title, message, retry = false }: { title: string; messag
   return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>{title}</h1><p>{message}</p>{retry ? <button type="button" onClick={() => window.location.reload()}>Попробовать снова</button> : null}<SourceLink /></section></main>;
 }
 
-function LoginScreen() {
+function LoginScreen({ authError }: { authError: string | null }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   async function login() {
     setBusy(true); setFailed(false);
     try { await beginLogin(); } catch { setBusy(false); setFailed(true); }
   }
-  return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1><p>Войдите через аккаунт VLine, чтобы открыть свои эфиры, звуки и привязки подарков.</p><button type="button" disabled={busy} onClick={() => void login()}>{busy ? 'Открываем VLine…' : 'Войти через VLine'}</button>{failed ? <p className="access-error" role="alert">Не удалось начать вход. Проверьте соединение и попробуйте снова.</p> : null}<SourceLink /></section></main>;
+  return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1><p>Войдите через аккаунт VLine, чтобы открыть свои эфиры, звуки и привязки подарков.</p>{authError ? <p className="access-error" role="alert">{authError}</p> : null}<button type="button" disabled={busy} onClick={() => void login()}>{busy ? 'Открываем VLine…' : 'Войти через VLine'}</button>{failed ? <p className="access-error" role="alert">Не удалось начать вход. Проверьте соединение и попробуйте снова.</p> : null}<SourceLink /></section></main>;
 }
 
 function SourceLink() {

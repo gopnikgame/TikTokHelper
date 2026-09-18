@@ -42,11 +42,22 @@ export interface AuthLoginResponse { authorizationUrl: string }
 
 export const authCallbackQuerySchema = {
   $id: 'AuthCallbackQuery', type: 'object', additionalProperties: false,
-  required: ['code', 'state'],
+  required: ['state'],
   properties: {
     code: { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' },
     state: { type: 'string', pattern: '^[A-Za-z0-9_-]{43}$' },
+    error: { type: 'string', enum: ['access_denied'] },
+    error_code: { type: 'string', enum: ['subscription_required', 'subscription_expired', 'subscription_frozen', 'account_disabled'] },
   },
+  oneOf: [
+    { required: ['code'], not: { anyOf: [{ required: ['error'] }, { required: ['error_code'] }] } },
+    { required: ['error', 'error_code'], not: { required: ['code'] } },
+  ],
 } as const;
 
-export interface AuthCallbackQuery { code: string; state: string }
+export interface AuthCallbackQuery {
+  state: string;
+  code?: string;
+  error?: 'access_denied';
+  error_code?: 'subscription_required' | 'subscription_expired' | 'subscription_frozen' | 'account_disabled';
+}
