@@ -17,6 +17,12 @@ async function ensureAudioRunning(context: AudioContext): Promise<void> {
   if (context.state !== 'running') throw new Error('Web Audio is unavailable');
 }
 
+function primeAudioContext(context: AudioContext): void {
+  const buffer = context.createBuffer(1, 1, context.sampleRate);
+  const source = context.createBufferSource();
+  source.buffer = buffer; source.connect(context.destination); source.start();
+}
+
 export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
   const [assetCache] = useState(() => new NeuralAssetCache());
   const [states, setStates] = useState<PackageStates>(INITIAL_STATES);
@@ -70,8 +76,10 @@ export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
     try {
       audioContext.current ??= new AudioContext();
       const context = audioContext.current;
+      primeAudioContext(context);
       await ensureAudioRunning(context);
       const { samples, sampleRate, ...result } = await new NeuralTtsWorkerClient().synthesize(asset, text);
+      if (result.signalPeak < 0.00001) throw new Error('Generated PCM is silent');
       await ensureAudioRunning(context);
       const buffer = context.createBuffer(1, samples.length, sampleRate);
       buffer.getChannelData(0).set(samples);
@@ -81,7 +89,7 @@ export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
       source.addEventListener('ended', () => { if (activeSource.current === source) activeSource.current = null; }, { once: true });
       activeSource.current = source; source.start();
       setBenchmarks((current) => ({ ...current, [asset.id]: result }));
-      setMessage(`${asset.displayName}: воспроизводим ${result.audioSeconds.toFixed(1)} с; генерация ${(result.generationMs / 1000).toFixed(2)} с, RTF ${result.rtf.toFixed(2)}.`);
+      setMessage(`${asset.displayName}: воспроизводим ${result.audioSeconds.toFixed(1)} с; генерация ${(result.generationMs / 1000).toFixed(2)} с, RTF ${result.rtf.toFixed(2)}, пик ${result.signalPeak.toFixed(3)}.`);
     } catch { setMessage('Не удалось сгенерировать или воспроизвести тестовую фразу. Рабочая озвучка не изменена.'); }
     finally { setBenchmarking(null); }
   }

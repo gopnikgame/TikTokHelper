@@ -2,7 +2,15 @@ import { neuralPackageBaseUrl, type NeuralVoicePackage } from './neural-assets.j
 
 interface WorkerResult { type: string; samples?: Float32Array; sampleRate?: number; message?: string }
 export interface NeuralBenchmarkResult { initializationMs: number; generationMs: number; audioSeconds: number; rtf: number }
-export interface NeuralSynthesisResult extends NeuralBenchmarkResult { samples: Float32Array; sampleRate: number }
+export interface NeuralSynthesisResult extends NeuralBenchmarkResult {
+  samples: Float32Array; sampleRate: number; signalPeak: number; signalRms: number;
+}
+
+export function measurePcm(samples: Float32Array): { signalPeak: number; signalRms: number } {
+  let peak = 0; let sumSquares = 0;
+  for (const sample of samples) { const absolute = Math.abs(sample); if (absolute > peak) peak = absolute; sumSquares += sample * sample; }
+  return { signalPeak: peak, signalRms: samples.length > 0 ? Math.sqrt(sumSquares / samples.length) : 0 };
+}
 
 export class NeuralTtsWorkerClient {
   async synthesize(asset: NeuralVoicePackage, text: string): Promise<NeuralSynthesisResult> {
@@ -20,10 +28,11 @@ export class NeuralTtsWorkerClient {
         if (data.type === 'sherpa-onnx-tts-ready') { readyAt = performance.now(); worker.postMessage({ type: 'generate', text, sid: 0, speed: 1 }); return; }
         if (data.type !== 'sherpa-onnx-tts-result' || !data.samples || !data.sampleRate || readyAt === 0) return;
         const finishedAt = performance.now(); const audioSeconds = data.samples.length / data.sampleRate;
+        const signal = measurePcm(data.samples);
         finish(() => resolve({
           initializationMs: readyAt - startedAt, generationMs: finishedAt - readyAt,
           audioSeconds, rtf: (finishedAt - readyAt) / 1000 / audioSeconds,
-          samples: data.samples!, sampleRate: data.sampleRate!,
+          samples: data.samples!, sampleRate: data.sampleRate!, ...signal,
         }));
       };
     });
