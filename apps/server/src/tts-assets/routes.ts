@@ -7,7 +7,11 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { AuthService } from '../auth/service.js';
 import { parseCookie } from '../auth/service.js';
 
-const VOICE_IDS = new Set(['ru-RU-irina-medium-int8', 'en-US-lessac-medium-int8']);
+const VOICE_IDS = new Set([
+  'ru-RU-irina-medium-int8', 'ru-RU-denis-medium-int8', 'ru-RU-dmitri-medium-int8',
+  'ru-RU-ruslan-medium-int8', 'en-US-lessac-medium-int8', 'en-US-amy-medium-int8',
+  'en-US-hfc-female-medium-int8', 'en-US-hfc-male-medium-int8',
+]);
 const FILE_NAMES = new Set([
   'sherpa-onnx-tts.worker.js',
   'sherpa-onnx-tts.js',

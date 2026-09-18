@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "status": "experimental-admin-only",
   "runtime": {
     "name": "sherpa-onnx-web",
@@ -53,6 +53,48 @@
         "sha256": "96a843df9c4da007e0fc224816cc6020fdc3482b47cb2684b8aab11fec8385ca"
       },
       "tokensSha256": "87c8ef66eae5473ed0cc0366b3964c736ca6c5f676c979522ea31234e47430b9"
+    },
+    {
+      "id": "ru-RU-denis-medium-int8", "language": "ru-RU", "displayName": "Денис",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-denis-medium-int8.tar.bz2",
+      "archiveByteSize": 21058905, "archiveSha256": "d710e29eb7854c42461d16d65d3cef753cc559639ca75806edc75ba71f23af66",
+      "model": { "name": "ru_RU-denis-medium.onnx", "byteSize": 18579716, "sha256": "17c2e7eb5c3876e62e0028549c3a91a344c658db2eb7a2f137bf0337b9342276" },
+      "tokensSha256": "2619c1a9de1bcf928162f40c583caf39368cfd6b2340c7bcad51dc634411ec36"
+    },
+    {
+      "id": "ru-RU-dmitri-medium-int8", "language": "ru-RU", "displayName": "Дмитрий",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-dmitri-medium-int8.tar.bz2",
+      "archiveByteSize": 21129441, "archiveSha256": "7636793307f634ce54c6e65528a91a61683114f1a6635a08caf64ba6c54e6a63",
+      "model": { "name": "ru_RU-dmitri-medium.onnx", "byteSize": 18579710, "sha256": "e8b5eb00aba2b96497361c1ac11ad7f6c19e4f92fb25099afd589f1d4ac5ccc6" },
+      "tokensSha256": "2619c1a9de1bcf928162f40c583caf39368cfd6b2340c7bcad51dc634411ec36"
+    },
+    {
+      "id": "ru-RU-ruslan-medium-int8", "language": "ru-RU", "displayName": "Руслан",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-ru_RU-ruslan-medium-int8.tar.bz2",
+      "archiveByteSize": 21127907, "archiveSha256": "93b9f8c7b34c1420bdc253a0ce5ab1cb6b6be2e8fa26c1f3b36c6189233c3e7e",
+      "model": { "name": "ru_RU-ruslan-medium.onnx", "byteSize": 18579719, "sha256": "a9f6dffc26a388faef66041fabe08cd203eddd888d6c959637a5002f0e4359cf" },
+      "tokensSha256": "87c8ef66eae5473ed0cc0366b3964c736ca6c5f676c979522ea31234e47430b9"
+    },
+    {
+      "id": "en-US-amy-medium-int8", "language": "en-US", "displayName": "Amy",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-amy-medium-int8.tar.bz2",
+      "archiveByteSize": 21028122, "archiveSha256": "bd23c0aa629eb3719448582f45ede49e8fa6a679061fed5eab16a6a6fd8e7e82",
+      "model": { "name": "en_US-amy-medium.onnx", "byteSize": 18681741, "sha256": "e93cf3361c5561b9fedcec20b26ae5ecd068172e514740562f1263be65b3848f" },
+      "tokensSha256": "87c8ef66eae5473ed0cc0366b3964c736ca6c5f676c979522ea31234e47430b9"
+    },
+    {
+      "id": "en-US-hfc-female-medium-int8", "language": "en-US", "displayName": "HFC Female",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_female-medium-int8.tar.bz2",
+      "archiveByteSize": 21021379, "archiveSha256": "7c467d19054ddf84056a4887a8be75f5f3b2a5d426637b526953a5e488fec5ce",
+      "model": { "name": "en_US-hfc_female-medium.onnx", "byteSize": 18579715, "sha256": "42da253ada89d68a16057c02d6c378bc69d1ffebb3e15dba17ae6c0dff258791" },
+      "tokensSha256": "620e1aecf1a68fea3ba5850d137b0138fa2037c9b372dad13b95a2a215d0849a"
+    },
+    {
+      "id": "en-US-hfc-male-medium-int8", "language": "en-US", "displayName": "HFC Male",
+      "archiveUrl": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-en_US-hfc_male-medium-int8.tar.bz2",
+      "archiveByteSize": 25491430, "archiveSha256": "141fb591d73c23fd55442e554317562e8e8efce53a468801e8dd9eb23499a723",
+      "model": { "name": "en_US-hfc_male-medium.onnx", "byteSize": 18579718, "sha256": "f500d8262bcb62d55e2d7e0d1370da0319f51694e2ebac3d13312885f9afb77c" },
+      "tokensSha256": "620e1aecf1a68fea3ba5850d137b0138fa2037c9b372dad13b95a2a215d0849a"
     }
   ],
   "browserPackages": [
@@ -69,12 +111,23 @@
       "mainJsSha256": "52c08b09f454bfed4ef645f87e8f17ec027eaa4baac88cde6c583f989f4f78d6",
       "dataByteSize": 36575112,
       "dataSha256": "35ba7f66fa7f4490f9d69c8d96e9ee9d9558a7fcf65f72d543f4a3bacb8d32ce"
-    }
+    },
+    { "id": "ru-RU-denis-medium-int8", "byteSize": 50452817, "mainJsSha256": "ed2aa62d06c34cd9ae2b4f0b541ed46260a7264f47db4e874bc2e153b01cc515", "dataByteSize": 36575068, "dataSha256": "d346e7ad3c729558eb07bf1d4e3ad38aacfc5308e251495176f6d87e0075c021" },
+    { "id": "ru-RU-dmitri-medium-int8", "byteSize": 50452811, "mainJsSha256": "7232d7f9b53233361d35de098dbc01d1dc334dde63dc0de552487247f2da6810", "dataByteSize": 36575062, "dataSha256": "8aea0900c474c4810a3ced3614ddf61b23cd23c36029a915e25d15a93f55a66c" },
+    { "id": "ru-RU-ruslan-medium-int8", "byteSize": 50452834, "mainJsSha256": "fca307bc4691498ec30f4684236fd69db8e39c77d6fe1a0c5120e7473e7e89e4", "dataByteSize": 36575085, "dataSha256": "43efb41cd80b2a6c95e076d8bdd92083fc36dd9ba7cd7cdda23341c3de71720b" },
+    { "id": "en-US-amy-medium-int8", "byteSize": 50554856, "mainJsSha256": "5ec51a58308393fe67e0c783a917e2eb0b02780f05d04f43c26fd6e3b33c1a09", "dataByteSize": 36677107, "dataSha256": "e4ec1615e86e15c1d0a753f0ab152e65763638f5312d05d90a4ba09538c514c7" },
+    { "id": "en-US-hfc-female-medium-int8", "byteSize": 50452863, "mainJsSha256": "0bba77954a7631be1d57d3db7ae5e7b91d55b8a0c4d91f13fd2a86ef35078c18", "dataByteSize": 36575114, "dataSha256": "5b08c483a3f4aa5ca5bf79c84f83f47de41e51e9376a0e5539bce4b140d06c5b" },
+    { "id": "en-US-hfc-male-medium-int8", "byteSize": 50452866, "mainJsSha256": "72fd7bc8658d9d67204ee70384dd6b112a6d401ba7ccdf255bed7846b65ee668", "dataByteSize": 36575117, "dataSha256": "47f62834b4f8cea9cc03014adb24c36885e76ea3f566125c14bec2982aa31404" }
   ],
   "browserPackageSharedFiles": [
     { "name": "sherpa-onnx-tts.worker.js", "byteSize": 2780, "sha256": "2aa4cfebfb468de2b112613b5a583e8a0f27c2c7b1d295ab11993592b5bf0aa2" },
     { "name": "sherpa-onnx-tts.js", "byteSize": 34361, "sha256": "1e2b99d64246a142e9f1d4d0738879f61d7859176ec8b054cdbb666cefe9ee94" },
     { "name": "sherpa-onnx-wasm-main-tts.wasm", "byteSize": 13730283, "sha256": "77b1fccbb571b1a87c23e7695f3e16af334d849b2881fc27b953ca57a47a5738" }
+  ],
+  "additionalBrowserPackageSharedFiles": [
+    { "name": "sherpa-onnx-tts.worker.js", "byteSize": 2780, "sha256": "2aa4cfebfb468de2b112613b5a583e8a0f27c2c7b1d295ab11993592b5bf0aa2" },
+    { "name": "sherpa-onnx-tts.js", "byteSize": 34361, "sha256": "1e2b99d64246a142e9f1d4d0738879f61d7859176ec8b054cdbb666cefe9ee94" },
+    { "name": "sherpa-onnx-wasm-main-tts.wasm", "byteSize": 13730745, "sha256": "1771f70f54be78f2ec45de4a2d60a8b08b2187f5c61553ac48e1fd2378a0d77d" }
   ],
   "chromiumBenchmark": {
     "date": "2026-09-18",

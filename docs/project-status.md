@@ -68,7 +68,7 @@ The application now has a manifest, install icons, a static offline explanation 
 
 ### 5. Local neural TTS experiment — administrator-only pilot deployed
 
-The source review selected Sherpa-ONNX Web for an administrator-only experiment: upstream provides browser Wasm TTS and a Worker reference, while the maintained Piper project does not document an equivalent supported browser integration. Russian `irina` and English `lessac` medium-int8 voices plus a v1.13.8 Web runtime were reproduced, hashed and benchmarked in desktop Chromium. The binary packages are mounted outside Git and their HTTP route requires a current global-administrator session. Browser `speechSynthesis` remains the production default and fallback. Real-device quality and compatibility checks remain pending; see [ADR-0006](decisions/0006-local-neural-tts.md) and [the benchmark plan](neural-tts-benchmark.md).
+The source review selected Sherpa-ONNX Web for an administrator-only experiment: upstream provides browser Wasm TTS and a Worker reference, while the maintained Piper project does not document an equivalent supported browser integration. Four Russian voices (Irina, Denis, Dmitri and Ruslan) and four English voices (Lessac, Amy, HFC Female and HFC Male) can be installed individually and selected per language. The binary packages are mounted outside Git and their HTTP route requires a current global-administrator session. Only the Irina and Lessac baselines have desktop Chromium measurements; browser `speechSynthesis` remains the production default and fallback. Real-device quality and compatibility checks remain pending; see [ADR-0006](decisions/0006-local-neural-tts.md) and [the benchmark plan](neural-tts-benchmark.md).
 
 ## Explicitly deferred manual checks
 

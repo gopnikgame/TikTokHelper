@@ -18,9 +18,14 @@ Verified release archive sizes for the Russian medium candidates:
 | `ru_RU-irina-medium-fp16` | 35,868,633 | 34.21 |
 | `ru_RU-irina-medium` | 67,153,308 | 64.04 |
 | `ru_RU-ruslan-medium-int8` | 21,127,907 | 20.15 |
+| `ru_RU-denis-medium-int8` | 21,058,905 | 20.08 |
+| `ru_RU-dmitri-medium-int8` | 21,129,441 | 20.15 |
 | `ru_RU-ruslan-medium-fp16` | 35,924,102 | 34.26 |
 | `ru_RU-ruslan-medium` | 67,210,684 | 64.10 |
 | `en_US-lessac-medium-int8` | 20,969,179 | 20.00 |
+| `en_US-amy-medium-int8` | 21,028,122 | 20.05 |
+| `en_US-hfc_female-medium-int8` | 21,021,379 | 20.05 |
+| `en_US-hfc_male-medium-int8` | 25,491,430 | 24.31 |
 
 These are compressed model archives, not the complete first-download size. The locally reproduced universal runtime is 15,222,938 bytes (JS + Wasm), and the shared unpacked phonemizer tree is 17,991,651 bytes. Russian and English archives contain byte-identical phonemizer trees. The current official-style Emscripten prototype preloads a complete voice into each `.data` file, so each browser package is approximately 50.45 MB and duplicates that shared tree. Deduplicating the phonemizer is a later size optimization, not a prerequisite for validating inference.
 
@@ -70,6 +75,6 @@ The official Sherpa-ONNX Worker pattern was compiled with Emscripten 4.0.23 into
 | `ru-RU-irina-medium-int8` | 1547.1 ms | 0.358 | 0.337 | 0.327 |
 | `en-US-lessac-medium-int8` | 1681.4 ms | 0.407 | 0.308 | 0.310 |
 
-Both models generated valid PCM in the Worker. The figures prove functional browser inference and faster-than-real-time generation on this desktop only. They do not prove pronunciation quality, mobile performance, Safari/Firefox compatibility, warm persistent-cache behavior or LIVE integration.
+Both baseline models generated valid PCM in the Worker. The figures prove functional browser inference and faster-than-real-time generation on this desktop only. The six comparison voices are packaged and integrity-checked but do not inherit these performance measurements. None of these results prove pronunciation quality, mobile performance, Safari/Firefox compatibility, warm persistent-cache behavior or LIVE integration.
 
 The application now knows the exact five-file package manifests, stages and verifies every file before exposing it in `tiktok-helper-tts-models-v1`, and can run a one-phrase admin benchmark through a bounded Worker client. The binary packages remain local and are not part of Git or production.

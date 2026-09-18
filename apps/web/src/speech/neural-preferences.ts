@@ -4,6 +4,8 @@ export type NeuralLanguageMode = 'auto' | 'ru-RU' | 'en-US';
 
 export interface NeuralTtsPreferences {
   languageMode: NeuralLanguageMode;
+  ruVoiceId: NeuralVoicePackage['id'];
+  enVoiceId: NeuralVoicePackage['id'];
   speed: number;
   volume: number;
   testText: string;
@@ -11,6 +13,8 @@ export interface NeuralTtsPreferences {
 
 export const DEFAULT_NEURAL_TTS_PREFERENCES: NeuralTtsPreferences = {
   languageMode: 'auto',
+  ruVoiceId: 'ru-RU-irina-medium-int8',
+  enVoiceId: 'en-US-lessac-medium-int8',
   speed: 1,
   volume: 1,
   testText: 'Ваше сообщение теперь будет прочитано вслух.',
@@ -26,9 +30,15 @@ export function parseNeuralTtsPreferences(value: unknown): NeuralTtsPreferences 
   if (!value || typeof value !== 'object') return { ...DEFAULT_NEURAL_TTS_PREFERENCES };
   const candidate = value as Partial<NeuralTtsPreferences>;
   const languageMode = candidate.languageMode === 'ru-RU' || candidate.languageMode === 'en-US' ? candidate.languageMode : 'auto';
+  const ruVoiceId = NEURAL_VOICE_PACKAGES.some((voice) => voice.language === 'ru-RU' && voice.id === candidate.ruVoiceId)
+    ? candidate.ruVoiceId! : DEFAULT_NEURAL_TTS_PREFERENCES.ruVoiceId;
+  const enVoiceId = NEURAL_VOICE_PACKAGES.some((voice) => voice.language === 'en-US' && voice.id === candidate.enVoiceId)
+    ? candidate.enVoiceId! : DEFAULT_NEURAL_TTS_PREFERENCES.enVoiceId;
   const text = typeof candidate.testText === 'string' ? candidate.testText.trim().slice(0, 240) : '';
   return {
     languageMode,
+    ruVoiceId,
+    enVoiceId,
     speed: Number.isFinite(candidate.speed) ? clamp(candidate.speed!, 0.7, 1.3) : 1,
     volume: Number.isFinite(candidate.volume) ? clamp(candidate.volume!, 0, 1) : 1,
     testText: text || DEFAULT_NEURAL_TTS_PREFERENCES.testText,
@@ -55,7 +65,12 @@ export function saveNeuralTtsPreferences(preferences: NeuralTtsPreferences): boo
   }
 }
 
-export function selectNeuralVoice(languageMode: NeuralLanguageMode, text: string): NeuralVoicePackage {
-  const language = languageMode === 'auto' ? (/\p{Script=Cyrillic}/u.test(text) ? 'ru-RU' : 'en-US') : languageMode;
-  return NEURAL_VOICE_PACKAGES.find((voice) => voice.language === language) ?? NEURAL_VOICE_PACKAGES[0]!;
+export function selectNeuralVoice(preferences: NeuralTtsPreferences, text: string): NeuralVoicePackage {
+  const language = preferences.languageMode === 'auto'
+    ? (/\p{Script=Cyrillic}/u.test(text) ? 'ru-RU' : 'en-US')
+    : preferences.languageMode;
+  const voiceId = language === 'ru-RU' ? preferences.ruVoiceId : preferences.enVoiceId;
+  return NEURAL_VOICE_PACKAGES.find((voice) => voice.id === voiceId && voice.language === language)
+    ?? NEURAL_VOICE_PACKAGES.find((voice) => voice.language === language)
+    ?? NEURAL_VOICE_PACKAGES[0]!;
 }

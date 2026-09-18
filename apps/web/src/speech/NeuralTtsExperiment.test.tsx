@@ -9,6 +9,6 @@ describe('NeuralTtsExperiment', () => {
     expect(html).toContain('сначала остановите эфир');
     expect(html).toContain('Настройки теста');
     expect(html).toContain('Прослушать с настройками');
-    expect(html.match(/disabled=""/g)).toHaveLength(3);
+    expect(html.match(/disabled=""/g)).toHaveLength(9);
   });
 });

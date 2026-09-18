@@ -15,8 +15,18 @@ describe('neural TTS preferences', () => {
   });
 
   it('selects a voice from the explicit language or the text script', () => {
-    expect(selectNeuralVoice('auto', 'Привет').language).toBe('ru-RU');
-    expect(selectNeuralVoice('auto', 'Hello').language).toBe('en-US');
-    expect(selectNeuralVoice('en-US', 'Привет').language).toBe('en-US');
+    expect(selectNeuralVoice(DEFAULT_NEURAL_TTS_PREFERENCES, 'Привет').language).toBe('ru-RU');
+    expect(selectNeuralVoice(DEFAULT_NEURAL_TTS_PREFERENCES, 'Hello').language).toBe('en-US');
+    expect(selectNeuralVoice({ ...DEFAULT_NEURAL_TTS_PREFERENCES, languageMode: 'en-US' }, 'Привет').language).toBe('en-US');
+  });
+
+  it('keeps valid per-language selections and rejects a voice from another language', () => {
+    const selected = parseNeuralTtsPreferences({
+      ruVoiceId: 'ru-RU-ruslan-medium-int8', enVoiceId: 'en-US-amy-medium-int8',
+    });
+    expect(selected.ruVoiceId).toBe('ru-RU-ruslan-medium-int8');
+    expect(selected.enVoiceId).toBe('en-US-amy-medium-int8');
+    expect(parseNeuralTtsPreferences({ ruVoiceId: 'en-US-amy-medium-int8' }).ruVoiceId)
+      .toBe(DEFAULT_NEURAL_TTS_PREFERENCES.ruVoiceId);
   });
 });

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted for an experimental prototype; not enabled in production
+Accepted as an administrator-only experimental pilot; not used by the live chat queue
 
 ## Date
 
@@ -17,7 +17,7 @@ The first proposed estimate of a 20–40 MB total download is not a safe plannin
 ## Decision
 
 - Use Sherpa-ONNX Web as the first experimental runtime because its upstream project publishes a browser WebAssembly TTS implementation and a Worker-based reference implementation.
-- Start with two Piper-derived VITS medium-int8 voices: `ru_RU-irina-medium-int8` for Russian and `en_US-lessac-medium-int8` for English. `ru_RU-ruslan-medium-int8` remains a possible Russian comparison voice.
+- Provide an opt-in comparison catalogue of Piper-derived VITS medium-int8 voices. Russian: Irina, Denis, Dmitri and Ruslan. English: Lessac, Amy, HFC Female and HFC Male. Keep separate selected defaults for Russian and English.
 - Keep inference entirely inside a dedicated Web Worker. Transfer generated `Float32Array` samples back to the main thread and play them through the existing unlocked `AudioContext`.
 - Keep `speechSynthesis` as the default and automatic fallback until real desktop and mobile measurements pass.
 - Never download a model automatically on page load or when a LIVE starts. An administrator must explicitly opt into the experiment and confirm the first download size.
@@ -26,7 +26,7 @@ The first proposed estimate of a 20–40 MB total download is not a safe plannin
 - Do not require WebGPU. The first prototype targets Wasm SIMD; WebGPU may be evaluated later as an optional acceleration path.
 - Do not publish the model/runtime in the normal application bundle until license notices, integrity verification, cancellation and memory limits are implemented.
 
-The pinned runtime and both voice archives were assembled outside the repository, hashed and deployed as an administrator-only pilot. The packages remain outside Git and are mounted read-only at runtime. Their route requires a current global-administrator session, while the browser still verifies every file before moving it from staging into the separate TTS cache. The exact experimental inventory is recorded in `tools/tts/assets-manifest.json`.
+The pinned runtime and voice archives are assembled outside the repository, hashed and deployed as an administrator-only pilot. The packages remain outside Git and are mounted read-only at runtime. Their route requires a current global-administrator session, while the browser still verifies every file before moving it from staging into the separate TTS cache. Packages are installed individually so a device need not retain the complete catalogue. The exact experimental inventory is recorded in `tools/tts/assets-manifest.json`.
 
 ## Why not Piper directly in the browser
 
