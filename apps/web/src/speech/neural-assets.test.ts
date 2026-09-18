@@ -38,14 +38,16 @@ describe('NeuralAssetCache', () => {
     await assets.download(asset);
     await expect(assets.state(asset)).resolves.toBe('ready');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(cache.destination()?.entries.size).toBe(2);
+    expect(cache.destination()?.entries.size).toBe(1);
     expect([...cache.stores.keys()]).toEqual([TTS_MODEL_CACHE_NAME]);
   });
 
   it('does not cache corrupt or partial data', async () => {
     const cache = environment();
     vi.stubGlobal('fetch', vi.fn(async () => new Response(new TextEncoder().encode('wrong'), { status: 200 })));
-    await expect(new NeuralAssetCache().download(asset)).rejects.toThrow('integrity');
+    await expect(new NeuralAssetCache().download(asset)).rejects.toMatchObject({
+      name: 'NeuralAssetError', stage: 'verify', fileName: 'test.data',
+    });
     expect(cache.destination()?.entries.size ?? 0).toBe(0);
   });
 
@@ -53,9 +55,22 @@ describe('NeuralAssetCache', () => {
     const cache = environment();
     const file = asset.files[0]!;
     const destination = new MemoryCache(); cache.stores.set(TTS_MODEL_CACHE_NAME, destination);
-    const url = `https://example.test/tts-assets/voices/${asset.id}/${file.name}?sha256=${file.sha256}`;
+    const url = `https://example.test/tts-assets/voices/${asset.id}/${file.name}`;
     destination.entries.set(url, new Response(new TextEncoder().encode('wrong'), { status: 200 }));
     await expect(new NeuralAssetCache().state(asset)).resolves.toBe('missing');
     expect(destination.entries.size).toBe(1);
+  });
+
+  it('reports Safari-compatible cache write failures and removes partial data', async () => {
+    const cache = environment();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(bytes.slice(0), { status: 200 })));
+    const destination = new MemoryCache();
+    destination.put = async () => { throw new DOMException('Quota reached', 'QuotaExceededError'); };
+    cache.stores.set(TTS_MODEL_CACHE_NAME, destination);
+    await expect(new NeuralAssetCache().download(asset)).rejects.toMatchObject({
+      name: 'NeuralAssetError', stage: 'store', fileName: 'test.data',
+      cause: { name: 'QuotaExceededError' },
+    });
+    expect(destination.entries.size).toBe(0);
   });
 });

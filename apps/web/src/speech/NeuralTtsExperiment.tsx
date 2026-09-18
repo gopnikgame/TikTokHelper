@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  formatPackageSize, NEURAL_VOICE_PACKAGES, NeuralAssetCache, packageByteSize,
+  formatPackageSize, NEURAL_VOICE_PACKAGES, NeuralAssetCache, NeuralAssetError, packageByteSize,
   type NeuralAssetState, type NeuralVoicePackage,
 } from './neural-assets.js';
 import { NeuralTtsWorkerClient, type NeuralBenchmarkResult } from './neural-worker.js';
@@ -30,14 +30,19 @@ export function NeuralTtsExperiment({ liveActive }: { liveActive: boolean }) {
     setStates((current) => ({ ...current, [asset.id]: 'downloading' }));
     setMessage(`Загружаем ${asset.displayName}. Не закрывайте эту вкладку.`);
     try {
-      await assetCache.download(asset);
+      await assetCache.download(asset, (stage, fileName, index, total) => {
+        const action = stage === 'download' ? 'Скачиваем' : stage === 'verify' ? 'Проверяем' : 'Сохраняем';
+        setMessage(`${action}: ${fileName} (${index}/${total}).`);
+      });
       setStates((current) => ({ ...current, [asset.id]: 'ready' }));
       setMessage(`Пакет ${asset.displayName} проверен по SHA-256 и сохранён в этом браузере.`);
     } catch (error) {
       setStates((current) => ({ ...current, [asset.id]: 'error' }));
-      setMessage(error instanceof Error && error.message === 'TTS package is not published'
+      setMessage(error instanceof Error && error.message.includes('TTS package is not published')
         ? 'Пакеты ещё не опубликованы на сервере. Рабочая озвучка не изменена.'
-        : 'Не удалось скачать и проверить пакет. Кэш не изменён.');
+        : error instanceof NeuralAssetError
+          ? `Сбой на этапе «${error.stage}», файл ${error.fileName}. Код: ${error.cause instanceof Error ? error.cause.name : 'UnknownError'}. Неполный пакет удалён.`
+          : 'Не удалось скачать и проверить пакет. Неполный пакет удалён.');
     }
   }
 

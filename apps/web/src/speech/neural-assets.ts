@@ -1,5 +1,4 @@
 export const TTS_MODEL_CACHE_NAME = 'tiktok-helper-tts-models-v1';
-const TTS_STAGING_CACHE_PREFIX = 'tiktok-helper-tts-staging-v1-';
 const MAX_FILE_BYTES = 40 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 64 * 1024 * 1024;
 const DOWNLOAD_TIMEOUT_MS = 180_000;
@@ -28,6 +27,14 @@ export const NEURAL_VOICE_PACKAGES: readonly NeuralVoicePackage[] = [
 ] as const;
 
 export type NeuralAssetState = 'unsupported' | 'missing' | 'ready';
+export type NeuralAssetStage = 'download' | 'verify' | 'store';
+export class NeuralAssetError extends Error {
+  constructor(readonly stage: NeuralAssetStage, readonly fileName: string, cause: unknown) {
+    const causeName = cause instanceof DOMException || cause instanceof Error ? cause.name : 'UnknownError';
+    super(`TTS ${stage} failed for ${fileName} (${causeName})`, { cause });
+    this.name = 'NeuralAssetError';
+  }
+}
 export function packageByteSize(asset: NeuralVoicePackage): number { return asset.files.reduce((sum, file) => sum + file.byteSize, 0); }
 
 export function neuralPackageBaseUrl(asset: NeuralVoicePackage, origin = window.location.origin): string {
@@ -60,7 +67,7 @@ async function verifiedBytes(response: Response, file: NeuralPackageFile): Promi
 
 function storedResponse(bytes: ArrayBuffer, file: NeuralPackageFile): Response {
   const contentType = file.name.endsWith('.js') ? 'text/javascript; charset=utf-8' : file.name.endsWith('.wasm') ? 'application/wasm' : 'application/octet-stream';
-  return new Response(bytes.slice(0), { status: 200, headers: { 'content-length': String(file.byteSize), 'content-type': contentType, 'x-content-sha256': file.sha256 } });
+  return new Response(bytes.slice(0), { status: 200, headers: { 'content-type': contentType, 'x-content-sha256': file.sha256 } });
 }
 
 export class NeuralAssetCache {
@@ -69,38 +76,42 @@ export class NeuralAssetCache {
     if (!this.supported()) return 'unsupported';
     const cache = await caches.open(TTS_MODEL_CACHE_NAME);
     for (const file of asset.files) {
-      const { versioned } = fileUrls(asset, file);
-      const cached = await cache.match(new Request(versioned, { credentials: 'same-origin' }));
+      const { canonical } = fileUrls(asset, file);
+      const cached = await cache.match(new Request(canonical, { credentials: 'same-origin' }));
       if (!cached) return 'missing';
       try { await verifiedBytes(cached, file); } catch { return 'missing'; }
     }
     return 'ready';
   }
-  async download(asset: NeuralVoicePackage): Promise<void> {
+  async download(asset: NeuralVoicePackage, onProgress?: (stage: NeuralAssetStage, fileName: string, index: number, total: number) => void): Promise<void> {
     if (!this.supported()) throw new Error('TTS model cache is unsupported');
     if (packageByteSize(asset) > MAX_PACKAGE_BYTES) throw new Error('TTS package exceeds cache budget');
-    const stagingName = `${TTS_STAGING_CACHE_PREFIX}${asset.id}`;
-    await caches.delete(stagingName);
-    const staging = await caches.open(stagingName);
+    const destination = await caches.open(TTS_MODEL_CACHE_NAME);
+    const written: Request[] = [];
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), DOWNLOAD_TIMEOUT_MS);
     try {
-      for (const file of asset.files) {
-        const { versioned } = fileUrls(asset, file);
-        const request = new Request(versioned, { credentials: 'same-origin' });
-        const response = await fetch(request, { signal: controller.signal });
-        const bytes = await verifiedBytes(response, file);
-        await staging.put(request, storedResponse(bytes, file));
-      }
-      const destination = await caches.open(TTS_MODEL_CACHE_NAME);
-      for (const file of asset.files) {
+      for (const [index, file] of asset.files.entries()) {
         const { canonical, versioned } = fileUrls(asset, file);
-        const verified = await staging.match(new Request(versioned, { credentials: 'same-origin' }));
-        if (!verified) throw new Error('TTS staging cache is incomplete');
-        await destination.put(new Request(versioned, { credentials: 'same-origin' }), verified.clone());
-        await destination.put(new Request(canonical, { credentials: 'same-origin' }), verified.clone());
+        const request = new Request(versioned, { credentials: 'same-origin' });
+        let response: Response;
+        onProgress?.('download', file.name, index + 1, asset.files.length);
+        try { response = await fetch(request, { signal: controller.signal }); }
+        catch (error) { throw new NeuralAssetError('download', file.name, error); }
+        let bytes: ArrayBuffer;
+        onProgress?.('verify', file.name, index + 1, asset.files.length);
+        try { bytes = await verifiedBytes(response, file); }
+        catch (error) { throw new NeuralAssetError('verify', file.name, error); }
+        const canonicalRequest = new Request(canonical, { credentials: 'same-origin' });
+        onProgress?.('store', file.name, index + 1, asset.files.length);
+        try { await destination.put(canonicalRequest, storedResponse(bytes, file)); }
+        catch (error) { throw new NeuralAssetError('store', file.name, error); }
+        written.push(canonicalRequest);
       }
-    } finally { window.clearTimeout(timeout); await caches.delete(stagingName); }
+    } catch (error) {
+      await Promise.all(written.map(async (request) => destination.delete(request)));
+      throw error;
+    } finally { window.clearTimeout(timeout); }
   }
   async remove(asset: NeuralVoicePackage): Promise<void> {
     if (!this.supported()) return;
