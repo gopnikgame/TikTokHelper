@@ -192,6 +192,7 @@ export interface RealtimeSnapshot {
 export interface ServerToClientEvents {
   snapshot: (snapshot: RealtimeSnapshot) => void;
   event: (event: RealtimeEvent) => void;
+  'presence:update': (payload: { onlineUsers: number }) => void;
   'support:level-granted': (event: SupportLevelGrantedEvent) => void;
   'sound-library:changed': (payload: { soundId: string }) => void;
 }

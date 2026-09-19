@@ -50,6 +50,8 @@ ul { margin: 0; padding: 0; list-style: none; }
 .eyebrow, .section-kicker { margin-bottom: .35rem; color: var(--pink); font-family: Consolas, monospace; font-size: .72rem; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
 .live-pill { display: inline-flex; align-items: center; gap: .55rem; padding: .65rem .9rem; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); font-weight: 800; white-space: nowrap; }
 .live-pill span { color: var(--muted); }
+.presence-pill { display: inline-flex; align-items: center; gap: .45rem; padding: .65rem .8rem; border: 1px solid #31595b; border-radius: 999px; color: #dfe4e8; background: #0d2223; font-size: .82rem; white-space: nowrap; }
+.presence-pill span, .presence-pill b { color: var(--cyan); }
 .state-live { border-color: #0b766c; background: #0d332f; }.state-live span { color: var(--cyan); text-shadow: 0 0 16px var(--cyan); }
 .state-connecting, .state-reconnecting { border-color: #765b21; }.state-connecting span, .state-reconnecting span { color: var(--amber); }
 .state-failed, .state-offline { border-color: #743047; }.state-failed span, .state-offline span { color: var(--pink); }

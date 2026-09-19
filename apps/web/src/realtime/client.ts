@@ -10,11 +10,12 @@ export interface RealtimeViewState {
   generation: number;
   lastSequence: number;
   isTransportConnected: boolean;
+  onlineUsers: number | null;
 }
 
 const emptyState: RealtimeViewState = {
   connectionState: 'stopped', events: [], generation: 0, lastSequence: 0,
-  isTransportConnected: false,
+  isTransportConnected: false, onlineUsers: null,
 };
 
 export class RealtimeStateModel {
@@ -27,7 +28,11 @@ export class RealtimeStateModel {
   get state(): RealtimeViewState { return this.#state; }
 
   setTransportConnected(value: boolean): void {
-    this.#state = { ...this.#state, isTransportConnected: value };
+    this.#state = { ...this.#state, isTransportConnected: value, ...(!value ? { onlineUsers: null } : {}) };
+  }
+
+  setOnlineUsers(onlineUsers: number): void {
+    this.#state = { ...this.#state, onlineUsers };
   }
 
   applySnapshot(snapshot: RealtimeSnapshot): void {
@@ -97,6 +102,7 @@ export function createRealtimeClient(
     if (model.applyEvent(event) === 'resync') subscribe();
     notify();
   });
+  socket.on('presence:update', ({ onlineUsers }) => { model.setOnlineUsers(onlineUsers); notify(); });
   socket.on('sound-library:changed', ({ soundId }) => onSoundLibraryChanged?.(soundId));
   socket.on('support:level-granted', (event) => onSupportLevelGranted?.(event));
 

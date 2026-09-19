@@ -58,6 +58,9 @@ export function attachRealtimeServer(
     transports: ['websocket'],
     maxHttpBufferSize: 16 * 1024,
   });
+  const connectedSocketsByUser = new Map<string, number>();
+  const presencePayload = () => ({ onlineUsers: connectedSocketsByUser.size });
+  const broadcastPresence = () => io.emit('presence:update', presencePayload());
 
   if (options.authenticate) {
     io.use(async (socket, next) => {
@@ -80,6 +83,17 @@ export function attachRealtimeServer(
   };
 
   io.on('connection', (socket) => {
+    const principal = socket.data.authPrincipal as AuthPrincipal | undefined;
+    if (principal) {
+      connectedSocketsByUser.set(principal.userId, (connectedSocketsByUser.get(principal.userId) ?? 0) + 1);
+      broadcastPresence();
+      socket.once('disconnect', () => {
+        const remaining = (connectedSocketsByUser.get(principal.userId) ?? 1) - 1;
+        if (remaining > 0) connectedSocketsByUser.set(principal.userId, remaining);
+        else connectedSocketsByUser.delete(principal.userId);
+        broadcastPresence();
+      });
+    }
     socket.on('workspace:subscribe', async (raw, acknowledge) => {
       const parsed = validateClientEvent('workspace:subscribe', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
@@ -98,6 +112,7 @@ export function attachRealtimeServer(
         requiresFullRefresh: replay.requiresFullRefresh,
       };
       socket.emit('snapshot', snapshot);
+      socket.emit('presence:update', presencePayload());
       await socket.join(roomFor(parsed.value.workspaceId, diagnostics));
       for (const event of buffer.replay(
         parsed.value.workspaceId, snapshot.generation, snapshot.lastSequence,

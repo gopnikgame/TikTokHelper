@@ -9,6 +9,15 @@ const snapshot = (overrides: Partial<RealtimeSnapshot> = {}): RealtimeSnapshot =
 });
 
 describe('RealtimeStateModel', () => {
+  it('tracks authenticated presence and clears a stale count on disconnect', () => {
+    const model = new RealtimeStateModel();
+    model.setTransportConnected(true);
+    model.setOnlineUsers(3);
+    expect(model.state.onlineUsers).toBe(3);
+    model.setTransportConnected(false);
+    expect(model.state.onlineUsers).toBeNull();
+  });
+
   it('requires a snapshot before applying deltas and then accepts the next sequence', () => {
     const model = new RealtimeStateModel();
     expect(model.applyEvent({ type: 'connection.state', generation: 2, sequence: 4, state: 'live' })).toBe('ignored');

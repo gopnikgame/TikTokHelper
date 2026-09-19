@@ -74,6 +74,49 @@ function subscribe(
 }
 
 describe('realtime server', () => {
+  it('counts unique authenticated users instead of browser tabs', async () => {
+    const users = {
+      first: { userId: randomUUID(), displayName: 'First', isAdmin: false, workspaces: [{ id: 'primary', displayName: 'Primary' }] },
+      second: { userId: randomUUID(), displayName: 'Second', isAdmin: false, workspaces: [{ id: 'primary', displayName: 'Primary' }] },
+    };
+    const authenticate: NonNullable<RealtimeServerOptions['authenticate']> = async (headers) => {
+      const cookie = headers.cookie;
+      return cookie === 'user=first' ? users.first : cookie === 'user=second' ? users.second : null;
+    };
+    const { address, client } = await setup(() => true, authenticate, 'user=first');
+    const nextPresence = (expected: number) => new Promise<number>((resolve) => {
+      const listener = ({ onlineUsers }: { onlineUsers: number }) => {
+        if (onlineUsers === expected) { client.off('presence:update', listener); resolve(onlineUsers); }
+      };
+      client.on('presence:update', listener);
+    });
+    const initial = nextPresence(1);
+    expect(await subscribe(client, 'primary')).toEqual({ ok: true });
+    await expect(initial).resolves.toBe(1);
+
+    const connectAnother = async (cookie: string) => {
+      const another: Socket<ServerToClientEvents, ClientToServerEvents> = createClient(address, {
+        transports: ['websocket'], forceNew: true, extraHeaders: { cookie },
+      });
+      clients.add(another);
+      await new Promise<void>((resolve, reject) => {
+        another.once('connect', resolve); another.once('connect_error', reject);
+      });
+      return another;
+    };
+    const sameUserPresence = nextPresence(1);
+    await connectAnother('user=first');
+    await expect(sameUserPresence).resolves.toBe(1);
+
+    const secondUserPresence = nextPresence(2);
+    const secondUser = await connectAnother('user=second');
+    await expect(secondUserPresence).resolves.toBe(2);
+
+    const afterDisconnect = nextPresence(1);
+    secondUser.close();
+    await expect(afterDisconnect).resolves.toBe(1);
+  });
+
   it('rejects an anonymous Socket.IO handshake', async () => {
     await expect(setup(
       () => true,
