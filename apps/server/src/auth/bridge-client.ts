@@ -27,7 +27,12 @@ export class HttpIdentityBridge implements IdentityBridge {
   }
 
   async checkAccess(subject: string): Promise<AuthAccessResponse> {
-    const response = await fetch(new URL('/entitlement', this.tokenUrl), {
+    const entitlementUrl = new URL(this.tokenUrl);
+    if (!entitlementUrl.pathname.endsWith('/token')) throw new Error('invalid identity token URL');
+    entitlementUrl.pathname = `${entitlementUrl.pathname.slice(0, -'/token'.length)}/entitlement`;
+    entitlementUrl.search = '';
+    entitlementUrl.hash = '';
+    const response = await fetch(entitlementUrl, {
       method: 'POST', redirect: 'error', signal: AbortSignal.timeout(5_000),
       headers: {
         authorization: `Basic ${Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64')}`,
