@@ -32,6 +32,20 @@ export const authSessionSchema = {
 
 export interface AuthSessionResponse { authenticated: true; mode: 'local' | 'vline'; user: AuthPrincipal }
 
+export type AccessDenialReason = 'subscription_required' | 'subscription_expired' | 'subscription_frozen' | 'account_disabled';
+export const authAccessSchema = {
+  $id: 'AuthAccess', type: 'object', additionalProperties: false,
+  required: ['allowed', 'reason', 'validUntil'],
+  properties: {
+    allowed: { type: 'boolean' },
+    reason: { type: 'string', enum: ['local', 'admin', 'active_subscription', 'subscription_required', 'subscription_expired', 'subscription_frozen', 'account_disabled'] },
+    validUntil: { type: ['integer', 'null'], minimum: 1 },
+  },
+} as const;
+export type AuthAccessResponse =
+  | { allowed: true; reason: 'local' | 'admin' | 'active_subscription'; validUntil: number | null }
+  | { allowed: false; reason: AccessDenialReason; validUntil: null };
+
 export const authLoginResponseSchema = {
   $id: 'AuthLoginResponse', type: 'object', additionalProperties: false,
   required: ['authorizationUrl'],

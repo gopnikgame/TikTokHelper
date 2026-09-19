@@ -34,6 +34,7 @@ const forbidden: CommandAcknowledgement = {
 export interface RealtimeServerOptions {
   authenticate?: (headers: IncomingHttpHeaders) => AuthPrincipal | null | Promise<AuthPrincipal | null>;
   authorizeWorkspace?: (workspaceId: string, principal?: AuthPrincipal) => boolean | Promise<boolean>;
+  authorizeLiveConnect?: (headers: IncomingHttpHeaders) => CommandAcknowledgement | Promise<CommandAcknowledgement>;
   bufferCapacity?: number;
 }
 
@@ -108,6 +109,10 @@ export function attachRealtimeServer(
       const parsed = validateClientEvent('live:connect', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
       if (!await authorize(parsed.value.workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined)) return acknowledge(forbidden);
+      if (options.authorizeLiveConnect) {
+        const access = await options.authorizeLiveConnect(socket.handshake.headers);
+        if (!access.ok) return acknowledge(access);
+      }
       const cached = commandResults.get(commandKey(parsed.value.workspaceId, parsed.value.commandId));
       if (cached) return acknowledge(cached.ok ? { ...cached, duplicate: true } : cached);
       try {

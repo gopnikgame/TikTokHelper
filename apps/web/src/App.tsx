@@ -5,7 +5,7 @@ import { operatorEventCount } from './event-model.js';
 import { createRealtimeClient, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
 import { DEFAULT_SETTINGS } from './settings-model.js';
 import { chatContentParts } from './chat-content.js';
-import { beginLogin, endSession, loadSession } from './auth-client.js';
+import { beginLogin, endSession, loadAccess, loadSession } from './auth-client.js';
 import { SpeechPolicyEngine } from './speech/policy.js';
 import { browserSpeechSynthesisSupported, SpeechPlaybackQueue } from './speech/playback.js';
 import { NeuralTtsExperiment } from './speech/NeuralTtsExperiment.js';
@@ -96,6 +96,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   });
   const [settings, setSettings] = useState<UpdateWorkspaceSettings>(DEFAULT_SETTINGS);
   const [notice, setNotice] = useState('Загружаем рабочее место…');
+  const [accessWarning, setAccessWarning] = useState<string | null>(null);
   const [realtime, setRealtime] = useState<RealtimeViewState>(INITIAL_REALTIME_STATE);
   const [sounds, setSounds] = useState<SoundAsset[]>([]);
   const [mappings, setMappings] = useState<GiftSoundMapping[]>([]);
@@ -132,6 +133,21 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   useEffect(() => { soundsRef.current = sounds; }, [sounds]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { audioEnabledRef.current = audioEnabled; }, [audioEnabled]);
+  useEffect(() => {
+    if (authMode !== 'vline') return;
+    let active = true;
+    let controller: AbortController | undefined;
+    const check = () => {
+      controller?.abort(); controller = new AbortController();
+      void loadAccess(controller.signal).then((access) => {
+        if (!active) return;
+        setAccessWarning(access.allowed ? null : (AUTH_ERROR_COPY[access.reason] ?? 'Доступ к новым подключениям ограничен.'));
+      }).catch(() => undefined);
+    };
+    check();
+    const timer = window.setInterval(check, 10 * 60 * 1000);
+    return () => { active = false; controller?.abort(); window.clearInterval(timer); };
+  }, [authMode]);
   useEffect(() => {
     onLiveSessionActiveChange(updateBlockedByLive(realtime.connectionState));
     return () => onLiveSessionActiveChange(false);
@@ -309,6 +325,12 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     const username = settings.tiktokUsername.trim(); if (!username) { setNotice('Введите TikTok ID'); return; }
     speechPolicy.current.reset(); lastSpokenSequence.current = realtime.lastSequence;
     setNotice('Ищем активную трансляцию…'); const result = await realtimeClient.current?.connectLive(username);
+    if (result && !result.ok && result.error.code === 'ACCESS_DENIED') {
+      setNotice(AUTH_ERROR_COPY[result.error.message] ?? 'Подписка не разрешает новое подключение к эфиру.'); return;
+    }
+    if (result && !result.ok && result.error.code === 'ACCESS_UNAVAILABLE') {
+      setNotice('Не удалось проверить подписку. Текущий эфир не остановлен; новое подключение временно недоступно.'); return;
+    }
     if (result?.ok) {
       const normalized = username.replace(/^@/, '').toLocaleLowerCase();
       const now = new Date().toISOString();
@@ -419,6 +441,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   return <main className="console-shell">
     <header className="topbar"><div><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1></div><div className="account-area"><div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div>{!pwa.installed ? <button type="button" className="quiet install-app-button" onClick={() => void pwa.install()}>Установить</button> : null}<div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}{authMode === 'vline' ? <button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button> : null}</div></div></header>
     <p className="notice" role="status" aria-live="polite">{notice}</p>
+    {accessWarning ? <p className="access-error" role="alert">{accessWarning} Уже подключённый эфир продолжит работать, но новое подключение будет недоступно.</p> : null}
     <section className="connection-panel" aria-labelledby="connection-title">
       <div><h2 id="connection-title">Подключение</h2><p>TikTokHelper читает уже запущенный эфир — сам эфир запускается на телефоне.</p></div>
       <div className="username-field"><label><span>TikTok ID</span><input required value={settings.tiktokUsername} placeholder="@username" onChange={(event) => setSettings((current) => ({ ...current, tiktokUsername: event.target.value }))} /></label>{recentChannels.length > 0 ? <div className="recent-channels" aria-label="Недавние TikTok ID">{recentChannels.slice(0, 8).map((channel) => <button type="button" className="channel-chip" key={channel.tiktokUsername} onClick={() => setSettings((current) => ({ ...current, tiktokUsername: `@${channel.tiktokUsername}` }))}>@{channel.tiktokUsername}</button>)}</div> : <span className="field-hint">История появится после первого подключения.</span>}</div>

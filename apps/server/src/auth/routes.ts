@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import {
-  apiErrorSchema, authCallbackQuerySchema, authLoginResponseSchema, authSessionSchema,
-  type ApiErrorResponse, type AuthCallbackQuery, type AuthLoginResponse, type AuthSessionResponse,
+  apiErrorSchema, authAccessSchema, authCallbackQuerySchema, authLoginResponseSchema, authSessionSchema,
+  type ApiErrorResponse, type AuthAccessResponse, type AuthCallbackQuery, type AuthLoginResponse, type AuthSessionResponse,
 } from '@tiktok-helper/contracts';
 import { clearSessionCookie, parseCookie, sessionCookie, type AuthService } from './service.js';
 import { resolveAccessPrincipal } from './local-access.js';
@@ -43,6 +43,22 @@ export const authRoutes: FastifyPluginAsync<{ service: AuthService; localWorkspa
     const access = await resolveAccessPrincipal(request.headers, service, localWorkspaceId);
     if (!access) return reply.code(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required', requestId: request.id } });
     return { authenticated: true, mode: access.mode, user: access.principal };
+  });
+
+  app.get<{ Reply: AuthAccessResponse | ApiErrorResponse }>('/api/auth/access', {
+    schema: { response: { 200: authAccessSchema, 401: apiErrorSchema, 503: apiErrorSchema } },
+  }, async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const token = parseCookie(request.headers.cookie, service.cookieName);
+    const active = await service.resolve(token);
+    if (active) {
+      try { return await service.checkAccess(token) as AuthAccessResponse; }
+      catch { return reply.code(503).send({ error: { code: 'ACCESS_UNAVAILABLE', message: 'Access verification unavailable', requestId: request.id } }); }
+    }
+    if (localWorkspaceId && request.headers['x-tiktok-local-access'] === '1') {
+      return { allowed: true, reason: 'local', validUntil: null };
+    }
+    return reply.code(401).send({ error: { code: 'UNAUTHENTICATED', message: 'Authentication required', requestId: request.id } });
   });
 
   app.post('/api/auth/logout', async (request, reply) => {

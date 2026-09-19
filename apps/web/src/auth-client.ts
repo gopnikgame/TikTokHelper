@@ -1,4 +1,4 @@
-import type { AuthLoginResponse, AuthSessionResponse } from '@tiktok-helper/contracts';
+import type { AuthAccessResponse, AuthLoginResponse, AuthSessionResponse } from '@tiktok-helper/contracts';
 
 export async function loadSession(signal?: AbortSignal): Promise<AuthSessionResponse | null> {
   const response = await fetch('/api/auth/session', { signal, headers: { accept: 'application/json' } });
@@ -17,4 +17,10 @@ export async function beginLogin(): Promise<void> {
 export async function endSession(): Promise<void> {
   const response = await fetch('/api/auth/logout', { method: 'POST' });
   if (!response.ok) throw new Error('logout failed');
+}
+
+export async function loadAccess(signal?: AbortSignal): Promise<AuthAccessResponse> {
+  const response = await fetch('/api/auth/access', { signal, headers: { accept: 'application/json' } });
+  if (!response.ok) throw new Error(response.status === 401 ? 'unauthenticated' : 'access unavailable');
+  return response.json() as Promise<AuthAccessResponse>;
 }

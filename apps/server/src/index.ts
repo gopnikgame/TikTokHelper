@@ -16,6 +16,8 @@ import { createAuthRepository } from './auth/repository.js';
 import { HttpIdentityBridge } from './auth/bridge-client.js';
 import { AuthService } from './auth/service.js';
 import { resolveAccessPrincipal } from './auth/local-access.js';
+import { isTrustedLocalAccess } from './auth/local-access.js';
+import { parseCookie } from './auth/service.js';
 import { createAutomationRepository } from './automation/repository.js';
 import { createSupporterRepository } from './supporters/repository.js';
 import { EntitlementCache } from './supporters/entitlement-cache.js';
@@ -141,6 +143,16 @@ realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
   authorizeWorkspace: authService
     ? (requestedWorkspaceId, principal) => principal?.workspaces.some((workspace) => workspace.id === requestedWorkspaceId) ?? false
     : (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
+  ...(authService ? { authorizeLiveConnect: async (headers: import('node:http').IncomingHttpHeaders) => {
+    if (isTrustedLocalAccess(headers) && !parseCookie(headers.cookie, authService.cookieName)) return { ok: true as const };
+    try {
+      const access = await authService.checkAccess(parseCookie(headers.cookie, authService.cookieName));
+      if (access?.allowed) return { ok: true as const };
+      return { ok: false as const, error: { code: 'ACCESS_DENIED' as const, message: access?.reason ?? 'subscription_required' } };
+    } catch {
+      return { ok: false as const, error: { code: 'ACCESS_UNAVAILABLE' as const, message: 'access_verification_unavailable' } };
+    }
+  } } : {}),
 });
 app.addHook('preClose', async () => realtimeRef.current?.close());
 app.addHook('onClose', async () => client.end());

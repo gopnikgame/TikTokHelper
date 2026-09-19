@@ -38,7 +38,7 @@ export interface SubscribeWorkspaceCommand extends WorkspaceCommand {
 export type DisconnectLiveCommand = WorkspaceCommand;
 
 export interface CommandError {
-  code: 'FORBIDDEN' | 'INVALID_COMMAND' | 'NOT_READY' | 'INTERNAL_ERROR';
+  code: 'FORBIDDEN' | 'INVALID_COMMAND' | 'NOT_READY' | 'INTERNAL_ERROR' | 'ACCESS_DENIED' | 'ACCESS_UNAVAILABLE';
   message: string;
 }
 export type CommandAcknowledgement = { ok: true; duplicate?: boolean } | { ok: false; error: CommandError };

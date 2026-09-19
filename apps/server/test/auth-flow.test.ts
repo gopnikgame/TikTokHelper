@@ -180,6 +180,34 @@ describe('VLine-backed application sessions', () => {
     expect((await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie } })).statusCode).toBe(401);
   });
 
+  it('revalidates an authenticated session without revoking it on denial', async () => {
+    let allowed = true;
+    const bridge: IdentityBridge = {
+      async exchange() { return { subject: 'solo-user-1', displayName: 'Иван', authenticatedAt: new Date().toISOString() }; },
+      async checkAccess() {
+        return allowed
+          ? { allowed: true, reason: 'active_subscription', validUntil: 1_800_000_000_000 }
+          : { allowed: false, reason: 'subscription_expired', validUntil: null };
+      },
+    };
+    const service = new AuthService(memoryRepository(), bridge, {
+      bridgeAuthorizeUrl: 'https://vline.online/integrations/tiktok-helper/authorize',
+      clientId: 'tiktok-helper', redirectUri: 'https://tiktok.vpnline.online/auth/callback',
+    });
+    const app = buildApp({ logger: false, authService: service }); apps.add(app);
+    const login = await app.inject({ method: 'GET', url: '/api/auth/login' });
+    const state = new URL(login.json<{ authorizationUrl: string }>().authorizationUrl).searchParams.get('state')!;
+    const callback = await app.inject({ method: 'GET', url: `/auth/callback?code=${'c'.repeat(43)}&state=${state}` });
+    const setCookie = callback.headers['set-cookie']!;
+    const cookie = (Array.isArray(setCookie) ? setCookie[0]! : setCookie).split(';', 1)[0]!;
+    expect((await app.inject({ method: 'GET', url: '/api/auth/access', headers: { cookie } })).json())
+      .toEqual({ allowed: true, reason: 'active_subscription', validUntil: 1_800_000_000_000 });
+    allowed = false;
+    expect((await app.inject({ method: 'GET', url: '/api/auth/access', headers: { cookie } })).json())
+      .toEqual({ allowed: false, reason: 'subscription_expired', validUntil: null });
+    expect((await app.inject({ method: 'GET', url: '/api/auth/session', headers: { cookie } })).statusCode).toBe(200);
+  });
+
   it('rejects replayed callback state without identity leakage', async () => {
     const bridge: IdentityBridge = { async exchange() { return { subject: 'solo-user-1', displayName: null, authenticatedAt: new Date().toISOString() }; } };
     const service = new AuthService(memoryRepository(), bridge, {

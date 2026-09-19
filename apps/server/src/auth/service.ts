@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { AuthPrincipal } from '@tiktok-helper/contracts';
+import type { AuthAccessResponse } from '@tiktok-helper/contracts';
 import type { AuthRepository } from './repository.js';
 import { hashSessionToken, issueSessionToken } from './session-token.js';
 
@@ -14,6 +15,7 @@ export interface BridgeIdentity {
 
 export interface IdentityBridge {
   exchange(code: string, verifier: string): Promise<BridgeIdentity>;
+  checkAccess?(subject: string): Promise<AuthAccessResponse>;
 }
 
 export interface AuthConfiguration {
@@ -99,7 +101,7 @@ export class AuthService {
     return { token: issued.token, principal: { userId: user.id, displayName: user.displayName, isAdmin: user.globalRole === 'admin', workspaces } };
   }
 
-  async resolve(token: string | undefined): Promise<{ principal: AuthPrincipal; sessionId: string } | null> {
+  async resolve(token: string | undefined): Promise<{ principal: AuthPrincipal; sessionId: string; identitySubject: string } | null> {
     if (!token || !SESSION_PATTERN.test(token)) return null;
     const now = new Date(this.now());
     const active = await this.repository.findActiveSession(hashSessionToken(token), now);
@@ -109,8 +111,16 @@ export class AuthService {
     await this.repository.touchSession(active.session.id, now, idleExpiresAt);
     return {
       sessionId: active.session.id,
+      identitySubject: active.user.identitySubject,
       principal: { userId: active.user.id, displayName: active.user.displayName, isAdmin: active.user.globalRole === 'admin', workspaces },
     };
+  }
+
+  async checkAccess(token: string | undefined): Promise<AuthAccessResponse | null> {
+    const active = await this.resolve(token);
+    if (!active) return null;
+    if (!this.bridge.checkAccess) throw new Error('access verification is not configured');
+    return this.bridge.checkAccess(active.identitySubject);
   }
 
   async logout(token: string | undefined): Promise<void> {

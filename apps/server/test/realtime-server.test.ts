@@ -37,6 +37,7 @@ async function setup(
   cookie?: string,
   extraHeaders?: Record<string, string>,
   connectorFactory?: LiveConnectorFactory,
+  authorizeLiveConnect?: NonNullable<RealtimeServerOptions['authorizeLiveConnect']>,
 ) {
   const connector = new FakeConnector();
   const events: Parameters<ReturnType<typeof attachRealtimeServer>['publish']>[] = [];
@@ -48,6 +49,7 @@ async function setup(
   apps.add(app);
   const realtime = attachRealtimeServer(app, manager, {
     authorizeWorkspace, bufferCapacity: 2, ...(authenticate ? { authenticate } : {}),
+    ...(authorizeLiveConnect ? { authorizeLiveConnect } : {}),
   });
   publish = realtime.publish;
   app.addHook('preClose', async () => realtime.close());
@@ -175,6 +177,23 @@ describe('realtime server', () => {
     await vi.waitFor(() => expect(order).toContain('event'));
     expect(order[0]).toBe('snapshot');
     expect(connector.connect).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks a new LIVE connection when access expires without stopping an active connector', async () => {
+    let allowed = true;
+    const authorizeLiveConnect: NonNullable<RealtimeServerOptions['authorizeLiveConnect']> = async () => allowed
+      ? { ok: true }
+      : { ok: false, error: { code: 'ACCESS_DENIED', message: 'subscription_expired' } };
+    const { client, connector } = await setup(undefined, undefined, undefined, undefined, undefined, authorizeLiveConnect);
+    expect(await subscribe(client, 'primary')).toEqual({ ok: true });
+    const connect = () => new Promise<CommandAcknowledgement>((resolve) => client.emit(
+      'live:connect', { commandId: randomUUID(), workspaceId: 'primary', tiktokUsername: 'streamer' }, resolve,
+    ));
+    expect(await connect()).toEqual({ ok: true });
+    allowed = false;
+    expect(await connect()).toEqual({ ok: false, error: { code: 'ACCESS_DENIED', message: 'subscription_expired' } });
+    expect(connector.connect).toHaveBeenCalledTimes(1);
+    expect(connector.disconnect).not.toHaveBeenCalled();
   });
 
   it('drives normalized scripted events through reconnect and browser reload without a live account', async () => {
