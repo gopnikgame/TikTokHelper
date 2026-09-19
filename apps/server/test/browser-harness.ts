@@ -21,6 +21,7 @@ const levelId = '2d616882-aa64-48c3-988f-c67d0730df48';
 const now = '2026-09-17T12:00:00.000Z';
 let connectorNumber = 0;
 const connectors: ScriptedConnector[] = [];
+let accessExpired = false;
 
 function rawChat(id: string, text: string, options: { moderator?: boolean; giftGiver?: boolean; emote?: boolean } = {}) {
   return {
@@ -85,7 +86,6 @@ const manager = new TikTokSessionManager(
 const app = buildApp({
   logger: false,
   tiktokManager: manager,
-  localWorkspaceId: workspaceId,
   staticRoot: resolve(import.meta.dirname, '../../web/dist'),
 });
 
@@ -114,6 +114,18 @@ const settings = {
   overlapPercent: 25, maxConcurrentSounds: 4, volumePercent: 80, revision: 1,
 };
 
+app.get('/api/auth/session', async () => ({
+  authenticated: true, mode: 'vline',
+  user: {
+    userId: '123e4567-e89b-42d3-a456-426614174000', displayName: 'Тестовый пользователь', isAdmin: false,
+    workspaces: [{ id: workspaceId, displayName: 'Тестовый эфир' }],
+  },
+}));
+app.get('/api/auth/access', async () => accessExpired
+  ? { allowed: false, reason: 'subscription_expired', validUntil: null }
+  : { allowed: true, reason: 'active_subscription', validUntil: 1_800_000_000_000 });
+app.post('/fixture/expire-access', async () => { accessExpired = true; return { status: 'expired' }; });
+
 app.get('/api/workspaces/:workspaceId/settings', async () => settings);
 app.put('/api/workspaces/:workspaceId/settings', async (request) => ({ ...settings, ...(request.body as object), revision: 2 }));
 app.get('/api/workspaces/:workspaceId/sounds', async () => [{
@@ -136,6 +148,9 @@ app.get('/fixture.wav', async (_request, reply) => reply.type('audio/wav').send(
 
 realtimeRef.current = attachRealtimeServer(app, manager, {
   authorizeWorkspace: (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
+  authorizeLiveConnect: async () => accessExpired
+    ? { ok: false, error: { code: 'ACCESS_DENIED', message: 'subscription_expired' } }
+    : { ok: true },
 });
 app.addHook('preClose', async () => realtimeRef.current?.close());
 

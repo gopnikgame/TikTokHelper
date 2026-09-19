@@ -8,6 +8,9 @@ The browser harness exercises the operator UI without a TikTok account or networ
 - Production startup imports only `createTikTokConnector`; there is no environment variable, HTTP endpoint or UI control that selects the scripted source.
 - The harness binds to `127.0.0.1:4177` by default and uses sanitized deterministic fixtures.
 - The harness contains no production credentials, cookies, database connection or uploaded media.
+- `POST /fixture/expire-access` changes only in-memory fixture state. An active LIVE session remains
+  connected, `/api/auth/access` reports `subscription_expired`, and the next `live:connect` is denied.
+  Reload after the transition to exercise the same initial check used by the ten-minute browser poll.
 
 ## Run
 
