@@ -10,10 +10,13 @@ RUN --mount=type=cache,id=tiktok-helper-pnpm,target=/root/.local/share/pnpm/stor
 COPY apps ./apps
 COPY packages ./packages
 ARG SOURCE_REVISION=development
-RUN VITE_SOURCE_REVISION="$SOURCE_REVISION" pnpm run build
+ARG TIKTOK_HELPER_BASE_PATH=/
+RUN VITE_SOURCE_REVISION="$SOURCE_REVISION" TIKTOK_HELPER_BASE_PATH="$TIKTOK_HELPER_BASE_PATH" pnpm run build
 
 FROM node:24.18.0-bookworm-slim AS runtime
+ARG TIKTOK_HELPER_BASE_PATH=/
 ENV HOST=0.0.0.0 PORT=3000 WEB_ROOT=/app/apps/web/dist SOUND_ROOT=/app/builtin-sounds
+ENV TIKTOK_HELPER_BASE_PATH=$TIKTOK_HELPER_BASE_PATH
 WORKDIR /app
 COPY --from=build --chown=node:node /workspace/package.json /workspace/pnpm-lock.yaml /workspace/pnpm-workspace.yaml ./
 COPY --from=build --chown=node:node /workspace/node_modules ./node_modules

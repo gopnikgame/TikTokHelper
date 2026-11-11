@@ -19,7 +19,7 @@ import { recentChannelRoutes } from './channels/routes.js';
 import type { RecentChannelRepository } from './channels/repository.js';
 import { authRoutes } from './auth/routes.js';
 import type { AuthService } from './auth/service.js';
-import { localPrincipal, resolveAccessPrincipal } from './auth/local-access.js';
+import { authorizeLiveConnect, localPrincipal, resolveAccessPrincipal } from './auth/local-access.js';
 import { automationRoutes } from './automation/routes.js';
 import type { AutomationRepository } from './automation/repository.js';
 import { ttsAssetRoutes } from './tts-assets/routes.js';
@@ -108,6 +108,10 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
+    if (options.authService?.integrated) {
+      reply.header('x-robots-tag', 'noindex, nofollow').header('x-content-type-options', 'nosniff');
+      if (request.url.startsWith('/api/') || reply.statusCode >= 400) reply.header('cache-control', 'no-store');
+    }
   });
 
   app.addHook('onResponse', async (request, reply) => {
@@ -161,6 +165,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.authService) {
     const authService = options.authService;
+    if (authService.integrated) app.addHook('onRequest', async (request, reply) => {
+      if (request.routeOptions.url?.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(request.method) &&
+          request.headers.origin !== authService.publicOrigin) {
+        return reply.code(403).send(errorResponse('FORBIDDEN', 'Request origin denied', request.id));
+      }
+    });
     app.register(authRoutes, { service: authService, localWorkspaceId: options.localWorkspaceId });
     app.addHook('preHandler', async (request, reply) => {
       const route = request.routeOptions.url ?? '';
@@ -175,6 +185,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       const workspaceId = typeof params.workspaceId === 'string' ? params.workspaceId : body?.workspaceId;
       if (typeof workspaceId !== 'string' || !active.principal.workspaces.some((workspace) => workspace.id === workspaceId)) {
         return reply.code(403).send(errorResponse('FORBIDDEN', 'Workspace access denied', request.id));
+      }
+      if (route === '/api/live/connect' && request.method === 'POST') {
+        const access = await authorizeLiveConnect(authService, active);
+        if (!access.ok) return reply.code(access.error.code === 'ACCESS_UNAVAILABLE' ? 503 : 403)
+          .send(errorResponse(access.error.code, access.error.message, request.id));
       }
       request.authPrincipal = active.principal;
     });
@@ -240,6 +255,9 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     app.register(fastifyStatic, {
       root: options.soundUploadRoot, prefix: '/media/sounds/', decorateReply: false,
       cacheControl: true, maxAge: '1d', immutable: true,
+      ...(options.authService?.integrated ? {
+        allowedPath: (pathName: string) => /^\/?[0-9a-f-]+\.(wav|mp3|ogg|m4a)$/.test(pathName),
+      } : {}),
     });
   }
 

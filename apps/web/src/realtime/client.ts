@@ -3,6 +3,7 @@ import type {
   ClientToServerEvents, CommandAcknowledgement, RealtimeEvent, RealtimeSnapshot,
   ServerToClientEvents, SupportLevelGrantedEvent,
 } from '@tiktok-helper/contracts';
+import { appPath } from '../app-path.js';
 
 export interface RealtimeViewState {
   connectionState: RealtimeSnapshot['connectionState'];
@@ -82,11 +83,13 @@ export function createRealtimeClient(
   socketOverride?: Socket<ServerToClientEvents, ClientToServerEvents>,
   onSoundLibraryChanged?: (soundId: string) => void,
   onSupportLevelGranted?: (event: SupportLevelGrantedEvent) => void,
+  onAuthenticationInterrupted?: () => void,
 ): RealtimeClient {
   const model = new RealtimeStateModel();
   const socket: Socket<ServerToClientEvents, ClientToServerEvents> = socketOverride ?? io({
     autoConnect: true,
     transports: ['websocket'],
+    path: appPath('socket.io/'),
   });
 
   const notify = () => onState(model.state);
@@ -96,7 +99,13 @@ export function createRealtimeClient(
   }, () => undefined);
 
   socket.on('connect', () => { model.setTransportConnected(true); notify(); subscribe(); });
-  socket.on('disconnect', () => { model.setTransportConnected(false); notify(); });
+  socket.on('disconnect', (reason) => {
+    model.setTransportConnected(false); notify();
+    if (reason === 'io server disconnect') onAuthenticationInterrupted?.();
+  });
+  socket.on('connect_error', (error) => {
+    if (error.message === 'UNAUTHENTICATED') onAuthenticationInterrupted?.();
+  });
   socket.on('snapshot', (snapshot) => { model.applySnapshot(snapshot); notify(); });
   socket.on('event', (event) => {
     if (model.applyEvent(event) === 'resync') subscribe();

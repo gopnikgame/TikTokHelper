@@ -1,3 +1,5 @@
+import { appPath } from '../app-path.js';
+
 export const TTS_MODEL_CACHE_NAME = 'tiktok-helper-tts-models-v1';
 const MAX_FILE_BYTES = 40 * 1024 * 1024;
 const MAX_PACKAGE_BYTES = 64 * 1024 * 1024;
@@ -70,7 +72,7 @@ export class NeuralAssetError extends Error {
 export function packageByteSize(asset: NeuralVoicePackage): number { return asset.files.reduce((sum, file) => sum + file.byteSize, 0); }
 
 export function neuralPackageBaseUrl(asset: NeuralVoicePackage, origin = window.location.origin): string {
-  const url = new URL(`/tts-assets/voices/${asset.id}/`, origin);
+  const url = new URL(appPath(`tts-assets/voices/${asset.id}/`), origin);
   const localDevelopment = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) && url.protocol === 'http:';
   if (url.origin !== origin || (url.protocol !== 'https:' && !localDevelopment)) throw new Error('TTS package must be same-origin HTTPS');
   return url.href;

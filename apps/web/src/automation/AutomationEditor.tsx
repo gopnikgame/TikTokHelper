@@ -3,6 +3,7 @@ import type {
   AutomationConfiguration, EventReaction, ReactionEventType, SaveEventReaction, SaveSupportLevel,
   SoundAsset, SupportLevel, TemplateVariable, UpdateWorkspaceSpeechPolicy,
 } from '@tiktok-helper/contracts';
+import { appPath } from '../app-path.js';
 import { renderTemplate } from '../speech/policy.js';
 import type { SpeechPlaybackPreferences, SpeechPlaybackQueue, SpeechVoiceLike } from '../speech/playback.js';
 
@@ -111,7 +112,7 @@ export function AutomationEditor(props: Props) {
     return () => window.speechSynthesis.removeEventListener('voiceschanged', update);
   }, [speechQueue, speechSupported]);
 
-  const endpoint = `/api/workspaces/${encodeURIComponent(workspaceId)}/automation`;
+  const endpoint = appPath(`api/workspaces/${encodeURIComponent(workspaceId)}/automation`);
   async function refresh() {
     const next = await readJson<AutomationConfiguration>(await fetch(endpoint));
     onConfigurationChange(next); setPolicy({ ...next.policy });
@@ -140,7 +141,7 @@ export function AutomationEditor(props: Props) {
     setBusy(true);
     try {
       const result = await readJson<{ deletedSupporters: number }>(await fetch(
-        `/api/workspaces/${encodeURIComponent(workspaceId)}/supporters/statistics`,
+        appPath(`api/workspaces/${encodeURIComponent(workspaceId)}/supporters/statistics`),
         { method: 'DELETE' },
       ));
       onNotice(result.deletedSupporters > 0

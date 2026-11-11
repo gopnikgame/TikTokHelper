@@ -15,15 +15,16 @@ import { createRecentChannelRepository } from './channels/repository.js';
 import { createAuthRepository } from './auth/repository.js';
 import { HttpIdentityBridge } from './auth/bridge-client.js';
 import { AuthService } from './auth/service.js';
-import { resolveAccessPrincipal } from './auth/local-access.js';
-import { isTrustedLocalAccess } from './auth/local-access.js';
-import { parseCookie } from './auth/service.js';
+import { authorizeLiveConnect, resolveAccessPrincipal } from './auth/local-access.js';
+import { readBridgeConfiguration, readPublicBasePath } from './auth/configuration.js';
 import { createAutomationRepository } from './automation/repository.js';
 import { createSupporterRepository } from './supporters/repository.js';
 import { EntitlementCache } from './supporters/entitlement-cache.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
+const basePath = readPublicBasePath(process.env.TIKTOK_HELPER_BASE_PATH);
+const bridgeConfig = readBridgeConfiguration(process.env, basePath);
 
 const { client, db } = createDatabase(databaseUrl);
 const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? 'primary';
@@ -32,28 +33,16 @@ const soundUploadRoot = process.env.SOUND_UPLOAD_ROOT;
 if (soundUploadRoot) await mkdir(soundUploadRoot, { recursive: true });
 const giftCatalogRepository = createGiftCatalogRepository(db);
 const recentChannelRepository = createRecentChannelRepository(db);
-const soundRepository = createSoundRepository(db, giftCatalogRepository);
+const soundRepository = createSoundRepository(db, giftCatalogRepository, basePath);
 const authRepository = createAuthRepository(db);
 const supporterRepository = createSupporterRepository(db);
 const entitlementCache = new EntitlementCache(supporterRepository);
 const automationRepository = createAutomationRepository(db);
-const authEnvironment = {
-  authorizeUrl: process.env.VLINE_BRIDGE_AUTHORIZE_URL,
-  tokenUrl: process.env.VLINE_BRIDGE_TOKEN_URL,
-  clientId: process.env.VLINE_BRIDGE_CLIENT_ID,
-  clientSecret: process.env.VLINE_BRIDGE_CLIENT_SECRET,
-  redirectUri: process.env.VLINE_BRIDGE_REDIRECT_URI,
-};
-const authValues = Object.values(authEnvironment);
-const configuredAuthValues = authValues.filter((value) => value !== undefined && value.length > 0).length;
-if (configuredAuthValues > 0 && configuredAuthValues !== authValues.length) {
-  throw new Error('All VLINE_BRIDGE_* variables are required when authentication is enabled');
-}
-const authConfigured = configuredAuthValues === authValues.length;
-const authService = authConfigured ? new AuthService(
+const authService = bridgeConfig ? new AuthService(
   authRepository,
-  new HttpIdentityBridge(authEnvironment.tokenUrl!, authEnvironment.clientId!, authEnvironment.clientSecret!, authEnvironment.redirectUri!),
-  { bridgeAuthorizeUrl: authEnvironment.authorizeUrl!, clientId: authEnvironment.clientId!, redirectUri: authEnvironment.redirectUri! },
+  new HttpIdentityBridge(bridgeConfig.tokenUrl, bridgeConfig.credentials.clientId,
+    bridgeConfig.credentials.clientSecret, bridgeConfig.auth.redirectUri, bridgeConfig.entitlement),
+  bridgeConfig.auth,
 ) : undefined;
 if (soundRoot) {
   const files = (await readdir(soundRoot)).filter((name) => /\.wav$/i.test(name));
@@ -137,6 +126,8 @@ const app = buildApp({
   staticRoot: process.env.WEB_ROOT,
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
+  origin: authService?.publicOrigin,
+  sessionRecheckIntervalMs: authService?.integrated ? 15_000 : undefined,
   ...(authService ? { authenticate: async (headers: import('node:http').IncomingHttpHeaders) => (
     (await resolveAccessPrincipal(headers, authService, workspaceId))?.principal ?? null
   ) } : {}),
@@ -144,11 +135,8 @@ realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
     ? (requestedWorkspaceId, principal) => principal?.workspaces.some((workspace) => workspace.id === requestedWorkspaceId) ?? false
     : (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
   ...(authService ? { authorizeLiveConnect: async (headers: import('node:http').IncomingHttpHeaders) => {
-    if (isTrustedLocalAccess(headers) && !parseCookie(headers.cookie, authService.cookieName)) return { ok: true as const };
     try {
-      const access = await authService.checkAccess(parseCookie(headers.cookie, authService.cookieName));
-      if (access?.allowed) return { ok: true as const };
-      return { ok: false as const, error: { code: 'ACCESS_DENIED' as const, message: access?.reason ?? 'subscription_required' } };
+      return await authorizeLiveConnect(authService, await resolveAccessPrincipal(headers, authService, workspaceId));
     } catch {
       return { ok: false as const, error: { code: 'ACCESS_UNAVAILABLE' as const, message: 'access_verification_unavailable' } };
     }

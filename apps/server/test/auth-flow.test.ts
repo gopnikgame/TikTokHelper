@@ -3,10 +3,14 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { io } from 'socket.io-client';
 import type { AuthRepository, AppSession, AppUser, WorkspaceMembership } from '../src/auth/repository.js';
 import { AuthService, type IdentityBridge } from '../src/auth/service.js';
 import { buildApp } from '../src/app.js';
 import type { SettingsRepository } from '../src/settings/repository.js';
+import { resolveAccessPrincipal } from '../src/auth/local-access.js';
+import { attachRealtimeServer } from '../src/realtime/server.js';
+import { TikTokSessionManager } from '../src/tiktok/session-manager.js';
 
 const userId = '123e4567-e89b-42d3-a456-426614174000';
 const user: AppUser = {
@@ -59,6 +63,66 @@ const apps = new Set<ReturnType<typeof buildApp>>();
 afterEach(async () => { await Promise.all([...apps].map((app) => app.close())); apps.clear(); });
 
 describe('VLine-backed application sessions', () => {
+  it('binds cabinet PKCE state to its browser and revokes HTTP and live socket access with the parent', async () => {
+    const origin = 'https://cabinet.example.test';
+    let active = true;
+    let allowed = true;
+    const grant = 'a'.repeat(43);
+    const bridge: IdentityBridge = {
+      async exchange() { return { subject: user.identitySubject, displayName: null, authenticatedAt: new Date().toISOString(), grant }; },
+      async checkSession(value, subject) { return value === grant && subject === user.identitySubject && active; },
+      async checkAccess() {
+        return allowed ? { allowed: true, reason: 'admin', validUntil: null }
+          : { allowed: false, reason: 'subscription_expired', validUntil: null };
+      },
+    };
+    const service = new AuthService(memoryRepository(), bridge, {
+      basePath: '/tiktokhelper/', clientId: 'fixture',
+      bridgeAuthorizeUrl: `${origin}/api/integrations/tiktokhelper/authorize`,
+      redirectUri: `${origin}/tiktokhelper/auth/callback`,
+    });
+    const manager = new TikTokSessionManager(() => { throw new Error('must not start a denied stream'); }, () => undefined);
+    const app = buildApp({ logger: false, authService: service, localWorkspaceId: 'primary', settingsRepository, tiktokManager: manager });
+    apps.add(app);
+    const realtime = attachRealtimeServer(app, manager, {
+      authenticate: async (headers) => (await resolveAccessPrincipal(headers, service))?.principal ?? null,
+      origin, sessionRecheckIntervalMs: 20,
+    });
+    app.addHook('preClose', async () => realtime.close());
+    const authSession = '/api/auth/session';
+    expect((await app.inject({ method: 'GET', url: authSession, headers: { 'x-tiktok-local-access': '1' } })).statusCode).toBe(401);
+    const login = await app.inject({ method: 'GET', url: '/api/auth/login' });
+    expect(login.headers['set-cookie']).toMatch(/^__Host-tiktok_helper_browser=.*; Path=\/; HttpOnly; Secure; SameSite=Lax/);
+    const state = new URL(login.json<{ authorizationUrl: string }>().authorizationUrl).searchParams.get('state');
+    const url = `/auth/callback?code=${'c'.repeat(43)}&state=${state}`;
+    const cookieHeader = (value: string | string[]) => [value].flat().map((item) => item.split(';', 1)[0]!).join('; ');
+    expect((await app.inject({ method: 'GET', url })).headers.location).toBe('/tiktokhelper/?auth_error=authentication_failed');
+    const callback = await app.inject({ method: 'GET', url, headers: { cookie: cookieHeader(login.headers['set-cookie']!) } });
+    expect(callback.headers.location).toBe('/tiktokhelper/');
+    expect(callback.headers['referrer-policy']).toBe('no-referrer');
+    const [helperCookie] = [callback.headers['set-cookie']!].flat();
+    expect(helperCookie).toMatch(/Path=\/tiktokhelper\/; HttpOnly; Secure; SameSite=Lax/);
+    expect((await app.inject({ method: 'GET', url: authSession, headers: { cookie: cookieHeader(helperCookie!) } })).statusCode).toBe(401);
+    const cookie = cookieHeader(callback.headers['set-cookie']!);
+    expect((await app.inject({ method: 'GET', url: authSession, headers: { cookie } })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie, origin: 'https://other.example.test' } })).statusCode).toBe(403);
+    allowed = false;
+    const denied = await app.inject({ method: 'POST', url: '/api/live/connect', headers: { cookie, origin },
+      payload: { commandId: randomUUID(), workspaceId: 'primary', tiktokUsername: 'fixture_live' } });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({ error: { code: 'ACCESS_DENIED', message: 'subscription_expired' } });
+
+    const address = await app.listen({ host: '127.0.0.1', port: 0 });
+    const client = io(address, { transports: ['websocket'], extraHeaders: { cookie, origin }, reconnection: false });
+    try {
+      await new Promise<void>((resolve, reject) => { client.once('connect', resolve); client.once('connect_error', reject); });
+      const disconnected = new Promise<string>((resolve) => client.once('disconnect', resolve));
+      active = false;
+      expect((await app.inject({ method: 'GET', url: authSession, headers: { cookie } })).statusCode).toBe(401);
+      expect(await disconnected).toBe('io server disconnect');
+    } finally { client.close(); }
+  });
+
   it('serves neural TTS packages only to an authenticated administrator', async () => {
     const root = await mkdtemp(join(tmpdir(), 'tiktok-helper-tts-'));
     const voiceId = 'ru-RU-irina-medium-int8';

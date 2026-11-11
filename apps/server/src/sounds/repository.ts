@@ -3,6 +3,7 @@ import type { GiftSoundMapping, SoundAsset, UpdateGiftSoundMapping } from '@tikt
 import type { Database } from '../db/client.js';
 import { eventReactions, giftSoundRules, soundLibraryAssets, supportLevels, workspaces } from '../db/schema.js';
 import type { GiftCatalogRepository } from '../gifts/repository.js';
+import type { PublicBasePath } from '../auth/configuration.js';
 
 export interface BuiltInSound { displayName: string; storageKey: string; contentSha256: string; byteSize: number; mimeType: string }
 export interface SoundActor { userId: string; isAdmin: boolean }
@@ -19,11 +20,10 @@ export interface SoundRepository {
   deleteSound(soundId: string, actor: SoundActor): Promise<DeleteSoundResult>;
 }
 
-const soundUrl = (storageKey: string) => storageKey.startsWith('uploaded/')
-  ? `/media/sounds/${encodeURIComponent(storageKey.slice('uploaded/'.length))}`
-  : `/sounds/${encodeURIComponent(storageKey)}`;
-
-export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRepository): SoundRepository {
+export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRepository, basePath: PublicBasePath = '/'): SoundRepository {
+  const soundUrl = (storageKey: string) => storageKey.startsWith('uploaded/')
+    ? `${basePath}media/sounds/${encodeURIComponent(storageKey.slice('uploaded/'.length))}`
+    : `${basePath}sounds/${encodeURIComponent(storageKey)}`;
   async function usageCount(soundId: string): Promise<number> {
     const [giftRows, levelRows, reactionRows] = await Promise.all([
       db.select({ value: count() }).from(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId)),

@@ -54,7 +54,7 @@ services:
       - "host.docker.internal:host-gateway"
     secrets: [db_password, tiktok_helper_client_secret]
     ports:
-      - "${APP_BIND_ADDRESS:-127.0.0.1}:3000:3000"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_BIND_PORT:-3000}:3000"
     volumes:
       - media_data:/app/data/media
       - ./tts-assets/voices:/app/data/tts-assets/voices:ro

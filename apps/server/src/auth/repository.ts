@@ -63,6 +63,9 @@ export function createAuthRepository(db: Database): AuthRepository {
 
     async createWorkspaceForUser(userId, displayName) {
       return db.transaction(async (tx) => {
+        await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('update');
+        const [existing] = await tx.select().from(workspaceMemberships).where(eq(workspaceMemberships.userId, userId)).limit(1);
+        if (existing) return existing;
         const workspaceId = randomUUID();
         await tx.insert(workspaces).values({ id: workspaceId, displayName });
         const [membership] = await tx.insert(workspaceMemberships).values({

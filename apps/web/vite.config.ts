@@ -12,13 +12,25 @@ function serviceWorkerPlugin(): Plugin {
       this.emitFile({
         type: 'asset',
         fileName: 'sw.js',
-        source: template.replace('__SOURCE_REVISION__', JSON.stringify(revision)),
+        source: template.replace('const SOURCE_REVISION = __SOURCE_REVISION__;', () => `const SOURCE_REVISION = ${JSON.stringify(revision)};`),
       });
     },
   };
 }
 
+const base = process.env.TIKTOK_HELPER_BASE_PATH ?? '/';
+if (base !== '/' && base !== '/tiktokhelper/') throw new Error('Invalid TIKTOK_HELPER_BASE_PATH');
+
 export default defineConfig({
+  base,
   plugins: [react(), serviceWorkerPlugin()],
-  server: { proxy: { '/api': 'http://127.0.0.1:3000' } },
+  server: {
+    proxy: {
+      [`^${base}(api/|auth/|socket\\.io/|sounds/|media/sounds/|tts-assets/)`]: {
+        target: 'http://127.0.0.1:3000',
+        ws: true,
+        rewrite: (path) => `/${path.slice(base.length)}`,
+      },
+    },
+  },
 });

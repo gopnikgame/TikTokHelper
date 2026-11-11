@@ -1,5 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AutomationConfiguration, AuthPrincipal, ChatEvent, GiftEvent, GiftSoundMapping, ObservedGift, RecentChannel, SoundAsset, SupportLevelGrantedEvent, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
+import { appPath, USES_CABINET } from './app-path.js';
 import { AudioOwnership, SoundPlaybackQueue } from './audio/playback.js';
 import { operatorEventCount } from './event-model.js';
 import { createRealtimeClient, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
@@ -16,12 +17,13 @@ import { genericInstallInstructions, type PwaLifecycle, updateBlockedByLive, use
 const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', events: [], generation: 0, lastSequence: 0, isTransportConnected: false, onlineUsers: null };
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
 const CONNECTION_NOTICE = { live: 'Эфир подключён — принимаем чат и подарки', reconnecting: 'Связь прервалась — подключаемся снова…', offline: 'Эфир завершён или аккаунт сейчас не в эфире', failed: 'Не удалось подключиться к эфиру' } as const;
-type SessionState = { status: 'loading' } | { status: 'anonymous' } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
+type SessionState = { status: 'loading' } | { status: 'anonymous'; loginFailed?: boolean } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
 const AUTH_ERROR_COPY: Record<string, string> = {
   subscription_required: 'Для доступа нужна активная подписка VLine.',
   subscription_expired: 'Срок подписки VLine закончился. Продлите её и попробуйте войти снова.',
   subscription_frozen: 'Подписка VLine сейчас заморожена. Возобновите её и попробуйте войти снова.',
   account_disabled: 'Учётная запись VLine недоступна. Обратитесь в поддержку.',
+  access_verification_unavailable: 'Не удалось проверить доступ. Попробуйте войти ещё раз.',
 };
 
 function diagnosticBoolean(value: boolean | undefined): string {
@@ -29,29 +31,42 @@ function diagnosticBoolean(value: boolean | undefined): string {
 }
 
 export function App() {
-  const [sessionState, setSessionState] = useState<SessionState>({ status: 'loading' });
-  const [authError] = useState(() => {
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get('auth_error');
-    if (code) { url.searchParams.delete('auth_error'); window.history.replaceState({}, '', url.pathname + url.search + url.hash); }
-    return code && AUTH_ERROR_COPY[code] ? AUTH_ERROR_COPY[code] : null;
+  const [entry] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('auth_error');
+    const authError = code === null ? null : Object.hasOwn(AUTH_ERROR_COPY, code)
+      ? AUTH_ERROR_COPY[code]! : 'Не удалось подтвердить вход через VLine. Попробуйте войти снова.';
+    return { authError, fromCabinet: params.get('from') === 'cabinet' };
   });
+  const [sessionState, setSessionState] = useState<SessionState>({ status: USES_CABINET && entry.authError ? 'anonymous' : 'loading' });
   const [liveSessionActive, setLiveSessionActive] = useState(false);
   const pwa = usePwaLifecycle();
   useEffect(() => {
+    if (entry.authError) {
+      if (USES_CABINET) return;
+      const url = new URL(window.location.href);
+      url.searchParams.delete('auth_error');
+      window.history.replaceState(window.history.state, '', url);
+    }
     const controller = new AbortController();
-    void loadSession(controller.signal).then((session) => {
+    void loadSession(controller.signal).then(async (session) => {
+      if (controller.signal.aborted) return;
+      if (USES_CABINET && (!session || entry.fromCabinet)) {
+        try { await beginLogin(); }
+        catch { if (!controller.signal.aborted) setSessionState({ status: 'anonymous', loginFailed: true }); }
+        return;
+      }
       setSessionState(session ? { status: 'authenticated', principal: session.user, mode: session.mode } : { status: 'anonymous' });
-    }).catch((error: unknown) => {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) setSessionState({ status: 'error' });
+    }).catch(() => {
+      if (!controller.signal.aborted) setSessionState({ status: 'error' });
     });
     return () => controller.abort();
-  }, []);
+  }, [entry]);
 
   const onLoggedOut = useCallback(() => setSessionState({ status: 'anonymous' }), []);
   let content;
   if (sessionState.status === 'loading') content = <AccessScreen title="Проверяем вход…" message="Подготавливаем ваше рабочее место." />;
-  else if (sessionState.status === 'anonymous') content = <LoginScreen authError={authError} />;
+  else if (sessionState.status === 'anonymous') content = <LoginScreen authError={entry.authError} loginFailed={sessionState.loginFailed} />;
   else if (sessionState.status === 'error') content = <AccessScreen title="Сервис входа недоступен" message="Обновите страницу через минуту. Настройки и звуки останутся на месте." retry />;
   else content = <AuthenticatedApp principal={sessionState.principal} authMode={sessionState.mode} onLoggedOut={onLoggedOut} pwa={pwa} onLiveSessionActiveChange={setLiveSessionActive} />;
 
@@ -72,17 +87,24 @@ function PwaNotices({ pwa, liveSessionActive }: { pwa: PwaLifecycle; liveSession
 }
 
 function AccessScreen({ title, message, retry = false }: { title: string; message: string; retry?: boolean }) {
-  return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>{title}</h1><p>{message}</p>{retry ? <button type="button" onClick={() => window.location.reload()}>Попробовать снова</button> : null}<SourceLink /></section></main>;
+  return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>{title}</h1><p>{message}</p>{retry ? <><button type="button" onClick={() => window.location.reload()}>Попробовать снова</button><CabinetLink /></> : null}<SourceLink /></section></main>;
 }
 
-function LoginScreen({ authError }: { authError: string | null }) {
+function LoginScreen({ authError, loginFailed = false }: { authError: string | null; loginFailed?: boolean }) {
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(loginFailed);
   async function login() {
     setBusy(true); setFailed(false);
     try { await beginLogin(); } catch { setBusy(false); setFailed(true); }
   }
-  return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1><p>Войдите через аккаунт VLine, чтобы открыть свои эфиры, звуки и привязки подарков.</p>{authError ? <p className="access-error" role="alert">{authError}</p> : null}<button type="button" disabled={busy} onClick={() => void login()}>{busy ? 'Открываем VLine…' : 'Войти через VLine'}</button>{failed ? <p className="access-error" role="alert">Не удалось начать вход. Проверьте соединение и попробуйте снова.</p> : null}<SourceLink /></section></main>;
+  return <main className="access-shell"><section className="access-card"><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1><p>Войдите через аккаунт VLine, чтобы открыть свои эфиры, звуки и привязки подарков.</p>{authError ? <p className="access-error" role="alert">{authError}</p> : null}<button type="button" disabled={busy} onClick={() => void login()}>{busy ? 'Открываем VLine…' : 'Войти через VLine'}</button>{failed ? <p className="access-error" role="alert">Не удалось начать вход. Проверьте соединение и попробуйте снова.</p> : null}<CabinetLink /><SourceLink /></section></main>;
+}
+
+function CabinetLink({ live = false }: { live?: boolean }) {
+  if (!USES_CABINET) return null;
+  return <a className="cabinet-link" href="/cabinet" target={live ? '_blank' : undefined} rel={live ? 'noopener' : undefined}>
+    {live ? 'Открыть кабинет в новой вкладке' : 'В кабинет'}
+  </a>;
 }
 
 function SourceLink() {
@@ -94,6 +116,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     const saved = sessionStorage.getItem('tiktok-helper.workspace');
     return principal.workspaces.some((workspace) => workspace.id === saved) ? saved! : (principal.workspaces[0]?.id ?? '');
   });
+  const workspacePath = appPath(`api/workspaces/${encodeURIComponent(workspaceId)}`);
   const [settings, setSettings] = useState<UpdateWorkspaceSettings>(DEFAULT_SETTINGS);
   const [notice, setNotice] = useState('Загружаем рабочее место…');
   const [accessWarning, setAccessWarning] = useState<string | null>(null);
@@ -175,10 +198,9 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }, [speechQueue]);
 
   const reloadSoundLibrary = useCallback(async (changedSoundId?: string) => {
-    const workspacePath = encodeURIComponent(workspaceId);
     const [soundsResponse, mappingsResponse] = await Promise.all([
-      fetch(`/api/workspaces/${workspacePath}/sounds`),
-      fetch(`/api/workspaces/${workspacePath}/gift-mappings`),
+      fetch(`${workspacePath}/sounds`),
+      fetch(`${workspacePath}/gift-mappings`),
     ]);
     if (!soundsResponse.ok || !mappingsResponse.ok) return;
     const loadedSounds = await soundsResponse.json() as SoundAsset[];
@@ -190,18 +212,17 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       player.current.stopAll();
       setNotice('Библиотека звуков обновлена — очередь воспроизведения очищена');
     }
-  }, [workspaceId]);
+  }, [workspacePath]);
 
   useEffect(() => {
     const controller = new AbortController();
-    const workspacePath = encodeURIComponent(workspaceId);
     void Promise.all([
-      fetch(`/api/workspaces/${workspacePath}/settings`, { signal: controller.signal }),
-      fetch(`/api/workspaces/${workspacePath}/sounds`, { signal: controller.signal }),
-      fetch(`/api/workspaces/${workspacePath}/gift-mappings`, { signal: controller.signal }),
-      fetch(`/api/workspaces/${workspacePath}/gifts`, { signal: controller.signal }),
-      fetch(`/api/workspaces/${workspacePath}/recent-channels`, { signal: controller.signal }),
-      fetch(`/api/workspaces/${workspacePath}/automation`, { signal: controller.signal }),
+      fetch(`${workspacePath}/settings`, { signal: controller.signal }),
+      fetch(`${workspacePath}/sounds`, { signal: controller.signal }),
+      fetch(`${workspacePath}/gift-mappings`, { signal: controller.signal }),
+      fetch(`${workspacePath}/gifts`, { signal: controller.signal }),
+      fetch(`${workspacePath}/recent-channels`, { signal: controller.signal }),
+      fetch(`${workspacePath}/automation`, { signal: controller.signal }),
     ]).then(async ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse, recentChannelsResponse, automationResponse]) => {
       if ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse, recentChannelsResponse, automationResponse].some((response) => response.status === 401)) {
         onLoggedOut(); return;
@@ -217,10 +238,21 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       setNotice('Готово к работе');
     }).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === 'AbortError')) { setAutomationStatus('error'); setNotice('Не удалось загрузить настройки'); } });
     return () => controller.abort();
-  }, [onLoggedOut, workspaceId]);
+  }, [onLoggedOut, workspacePath]);
 
   useEffect(() => {
     let previousState = INITIAL_REALTIME_STATE.connectionState;
+    const controller = new AbortController();
+    const verifyInterruptedSession = USES_CABINET ? () => {
+      void loadSession(controller.signal).then((session) => {
+        if (controller.signal.aborted) return;
+        if (!session || session.user.userId !== principal.userId || session.user.isAdmin !== principal.isAdmin ||
+            !session.user.workspaces.some((workspace) => workspace.id === workspaceId)) onLoggedOut();
+        else setNotice('Соединение с пультом закрыто. Чтобы восстановить его, откройте TikTokHelper из кабинета.');
+      }).catch(() => {
+        if (!controller.signal.aborted) setNotice('Не удалось проверить вход. Проверьте доступ в кабинете.');
+      });
+    } : undefined;
     const client = createRealtimeClient(workspaceId, (next) => {
       if (next.connectionState !== previousState) {
         previousState = next.connectionState;
@@ -229,10 +261,10 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         }
       }
       setRealtime(next);
-    }, undefined, (soundId) => void reloadSoundLibrary(soundId), handleSupportLevelGranted);
+    }, undefined, (soundId) => void reloadSoundLibrary(soundId), handleSupportLevelGranted, verifyInterruptedSession);
     realtimeClient.current = client;
-    return () => { realtimeClient.current = null; client.close(); };
-  }, [handleSupportLevelGranted, reloadSoundLibrary, workspaceId]);
+    return () => { controller.abort(); realtimeClient.current = null; client.close(); };
+  }, [handleSupportLevelGranted, onLoggedOut, principal.isAdmin, principal.userId, reloadSoundLibrary, workspaceId]);
   useEffect(() => { const playback = player.current; const owner = new AudioOwnership(() => { setAudioEnabled(false); playback.stopAll(); speechQueue?.stop(); setNotice('Звук включён в другой вкладке'); }); ownership.current = owner; return () => { owner.close(); playback.stopAll(); speechQueue?.stop(); }; }, [speechQueue]);
 
   const mappingByGift = useMemo(() => new Map(mappings.filter((item) => item.isEnabled).map((item) => [item.giftId, item])), [mappings]);
@@ -317,7 +349,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setNotice('Сохраняем настройки…');
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settings) });
+    const response = await fetch(`${workspacePath}/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settings) });
     if (!response.ok) { setNotice('Настройки не сохранились. Проверьте значения.'); return; }
     setSettings(await response.json() as WorkspaceSettings); setNotice('Настройки сохранены');
   }
@@ -346,7 +378,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   async function reloadAutomation() {
     setAutomationStatus('loading');
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/automation`);
+      const response = await fetch(`${workspacePath}/automation`);
       if (response.status === 401) { onLoggedOut(); return; }
       if (!response.ok) throw new Error();
       setAutomation(await response.json() as AutomationConfiguration); setAutomationStatus('ready'); setNotice('Настройки озвучивания загружены');
@@ -365,7 +397,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }
   async function saveMapping(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!giftId || !selectedSoundId) { setNotice('Выберите замеченный подарок и звук'); return; }
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/gift-mappings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giftId, soundAssetId: selectedSoundId, isEnabled: true }) });
+    const response = await fetch(`${workspacePath}/gift-mappings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giftId, soundAssetId: selectedSoundId, isEnabled: true }) });
     if (!response.ok) { setNotice('Не удалось сохранить привязку'); return; }
     const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setNotice(`Подарок ${observedGifts.find((gift) => gift.giftId === saved.giftId)?.giftName ?? saved.giftId} привязан к звуку`);
   }
@@ -383,7 +415,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     if (!soundFile || isUploadingSound) return;
     setIsUploadingSound(true); setNotice(`Загружаем «${soundFile.name}»…`);
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/sounds?displayName=${encodeURIComponent(soundFile.name)}`, {
+      const response = await fetch(`${workspacePath}/sounds?displayName=${encodeURIComponent(soundFile.name)}`, {
         method: 'POST', headers: { 'content-type': soundFile.type || 'application/octet-stream' }, body: soundFile,
       });
       if (!response.ok) {
@@ -404,7 +436,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     const reason = window.prompt('Причина помещения в карантин', 'Нарушение авторских прав')?.trim();
     if (!reason) return;
     if (!window.confirm(`Поместить «${sound.displayName}» в карантин? Звук перестанет воспроизводиться у всех пользователей.`)) return;
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/sounds/${encodeURIComponent(sound.id)}/quarantine`, {
+    const response = await fetch(`${workspacePath}/sounds/${encodeURIComponent(sound.id)}/quarantine`, {
       method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason }),
     });
     if (!response.ok) { setNotice('Не удалось поместить звук в карантин'); return; }
@@ -415,7 +447,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       ? `Окончательно удалить «${sound.displayName}» и ${sound.usageCount} привязок? Отменить это действие нельзя.`
       : `Удалить ваш звук «${sound.displayName}»? Отменить это действие нельзя.`;
     if (!window.confirm(warning)) return;
-    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/sounds/${encodeURIComponent(sound.id)}`, { method: 'DELETE' });
+    const response = await fetch(`${workspacePath}/sounds/${encodeURIComponent(sound.id)}`, { method: 'DELETE' });
     if (!response.ok) {
       setNotice(response.status === 409 ? 'Звук используется: сначала удалите все привязки' : 'Не удалось удалить звук'); return;
     }
@@ -439,7 +471,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }
 
   return <main className="console-shell">
-    <header className="topbar"><div><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1></div><div className="account-area"><div className="presence-pill" aria-live="polite"><span aria-hidden="true">●</span>Сейчас онлайн <b>{realtime.onlineUsers ?? '—'}</b></div><div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div>{!pwa.installed ? <button type="button" className="quiet install-app-button" onClick={() => void pwa.install()}>Установить</button> : null}<div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}{authMode === 'vline' ? <button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button> : null}</div></div></header>
+    <header className="topbar"><div><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1><CabinetLink live={updateBlockedByLive(realtime.connectionState)} /></div><div className="account-area"><div className="presence-pill" aria-live="polite"><span aria-hidden="true">●</span>Сейчас онлайн <b>{realtime.onlineUsers ?? '—'}</b></div><div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div>{!pwa.installed ? <button type="button" className="quiet install-app-button" onClick={() => void pwa.install()}>Установить</button> : null}<div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}{authMode === 'vline' ? <button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button> : null}</div></div></header>
     <p className="notice" role="status" aria-live="polite">{notice}</p>
     {accessWarning ? <p className="access-error" role="alert">{accessWarning} Уже подключённый эфир продолжит работать, но новое подключение будет недоступно.</p> : null}
     <section className="connection-panel" aria-labelledby="connection-title">

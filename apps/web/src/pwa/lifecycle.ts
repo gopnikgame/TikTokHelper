@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { APPLICATION_BASE, appPath } from '../app-path.js';
 
 interface InstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -54,40 +55,45 @@ export function usePwaLifecycle(): PwaLifecycle {
 
   useEffect(() => {
     if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return undefined;
+    const serviceWorker = navigator.serviceWorker;
+    const scope = new URL(APPLICATION_BASE, window.location.origin).href;
+    const script = new URL(appPath('sw.js'), window.location.origin).href;
+    const ownsController = () => serviceWorker.controller?.scriptURL === script;
+    const cleanup = new AbortController();
     let registration: ServiceWorkerRegistration | undefined;
-    let cancelled = false;
 
-    const inspectInstalling = (worker: ServiceWorker | null) => {
+    const onUpdateFound = () => {
+      const worker = registration?.installing;
       if (!worker) return;
       const onStateChange = () => {
-        if (worker.state === 'installed' && navigator.serviceWorker.controller && !cancelled) {
+        if (worker.state === 'installed' && ownsController()) {
           setWaitingWorker(registration?.waiting ?? worker);
         }
       };
-      worker.addEventListener('statechange', onStateChange);
+      worker.addEventListener('statechange', onStateChange, { signal: cleanup.signal });
     };
     const onControllerChange = () => {
-      if (reloadRequested.current) window.location.reload();
+      if (reloadRequested.current && ownsController()) {
+        reloadRequested.current = false;
+        window.location.reload();
+      }
     };
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'visible') void registration?.update();
+      if (document.visibilityState === 'visible') void registration?.update().catch(() => undefined);
     };
 
-    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    void navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).then((registered) => {
-      if (cancelled) return;
+    serviceWorker.addEventListener('controllerchange', onControllerChange, { signal: cleanup.signal });
+    document.addEventListener('visibilitychange', onVisibilityChange, { signal: cleanup.signal });
+    void serviceWorker.register(script, { scope, updateViaCache: 'none' }).then((registered) => {
+      if (cleanup.signal.aborted || registered.scope !== scope) return;
       registration = registered;
-      if (registered.waiting && navigator.serviceWorker.controller) setWaitingWorker(registered.waiting);
-      registered.addEventListener('updatefound', () => inspectInstalling(registered.installing));
-      void registered.update();
+      if (registered.waiting && ownsController()) setWaitingWorker(registered.waiting);
+      registered.addEventListener('updatefound', onUpdateFound, { signal: cleanup.signal });
+      onUpdateFound();
+      return registered.update();
     }).catch(() => undefined);
 
-    return () => {
-      cancelled = true;
-      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-    };
+    return () => cleanup.abort();
   }, []);
 
   const install = useCallback(async () => {

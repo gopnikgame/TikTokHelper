@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
 
 import type { AuthService } from '../auth/service.js';
-import { parseCookie } from '../auth/service.js';
 
 const VOICE_IDS = new Set([
   'ru-RU-irina-medium-int8', 'ru-RU-denis-medium-int8', 'ru-RU-dmitri-medium-int8',
@@ -29,9 +28,7 @@ export interface TtsAssetRoutesOptions { root: string; authService: AuthService 
 export const ttsAssetRoutes: FastifyPluginAsync<TtsAssetRoutesOptions> = async (app, options) => {
   app.get<{ Params: { voiceId: string; fileName: string } }>('/tts-assets/voices/:voiceId/:fileName', {
     preHandler: async (request, reply) => {
-      const active = await options.authService.resolve(
-        parseCookie(request.headers.cookie, options.authService.cookieName),
-      );
+      const active = await options.authService.resolveCookie(request.headers.cookie);
       if (!active) return reply.code(401).send({ error: {
         code: 'UNAUTHENTICATED', message: 'Authentication required', requestId: request.id,
       } });

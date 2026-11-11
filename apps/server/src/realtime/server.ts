@@ -36,6 +36,8 @@ export interface RealtimeServerOptions {
   authorizeWorkspace?: (workspaceId: string, principal?: AuthPrincipal) => boolean | Promise<boolean>;
   authorizeLiveConnect?: (headers: IncomingHttpHeaders) => CommandAcknowledgement | Promise<CommandAcknowledgement>;
   bufferCapacity?: number;
+  origin?: string;
+  sessionRecheckIntervalMs?: number;
 }
 
 export interface RealtimeServer {
@@ -57,6 +59,7 @@ export function attachRealtimeServer(
     serveClient: false,
     transports: ['websocket'],
     maxHttpBufferSize: 16 * 1024,
+    ...(options.origin ? { allowRequest: (request, done) => done(null, request.headers.origin === options.origin) } : {}),
   });
   const connectedSocketsByUser = new Map<string, number>();
   const presencePayload = () => ({ onlineUsers: connectedSocketsByUser.size });
@@ -94,10 +97,36 @@ export function attachRealtimeServer(
         broadcastPresence();
       });
     }
+    let sessionCheck: Promise<boolean> | undefined;
+    const validateSession = (): Promise<boolean> => {
+      sessionCheck ??= (async () => {
+        try {
+          const current = await options.authenticate?.(socket.handshake.headers);
+          if (current && principal && current.userId === principal.userId && current.isAdmin === principal.isAdmin &&
+              principal.workspaces.every(({ id }) => current.workspaces.some((workspace) => workspace.id === id))) {
+            socket.data.authPrincipal = current;
+            return socket.connected;
+          }
+        } catch { /* An unavailable authority cannot confirm a private room. */ }
+        socket.disconnect(true);
+        return false;
+      })().finally(() => { sessionCheck = undefined; });
+      return sessionCheck;
+    };
+    if (options.sessionRecheckIntervalMs) {
+      const recheck = setInterval(() => { void validateSession(); }, options.sessionRecheckIntervalMs);
+      recheck.unref();
+      socket.once('disconnect', () => clearInterval(recheck));
+    }
+    const canAccess = async (workspaceId: string): Promise<boolean> => {
+      if (options.sessionRecheckIntervalMs && !await validateSession()) return false;
+      return authorize(workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined);
+    };
     socket.on('workspace:subscribe', async (raw, acknowledge) => {
+      if (typeof acknowledge !== 'function') return;
       const parsed = validateClientEvent('workspace:subscribe', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
-      if (!await authorize(parsed.value.workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined)) return acknowledge(forbidden);
+      if (!await canAccess(parsed.value.workspaceId)) return acknowledge(forbidden);
       const status = manager.status(parsed.value.workspaceId);
       const replay = buffer.replay(
         parsed.value.workspaceId, parsed.value.generation, parsed.value.lastSequence,
@@ -121,13 +150,15 @@ export function attachRealtimeServer(
     });
 
     socket.on('live:connect', async (raw, acknowledge) => {
+      if (typeof acknowledge !== 'function') return;
       const parsed = validateClientEvent('live:connect', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
-      if (!await authorize(parsed.value.workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined)) return acknowledge(forbidden);
+      if (!await canAccess(parsed.value.workspaceId)) return acknowledge(forbidden);
       if (options.authorizeLiveConnect) {
         const access = await options.authorizeLiveConnect(socket.handshake.headers);
         if (!access.ok) return acknowledge(access);
       }
+      if (!socket.connected) return;
       const cached = commandResults.get(commandKey(parsed.value.workspaceId, parsed.value.commandId));
       if (cached) return acknowledge(cached.ok ? { ...cached, duplicate: true } : cached);
       try {
@@ -145,9 +176,10 @@ export function attachRealtimeServer(
     });
 
     socket.on('live:disconnect', async (raw, acknowledge) => {
+      if (typeof acknowledge !== 'function') return;
       const parsed = validateClientEvent('live:disconnect', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
-      if (!await authorize(parsed.value.workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined)) return acknowledge(forbidden);
+      if (!await canAccess(parsed.value.workspaceId)) return acknowledge(forbidden);
       const cached = commandResults.get(commandKey(parsed.value.workspaceId, parsed.value.commandId));
       if (cached) return acknowledge(cached.ok ? { ...cached, duplicate: true } : cached);
       await manager.stop(parsed.value.workspaceId);

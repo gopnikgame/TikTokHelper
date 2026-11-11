@@ -1,0 +1,23 @@
+# Optional overlay for a separately deployed TikTokHelper.
+services:
+  app:
+    build:
+      args:
+        TIKTOK_HELPER_BASE_PATH: /tiktokhelper/
+    environment:
+      VLINE_BRIDGE_ENTITLEMENT_URL: ${VLINE_BRIDGE_ENTITLEMENT_URL:?Set the existing entitlement service URL}
+      VLINE_BRIDGE_ENTITLEMENT_CLIENT_ID: ${VLINE_BRIDGE_ENTITLEMENT_CLIENT_ID:?Set the existing entitlement client ID}
+    networks:
+      - default
+      - cabinet_auth
+    secrets:
+      - tiktok_helper_entitlement_client_secret
+
+networks:
+  cabinet_auth:
+    external: true
+    name: ${CABINET_AUTH_NETWORK:-vline_tiktokhelper}
+
+secrets:
+  tiktok_helper_entitlement_client_secret:
+    file: ${TIKTOK_HELPER_ENTITLEMENT_SECRET_FILE:-./secrets/tiktok_helper_entitlement_client_secret}
