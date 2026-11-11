@@ -31,6 +31,12 @@
 
 Для обоих внутренних URL используйте HTTPS за пределами закрытой сети. Публикуйте исходный код сборки и передавайте её точный `SOURCE_REVISION`. Для первой установки применяются штатные миграции TikTokHelper. При переносе существующего проекта используйте его PostgreSQL, загруженные звуки и пакеты голосов после проверки резервной копии. Кэши старого домена браузер создаст заново на новом адресе.
 
+### Размещение на vline.site
+
+Используйте `compose.yaml` и `deploy/cabinet-host.compose.yaml`. Этот вариант рассчитан на BFF `127.0.0.1:3211` и шлюз подписок `127.0.0.1:3100` в сетевом пространстве хоста. Приложение TikTokHelper слушает `127.0.0.1:3105`, его отдельная PostgreSQL доступна с хоста только через `127.0.0.1:5434`. Укажите `tiktok_helper_app` в nginx на порту пульта. При занятом порте согласованно задайте `APP_BIND_PORT` или `TIKTOK_HELPER_DB_PORT` и проверьте фактические слушатели.
+
+Загрузите заранее собранный образ TikTokHelper для `/tiktokhelper/` и укажите его в `TIKTOK_HELPER_IMAGE`. Загрузите образ PostgreSQL из базового Compose. Профиль использует локальные образы для приложения, миграции и БД. Для пульта задан предел памяти 256 МиБ, для его БД 192 МиБ. Перед включением публичного маршрута проверьте фактическое потребление памяти и диска под нагрузкой. Compose проверяется командой `docker compose -f compose.yaml -f deploy/cabinet-host.compose.yaml config --quiet`. Подробности о сетевом режиме и переопределении портов есть в документации Docker. [Host network](https://docs.docker.com/engine/network/drivers/host/) · [Объединение файлов Compose](https://docs.docker.com/compose/how-tos/multiple-compose-files/merge/).
+
 ## nginx и проверка
 
 Подключите `deploy/nginx/tiktokhelper-http.conf` в `http {}` и `deploy/nginx/tiktokhelper-server.conf` в существующий HTTPS virtual host кабинета или его доверенный upstream. Объявите upstream `tiktok_helper_app` на loopback-порту пульта и `vline_cabinet_bff` по фактическому адресу BFF. Существующий `/api/` кабинета должен передавать `/api/site/links` в BFF. `proxy_pass` с завершающим `/` снимает префикс для HTTP и Socket.IO. Обмен кода и проверка сессии доступны только по внутреннему соединению. Проверьте, что внешний TLS-прокси тоже исключает строки запроса к `/api/integrations/tiktokhelper/authorize` и `/tiktokhelper/auth/callback` из журналов.

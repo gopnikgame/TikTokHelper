@@ -1,0 +1,38 @@
+# Alternative to cabinet.compose.yaml for a VLine BFF on host loopback.
+services:
+  db:
+    pull_policy: never
+    ports:
+      - "127.0.0.1:${TIKTOK_HELPER_DB_PORT:-5434}:5432"
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=20"]
+    mem_limit: 192m
+
+  migrate:
+    image: ${TIKTOK_HELPER_IMAGE:?Load the verified TikTokHelper image}
+    build: !reset null
+    pull_policy: never
+
+  app:
+    image: ${TIKTOK_HELPER_IMAGE:?Load the verified TikTokHelper image}
+    build: !reset null
+    pull_policy: never
+    network_mode: host
+    ports: !reset []
+    extra_hosts: !reset []
+    mem_limit: 256m
+    environment:
+      HOST: 127.0.0.1
+      PORT: ${APP_BIND_PORT:-3105}
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: ${TIKTOK_HELPER_DB_PORT:-5434}
+      VLINE_BRIDGE_TOKEN_URL: http://127.0.0.1:3211/api/integrations/tiktokhelper/token
+      VLINE_BRIDGE_ENTITLEMENT_URL: http://127.0.0.1:3100/entitlement
+      VLINE_BRIDGE_ENTITLEMENT_CLIENT_ID: ${VLINE_BRIDGE_ENTITLEMENT_CLIENT_ID:?Set the existing entitlement client ID}
+    secrets:
+      - tiktok_helper_entitlement_client_secret
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+process.env.PORT+'/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+
+secrets:
+  tiktok_helper_entitlement_client_secret:
+    file: ${TIKTOK_HELPER_ENTITLEMENT_SECRET_FILE:-./secrets/tiktok_helper_entitlement_client_secret}
