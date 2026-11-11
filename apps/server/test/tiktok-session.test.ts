@@ -139,15 +139,21 @@ describe('TikTok session manager', () => {
     }));
   });
 
-  it('turns a gift streak into incremental playback counts without double counting the final event', async () => {
+  it.each([
+    { format: 'giftDetails.giftType', metadata: { giftDetails: { giftType: 1 } } },
+    { format: 'gift.type', metadata: { giftDetails: undefined, gift: { type: 1 } } },
+  ])('counts each gift in a streak once with $format', async ({ metadata }) => {
     const connector = new FakeConnector();
     const events: RealtimeEvent[] = [];
     const manager = new TikTokSessionManager(() => connector, (_workspace, event) => events.push(event));
     await manager.start('family', 'streamer');
-    connector.emit('gift', gift(1, false, 'gift-1'));
-    connector.emit('gift', gift(3, false, 'gift-2'));
-    connector.emit('gift', gift(3, true, 'gift-3'));
-    connector.emit('gift', gift(3, true, 'gift-3'));
+    const sendGift = (count: number, end: boolean, id: string) => {
+      connector.emit('gift', { ...gift(count, end, id), ...metadata });
+    };
+    sendGift(1, false, 'gift-1');
+    sendGift(3, false, 'gift-2');
+    sendGift(3, true, 'gift-3');
+    sendGift(3, true, 'gift-3');
     expect(events.filter((event) => event.type === 'gift.received').map((event) => event.repeatCount)).toEqual([1, 2]);
   });
 

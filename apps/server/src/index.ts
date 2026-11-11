@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { buildApp } from './app.js';
 import { createDatabase } from './db/client.js';
 import { createSettingsRepository } from './settings/repository.js';
-import { createTikTokConnector } from './tiktok/live-connector.js';
+import { createTikTokConnectorFactory } from './tiktok/live-connector.js';
 import { TikTokSessionManager } from './tiktok/session-manager.js';
 import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
 import { createSoundRepository } from './sounds/repository.js';
@@ -25,6 +25,7 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required');
 const basePath = readPublicBasePath(process.env.TIKTOK_HELPER_BASE_PATH);
 const bridgeConfig = readBridgeConfiguration(process.env, basePath);
+const createTikTokConnector = createTikTokConnectorFactory(process.env.TIKTOK_PROXY_URL);
 
 const { client, db } = createDatabase(databaseUrl);
 const workspaceId = process.env.DEFAULT_WORKSPACE_ID ?? 'primary';

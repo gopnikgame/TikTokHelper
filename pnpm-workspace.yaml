@@ -14,11 +14,13 @@ catalog:
   ajv: 8.20.0
   drizzle-kit: 0.31.10
   drizzle-orm: 0.45.2
+  http-proxy-agent: 7.0.2
+  https-proxy-agent: 7.0.6
   postgres: 3.4.9
-  proxy-agent: 6.5.0
   socket.io: 4.8.3
   socket.io-client: 4.8.3
-  tiktok-live-connector: 2.4.4
+  socks-proxy-agent: 8.0.5
+  tiktok-live-connector: 2.5.0
 
 catalogMode: strict
 cleanupUnusedCatalogs: true

@@ -9,13 +9,13 @@ all installed packages.
 ## tiktok-live-connector
 
 - Package: `tiktok-live-connector`
-- Version locked by this repository: `2.4.4`
+- Version locked by this repository: `2.5.0`
 - Copyright holder/author identified by the package: `zerodytrash`
 - Declared license: `AGPL-3.0-only` with additional permissions and
   exceptions in sections 18–21 of the package license
-- Source: <https://github.com/zerodytrash/TikTok-Live-Connector/tree/v2.4.4>
+- Source: <https://github.com/zerodytrash/TikTok-Live-Connector/tree/v2.5.0>
 - Exact license for this version:
-  <https://github.com/zerodytrash/TikTok-Live-Connector/blob/v2.4.4/LICENSE>
+  <https://github.com/zerodytrash/TikTok-Live-Connector/blob/v2.5.0/LICENSE>
 
 The additional terms belong to `tiktok-live-connector`; they are not added to
 the TikTokHelper project license. The installed package includes its complete

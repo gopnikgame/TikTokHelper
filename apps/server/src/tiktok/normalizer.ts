@@ -162,7 +162,7 @@ export function normalizeGift(rawValue: unknown, generation: number, sequence: n
   const user = record(raw.user);
   const identitySource = text(user?.secUid) ?? author.username.toLocaleLowerCase('en-US');
   const senderIdentityKey = createHash('sha256').update(identitySource).digest('hex');
-  const streakable = Number(giftDetails?.giftType) === 1;
+  const streakable = Number(giftDetails?.giftType ?? gift?.type) === 1;
   return {
     type: 'gift.received', generation, sequence,
     eventId: eventId(raw, ['gift', author.username, giftId, String(repeatCount), String(Boolean(raw.repeatEnd))]),

@@ -18,9 +18,11 @@
     "@tiktok-helper/contracts": "workspace:*",
     "drizzle-orm": "catalog:",
     "fastify": "5.12.4",
+    "http-proxy-agent": "catalog:",
+    "https-proxy-agent": "catalog:",
     "postgres": "catalog:",
-    "proxy-agent": "catalog:",
     "socket.io": "catalog:",
+    "socks-proxy-agent": "catalog:",
     "tiktok-live-connector": "catalog:"
   },
   "devDependencies": {

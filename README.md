@@ -107,7 +107,7 @@ curl --fail http://127.0.0.1:3000/ready
 | `APP_BIND_ADDRESS` | Host binding порта Compose |
 | `SOUND_ROOT` | Каталог встроенных звуков; задаётся Docker image |
 | `SOUND_UPLOAD_ROOT` | Постоянный каталог пользовательских загрузок |
-| `TIKTOK_PROXY_URL` | Необязательный proxy для исходящего TikTok-коннектора |
+| `TIKTOK_PROXY_URL` | Исходящий прокси TikTok. Поддерживаются `http://`, `https://`, `socks://`, `socks4://`, `socks4a://`, `socks5://` и `socks5h://`. Пустое значение означает прямое соединение. Неверный адрес или другая схема вызывают ошибку при запуске. |
 | `VLINE_BRIDGE_*` | Параметры внешней авторизации VLine |
 
 Частичная конфигурация `VLINE_BRIDGE_*` считается ошибкой и останавливает запуск. Секрет клиента передаётся только серверу. См. [docs/authentication-configuration.md](docs/authentication-configuration.md).
@@ -151,6 +151,6 @@ curl --fail http://127.0.0.1:3000/ready
 
 Современная серверная реализация и TypeScript-workspace в ветке `rewrite/typescript` распространяются как `AGPL-3.0-only`. Полный текст находится в [LICENSE.txt](LICENSE.txt). Пользователям сетевого сервиса должна быть доступна соответствующая версия полного серверного исходного кода.
 
-Проект использует `tiktok-live-connector` 2.4.4 на условиях его лицензии AGPL и дополнительных положений. Сведения о зависимости сохранены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), а подробное обоснование и ссылки на первичные тексты приведены в [ADR-0001](docs/decisions/0001-tiktok-connector-license.md).
+Проект использует `tiktok-live-connector` 2.5.0 на условиях его лицензии AGPL и дополнительных положений. Сведения о зависимости сохранены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), а подробное обоснование и ссылки на первичные тексты приведены в [ADR-0001](docs/decisions/0001-tiktok-connector-license.md).
 
 TikTokHelper не является официальным продуктом TikTok и не одобрен TikTok или ByteDance. Названия и товарные знаки принадлежат их владельцам.
