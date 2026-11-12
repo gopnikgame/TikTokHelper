@@ -13,6 +13,7 @@ import { NeuralTtsExperiment } from './speech/NeuralTtsExperiment.js';
 import { AutomationEditor, AutomationStatus } from './automation/AutomationEditor.js';
 import { APPLICATION_SOURCE } from './source-link.js';
 import { genericInstallInstructions, type PwaLifecycle, updateBlockedByLive, usePwaLifecycle } from './pwa/lifecycle.js';
+import { TutorialGuide } from './tutorial/TutorialGuide.js';
 
 const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', events: [], generation: 0, lastSequence: 0, isTransportConnected: false, onlineUsers: null };
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
@@ -471,7 +472,22 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }
 
   return <main className="console-shell">
-    <header className="topbar"><div><p className="eyebrow">TikTokHelper</p><h1>Пульт трансляции</h1><CabinetLink live={updateBlockedByLive(realtime.connectionState)} /></div><div className="account-area"><div className="presence-pill" aria-live="polite"><span aria-hidden="true">●</span>Сейчас онлайн <b>{realtime.onlineUsers ?? '—'}</b></div><div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div>{!pwa.installed ? <button type="button" className="quiet install-app-button" onClick={() => void pwa.install()}>Установить</button> : null}<div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}{authMode === 'vline' ? <button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button> : null}</div></div></header>
+    <header className="topbar">
+      <div>
+        <p className="eyebrow">TikTokHelper</p>
+        <h1>Пульт трансляции</h1>
+        <div className="topbar-links">
+          <CabinetLink live={updateBlockedByLive(realtime.connectionState)} />
+          <TutorialGuide />
+        </div>
+      </div>
+      <div className="account-area">
+        <div className="presence-pill" aria-live="polite"><span aria-hidden="true">●</span>Сейчас онлайн <b>{realtime.onlineUsers ?? '—'}</b></div>
+        <div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div>
+        {!pwa.installed ? <button type="button" className="quiet install-app-button" onClick={() => void pwa.install()}>Установить</button> : null}
+        <div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}{authMode === 'vline' ? <button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button> : null}</div>
+      </div>
+    </header>
     <p className="notice" role="status" aria-live="polite">{notice}</p>
     {accessWarning ? <p className="access-error" role="alert">{accessWarning} Уже подключённый эфир продолжит работать, но новое подключение будет недоступно.</p> : null}
     <section className="connection-panel" aria-labelledby="connection-title">
