@@ -71,6 +71,41 @@
       "when": 1789638338345,
       "tag": "0009_easy_molly_hayes",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794679492964,
+      "tag": "0010_gift_streak_high_water_mark",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794681966435,
+      "tag": "0011_gift_reaction_filters",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794684757493,
+      "tag": "0012_gift_goal_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794687227071,
+      "tag": "0013_like_goal_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794694741862,
+      "tag": "0014_regional_gift_catalog",
+      "breakpoints": true
     }
   ]
 }

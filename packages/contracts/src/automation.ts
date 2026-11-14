@@ -6,7 +6,8 @@ export const TEMPLATE_VARIABLES = [
 export type TemplateVariable = typeof TEMPLATE_VARIABLES[number];
 export type SupportPointsScope = 'stream' | 'lifetime';
 export type PrivilegeDuration = 'stream' | 'days' | 'permanent';
-export type ReactionEventType = 'moderator_seen' | 'donor_seen' | 'support_level_reached';
+export type ReactionEventType = 'moderator_seen' | 'donor_seen' | 'support_level_reached' | 'gift_completed';
+export const GIFT_REACTION_TEMPLATE_VARIABLES = ['user', 'username', 'gift', 'count', 'points'] as const;
 
 export interface WorkspaceSpeechPolicy {
   workspaceId: string;
@@ -46,6 +47,8 @@ export interface EventReaction {
   name: string;
   eventType: ReactionEventType;
   supportLevelId: string | null;
+  giftId?: string | null;
+  minimumGiftPoints?: number;
   speechTemplate: string | null;
   soundAssetId: string | null;
   cooldownSeconds: number;
@@ -134,7 +137,7 @@ export const supportLevelsSchema = { type: 'array', maxItems: 100, items: suppor
 
 const eventReactionProperties = {
   name: { type: 'string', minLength: 1, maxLength: 80 },
-  eventType: { type: 'string', enum: ['moderator_seen', 'donor_seen', 'support_level_reached'] },
+  eventType: { type: 'string', enum: ['moderator_seen', 'donor_seen', 'support_level_reached', 'gift_completed'] },
   supportLevelId: nullableUuid,
   speechTemplate: nullableTemplate,
   soundAssetId: nullableUuid,
@@ -143,15 +146,37 @@ const eventReactionProperties = {
   position: { type: 'integer', minimum: 0, maximum: 10_000 },
 } as const;
 
+const giftReactionProperties = {
+  giftId: { anyOf: [{ type: 'string', minLength: 1, maxLength: 80 }, { type: 'null' }] },
+  minimumGiftPoints: { type: 'integer', minimum: 0, maximum: 2_147_483_647 },
+} as const;
+
+const giftReactionFields = {
+  if: { properties: { eventType: { const: 'gift_completed' } } },
+  then: {
+    required: ['giftId', 'minimumGiftPoints'],
+    properties: {
+      supportLevelId: { type: 'null' },
+      speechTemplate: { anyOf: [
+        { type: 'string', pattern: `^(?:[^{}]|\\{(?:${GIFT_REACTION_TEMPLATE_VARIABLES.join('|')})\\})*$` },
+        { type: 'null' },
+      ] },
+    },
+  },
+  else: { not: { anyOf: [{ required: ['giftId'] }, { required: ['minimumGiftPoints'] }] } },
+} as const;
+
 export const saveEventReactionSchema = {
   type: 'object', additionalProperties: false,
-  required: Object.keys(eventReactionProperties), properties: eventReactionProperties,
+  required: Object.keys(eventReactionProperties), properties: { ...eventReactionProperties, ...giftReactionProperties },
+  allOf: [giftReactionFields],
 } as const;
 
 export const eventReactionSchema = {
   type: 'object', additionalProperties: false,
   required: ['id', 'workspaceId', ...Object.keys(eventReactionProperties)],
-  properties: { id: uuid, workspaceId, ...eventReactionProperties },
+  properties: { id: uuid, workspaceId, ...eventReactionProperties, ...giftReactionProperties },
+  allOf: [giftReactionFields],
 } as const;
 
 export const eventReactionsSchema = { type: 'array', maxItems: 100, items: eventReactionSchema } as const;

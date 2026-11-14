@@ -1,23 +1,31 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { AutomationConfiguration, AuthPrincipal, ChatEvent, GiftEvent, GiftSoundMapping, ObservedGift, RecentChannel, SoundAsset, SupportLevelGrantedEvent, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
+import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { AutomationConfiguration, AuthPrincipal, ChatEvent, GiftCompletedEvent, GiftEvent, GiftGoalState, GiftSoundMapping, ObservedGift, RealtimeEvent, RecentChannel, RegionalGift, RegionalGiftRegion, SaveGiftGoal, SaveLikeGoal, SoundAsset, SupportLevelGrantedEvent, UpdateGiftSoundMapping, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
 import { appPath, USES_CABINET } from './app-path.js';
 import { AudioOwnership, SoundPlaybackQueue } from './audio/playback.js';
 import { operatorEventCount } from './event-model.js';
-import { createRealtimeClient, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
+import { createRealtimeClient, EMPTY_REALTIME_STATE, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
 import { DEFAULT_SETTINGS } from './settings-model.js';
-import { chatContentParts } from './chat-content.js';
 import { beginLogin, endSession, loadAccess, loadSession } from './auth-client.js';
 import { SpeechPolicyEngine } from './speech/policy.js';
 import { browserSpeechSynthesisSupported, SpeechPlaybackQueue } from './speech/playback.js';
 import { NeuralTtsExperiment } from './speech/NeuralTtsExperiment.js';
 import { AutomationEditor, AutomationStatus } from './automation/AutomationEditor.js';
+import { ReactionCheck, type ReactionCheckHandle } from './automation/ReactionCheck.js';
 import { APPLICATION_SOURCE } from './source-link.js';
 import { genericInstallInstructions, type PwaLifecycle, updateBlockedByLive, usePwaLifecycle } from './pwa/lifecycle.js';
 import { TutorialGuide } from './tutorial/TutorialGuide.js';
+import { LiveFeeds } from './LiveFeeds.js';
+import { GiftGoalPanel } from './gift-goal/GiftGoalPanel.js';
+import { LiveActivityPanel } from './live-activity/LiveActivityPanel.js';
+import { CatalogGiftImage } from './gifts/CatalogGiftImage.js';
+import { RegionalGiftCatalog } from './gifts/RegionalGiftCatalog.js';
+import './live-view.css';
 
-const INITIAL_REALTIME_STATE: RealtimeViewState = { connectionState: 'stopped', events: [], generation: 0, lastSequence: 0, isTransportConnected: false, onlineUsers: null };
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
 const CONNECTION_NOTICE = { live: 'Эфир подключён — принимаем чат и подарки', reconnecting: 'Связь прервалась — подключаемся снова…', offline: 'Эфир завершён или аккаунт сейчас не в эфире', failed: 'Не удалось подключиться к эфиру' } as const;
+const LIVE_VIEW_DUPLICATE_NOTICES = new Set([
+  'Готово к работе', 'Звук и озвучивание включены в этой вкладке', ...Object.values(CONNECTION_NOTICE),
+]);
 type SessionState = { status: 'loading' } | { status: 'anonymous'; loginFailed?: boolean } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
 const AUTH_ERROR_COPY: Record<string, string> = {
   subscription_required: 'Для доступа нужна активная подписка VLine.',
@@ -118,10 +126,11 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     return principal.workspaces.some((workspace) => workspace.id === saved) ? saved! : (principal.workspaces[0]?.id ?? '');
   });
   const workspacePath = appPath(`api/workspaces/${encodeURIComponent(workspaceId)}`);
+  const currentWorkspace = useRef(workspaceId);
   const [settings, setSettings] = useState<UpdateWorkspaceSettings>(DEFAULT_SETTINGS);
   const [notice, setNotice] = useState('Загружаем рабочее место…');
   const [accessWarning, setAccessWarning] = useState<string | null>(null);
-  const [realtime, setRealtime] = useState<RealtimeViewState>(INITIAL_REALTIME_STATE);
+  const [realtime, setRealtime] = useState<RealtimeViewState>(EMPTY_REALTIME_STATE);
   const [sounds, setSounds] = useState<SoundAsset[]>([]);
   const [mappings, setMappings] = useState<GiftSoundMapping[]>([]);
   const [gifts, setGifts] = useState<ObservedGift[]>([]);
@@ -129,32 +138,41 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   const [automation, setAutomation] = useState<AutomationConfiguration | null>(null);
   const [automationStatus, setAutomationStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [workspaceSettingsLoaded, setWorkspaceSettingsLoaded] = useState(false);
+  const [soundLibraryLoaded, setSoundLibraryLoaded] = useState(false);
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogFilter, setCatalogFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
-  const [giftId, setGiftId] = useState('');
-  const [selectedSoundId, setSelectedSoundId] = useState('');
+  const [giftSelection, setGiftSelection] = useState('');
+  const [regionalChoice, setRegionalChoice] = useState<{ region: RegionalGiftRegion; gift: RegionalGift } | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [soundSelection, setSoundSelection] = useState<string | null>(null);
   const [soundFile, setSoundFile] = useState<File | null>(null);
   const [isUploadingSound, setIsUploadingSound] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [audioCacheStatus, setAudioCacheStatus] = useState<'idle' | 'warming' | 'ready' | 'fallback'>('idle');
-  const [followChat, setFollowChat] = useState(true);
+  const [liveOnly, setLiveOnly] = useState(false);
   const realtimeClient = useRef<RealtimeClient | null>(null);
-  const chatFeed = useRef<HTMLUListElement | null>(null);
+  const reactionCheck = useRef<ReactionCheckHandle | null>(null);
+  const liveEntry = useRef<HTMLButtonElement>(null);
+  const liveHeading = useRef<HTMLHeadingElement>(null);
+  const consoleScroll = useRef(0);
+  const returnFocus = useRef<'entry' | 'mapping' | null>(null);
   const mappingInput = useRef<HTMLSelectElement | null>(null);
   const soundFileInput = useRef<HTMLInputElement | null>(null);
-  const lastPlayedSequence = useRef(0);
-  const lastSpokenSequence = useRef(0);
-  const player = useRef(new SoundPlaybackQueue(undefined, () => setNotice('Браузер не смог воспроизвести звук')));
+  const [player] = useState(() => new SoundPlaybackQueue(undefined, () => setNotice('Браузер не смог воспроизвести звук')));
   const speechPolicy = useRef(new SpeechPolicyEngine());
   const [speechSupported] = useState(() => browserSpeechSynthesisSupported());
   const [speechQueue] = useState(() => speechSupported ? new SpeechPlaybackQueue() : null);
   const ownership = useRef<AudioOwnership | null>(null);
   const automationRef = useRef<AutomationConfiguration | null>(null);
-  const soundsRef = useRef<SoundAsset[]>([]);
+  const soundsRef = useRef<ReadonlyMap<string, SoundAsset>>(new Map());
+  const mappingsRef = useRef<ReadonlyMap<string, GiftSoundMapping>>(new Map());
   const settingsRef = useRef(settings);
   const audioEnabledRef = useRef(audioEnabled);
+  const soundLibraryRequest = useRef(0);
   useEffect(() => { automationRef.current = automation; }, [automation]);
-  useEffect(() => { soundsRef.current = sounds; }, [sounds]);
+  useEffect(() => { soundsRef.current = new Map(sounds.map((sound) => [sound.id, sound])); }, [sounds]);
+  useEffect(() => { mappingsRef.current = new Map(mappings.map((mapping) => [mapping.giftId, mapping])); }, [mappings]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { audioEnabledRef.current = audioEnabled; }, [audioEnabled]);
   useEffect(() => {
@@ -177,46 +195,86 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     return () => onLiveSessionActiveChange(false);
   }, [onLiveSessionActiveChange, realtime.connectionState]);
 
-  const handleSupportLevelGranted = useCallback((event: SupportLevelGrantedEvent) => {
-    const currentAutomation = automationRef.current;
-    if (!audioEnabledRef.current || !currentAutomation) return;
-    const reaction = speechPolicy.current.evaluateGrant(event, currentAutomation);
-    if (reaction.speech) speechQueue?.enqueue(reaction.speech, currentAutomation.policy.maxQueueSize);
+  const playReaction = useCallback((reaction: ReturnType<SpeechPolicyEngine['evaluateParticipantSeen']>, maxQueueSize: number) => {
+    if (reaction.speech) speechQueue?.enqueue(reaction.speech, maxQueueSize);
     for (const soundAssetId of reaction.soundAssetIds) {
-      const sound = soundsRef.current.find((item) => item.id === soundAssetId && item.status === 'active');
-      if (sound) player.current.enqueue(sound, 1, settingsRef.current);
+      const sound = soundsRef.current.get(soundAssetId);
+      if (sound?.status === 'active') player.enqueue(sound, 1, settingsRef.current);
     }
-  }, [speechQueue]);
+  }, [player, speechQueue]);
 
-  const playReaction = useCallback((reaction: ReturnType<SpeechPolicyEngine['evaluateParticipantSeen']>) => {
-    const currentAutomation = automationRef.current;
-    if (!audioEnabledRef.current || !currentAutomation) return;
-    if (reaction.speech) speechQueue?.enqueue(reaction.speech, currentAutomation.policy.maxQueueSize);
-    for (const soundAssetId of reaction.soundAssetIds) {
-      const sound = soundsRef.current.find((item) => item.id === soundAssetId && item.status === 'active');
-      if (sound) player.current.enqueue(sound, 1, settingsRef.current);
+  const handleSupportLevelGranted = useCallback((event: SupportLevelGrantedEvent) => {
+    const config = automationRef.current;
+    if (!audioEnabledRef.current || !config) return;
+    playReaction(speechPolicy.current.evaluateGrant(event, config), config.policy.maxQueueSize);
+  }, [playReaction]);
+
+  const handleGiftCompleted = useCallback((event: GiftCompletedEvent) => {
+    const config = automationRef.current;
+    if (!audioEnabledRef.current || !config) return;
+    const reaction = speechPolicy.current.evaluateGiftCompletion(event, config, (id) => soundsRef.current.get(id)?.status === 'active');
+    if (reaction) playReaction(reaction, config.policy.maxQueueSize);
+  }, [playReaction]);
+
+  const handleGiftGoalReached = useCallback(({ configuration }: GiftGoalState) => {
+    if (!audioEnabledRef.current || !configuration?.soundAssetId) return;
+    const sound = soundsRef.current.get(configuration.soundAssetId);
+    if (sound?.status === 'active') player.enqueue(sound, 1, settingsRef.current);
+  }, [player]);
+
+  const handleLiveEvent = useCallback((event: RealtimeEvent) => {
+    if (!audioEnabledRef.current || event.type === 'connection.state') return;
+    const config = automationRef.current;
+    if (event.type === 'gift.received') {
+      const mapping = mappingsRef.current.get(event.giftId);
+      const sound = mapping?.isEnabled ? soundsRef.current.get(mapping.soundAssetId) : undefined;
+      if (sound?.status === 'active') player.enqueue(sound, event.repeatCount, settingsRef.current);
+      if (config) playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, config), config.policy.maxQueueSize);
+      return;
     }
-  }, [speechQueue]);
+    if (!config) return;
+    const maxQueue = config.policy.maxQueueSize;
+    if (event.speakerContext?.isModerator) playReaction(speechPolicy.current.evaluateParticipantSeen('moderator_seen', event, config), maxQueue);
+    if (event.speakerContext?.isGiftGiver) playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, config), maxQueue);
+    const job = speechPolicy.current.evaluateChat(event, config);
+    if (job) speechQueue?.enqueue(job, maxQueue);
+  }, [playReaction, player, speechQueue]);
 
   const reloadSoundLibrary = useCallback(async (changedSoundId?: string) => {
+    const request = ++soundLibraryRequest.current;
+    if (changedSoundId) {
+      player.stopAll();
+      const availableSounds = new Map(soundsRef.current);
+      availableSounds.delete(changedSoundId);
+      soundsRef.current = availableSounds;
+      setSounds((current) => current.filter((sound) => sound.id !== changedSoundId));
+    }
     const [soundsResponse, mappingsResponse] = await Promise.all([
       fetch(`${workspacePath}/sounds`),
       fetch(`${workspacePath}/gift-mappings`),
     ]);
-    if (!soundsResponse.ok || !mappingsResponse.ok) return;
+    if (!soundsResponse.ok || !mappingsResponse.ok) {
+      if (request === soundLibraryRequest.current) setNotice('Не удалось обновить библиотеку звуков. Обновите страницу.');
+      return;
+    }
     const loadedSounds = await soundsResponse.json() as SoundAsset[];
     const loadedMappings = await mappingsResponse.json() as GiftSoundMapping[];
+    if (request !== soundLibraryRequest.current) return;
     setSounds(loadedSounds); setMappings(loadedMappings);
-    setSelectedSoundId((current) => loadedSounds.some((sound) => sound.id === current && sound.status === 'active')
-      ? current : (loadedSounds.find((sound) => sound.status === 'active')?.id ?? ''));
+    setSoundLibraryLoaded(true);
+    setSoundSelection((current) => loadedSounds.some((sound) => sound.id === current && sound.status === 'active') ? current : null);
     if (changedSoundId) {
-      player.current.stopAll();
       setNotice('Библиотека звуков обновлена — очередь воспроизведения очищена');
     }
-  }, [workspacePath]);
+  }, [player, workspacePath]);
+
+  const refreshChangedSound = useCallback((soundId: string) => {
+    void reloadSoundLibrary(soundId).catch(() => setNotice('Не удалось обновить библиотеку звуков. Обновите страницу.'));
+  }, [reloadSoundLibrary]);
 
   useEffect(() => {
     const controller = new AbortController();
+    const soundRequest = soundLibraryRequest.current;
     void Promise.all([
       fetch(`${workspacePath}/settings`, { signal: controller.signal }),
       fetch(`${workspacePath}/sounds`, { signal: controller.signal }),
@@ -228,10 +286,27 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       if ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse, recentChannelsResponse, automationResponse].some((response) => response.status === 401)) {
         onLoggedOut(); return;
       }
-      if (settingsResponse.ok) setSettings(await settingsResponse.json() as WorkspaceSettings);
-      if (soundsResponse.ok) { const loaded = await soundsResponse.json() as SoundAsset[]; setSounds(loaded); setSelectedSoundId(loaded[0]?.id ?? ''); }
-      if (mappingsResponse.ok) setMappings(await mappingsResponse.json() as GiftSoundMapping[]);
-      if (giftsResponse.ok) { const loaded = await giftsResponse.json() as ObservedGift[]; setGifts(loaded); setGiftId(loaded[0]?.giftId ?? ''); }
+      if (settingsResponse.ok) {
+        const loaded = await settingsResponse.json() as WorkspaceSettings;
+        if (controller.signal.aborted) return;
+        setSettings(loaded);
+        setWorkspaceSettingsLoaded(true);
+      }
+      const [loadedSounds, loadedMappings] = await Promise.all([
+        soundsResponse.ok ? soundsResponse.json() as Promise<SoundAsset[]> : null,
+        mappingsResponse.ok ? mappingsResponse.json() as Promise<GiftSoundMapping[]> : null,
+      ]);
+      if (controller.signal.aborted) return;
+      if (soundRequest === soundLibraryRequest.current) {
+        if (loadedSounds) setSounds(loadedSounds);
+        if (loadedMappings) setMappings(loadedMappings);
+        setSoundLibraryLoaded(Boolean(loadedSounds && loadedMappings));
+      }
+      if (giftsResponse.ok) {
+        const loaded = await giftsResponse.json() as ObservedGift[];
+        setGifts(loaded);
+        setGiftSelection((current) => current || loaded[0]?.giftId || '');
+      }
       if (recentChannelsResponse.ok) setRecentChannels(await recentChannelsResponse.json() as RecentChannel[]);
       if (automationResponse.ok) { setAutomation(await automationResponse.json() as AutomationConfiguration); setAutomationStatus('ready'); }
       else setAutomationStatus('error');
@@ -242,7 +317,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }, [onLoggedOut, workspacePath]);
 
   useEffect(() => {
-    let previousState = INITIAL_REALTIME_STATE.connectionState;
+    let previous = EMPTY_REALTIME_STATE;
     const controller = new AbortController();
     const verifyInterruptedSession = USES_CABINET ? () => {
       void loadSession(controller.signal).then((session) => {
@@ -255,27 +330,45 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       });
     } : undefined;
     const client = createRealtimeClient(workspaceId, (next) => {
-      if (next.connectionState !== previousState) {
-        previousState = next.connectionState;
+      if (next.generation !== previous.generation ||
+          (next.connectionId && previous.connectionId && next.connectionId !== previous.connectionId) ||
+          next.lastSequence < previous.lastSequence) {
+        speechPolicy.current.reset();
+        player.stopAll();
+        speechQueue?.stop();
+      }
+      if (next.connectionState !== previous.connectionState) {
         if (next.connectionState in CONNECTION_NOTICE) {
           setNotice(CONNECTION_NOTICE[next.connectionState as keyof typeof CONNECTION_NOTICE]);
         }
       }
+      previous = next;
       setRealtime(next);
-    }, undefined, (soundId) => void reloadSoundLibrary(soundId), handleSupportLevelGranted, verifyInterruptedSession);
+    }, undefined, refreshChangedSound, handleSupportLevelGranted, verifyInterruptedSession, handleLiveEvent,
+    principal.isAdmin ? handleGiftCompleted : undefined, principal.isAdmin ? handleGiftGoalReached : undefined, principal.isAdmin);
     realtimeClient.current = client;
     return () => { controller.abort(); realtimeClient.current = null; client.close(); };
-  }, [handleSupportLevelGranted, onLoggedOut, principal.isAdmin, principal.userId, reloadSoundLibrary, workspaceId]);
-  useEffect(() => { const playback = player.current; const owner = new AudioOwnership(() => { setAudioEnabled(false); playback.stopAll(); speechQueue?.stop(); setNotice('Звук включён в другой вкладке'); }); ownership.current = owner; return () => { owner.close(); playback.stopAll(); speechQueue?.stop(); }; }, [speechQueue]);
+  }, [handleGiftCompleted, handleGiftGoalReached, handleLiveEvent, handleSupportLevelGranted, onLoggedOut, player, principal.isAdmin, principal.userId, refreshChangedSound, speechQueue, workspaceId]);
+  useEffect(() => {
+    const owner = new AudioOwnership(() => {
+      audioEnabledRef.current = false;
+      setAudioEnabled(false); player.stopAll(); speechQueue?.stop(); setNotice('Звук включён в другой вкладке');
+    });
+    ownership.current = owner;
+    return () => { owner.close(); player.stopAll(); speechQueue?.stop(); };
+  }, [player, speechQueue]);
 
-  const mappingByGift = useMemo(() => new Map(mappings.filter((item) => item.isEnabled).map((item) => [item.giftId, item])), [mappings]);
+  const savedMappingByGift = useMemo(() => new Map(mappings.map((item) => [item.giftId, item])), [mappings]);
+  const mappingByGift = useMemo(() => new Map([...savedMappingByGift].filter(([, mapping]) => mapping.isEnabled)), [savedMappingByGift]);
   const soundById = useMemo(() => new Map(sounds.map((sound) => [sound.id, sound])), [sounds]);
+  const goalSoundId = realtime.giftGoal?.configuration?.isEnabled ? realtime.giftGoal.configuration.soundAssetId : null;
   const warmSounds = useMemo(() => {
     const ids = new Set(mappings.filter((mapping) => mapping.isEnabled).map((mapping) => mapping.soundAssetId));
     for (const level of automation?.supportLevels ?? []) if (level.isEnabled && level.soundAssetId) ids.add(level.soundAssetId);
     for (const reaction of automation?.eventReactions ?? []) if (reaction.isEnabled && reaction.soundAssetId) ids.add(reaction.soundAssetId);
+    if (goalSoundId) ids.add(goalSoundId);
     return [...ids].map((id) => soundById.get(id)).filter((sound): sound is SoundAsset => sound?.status === 'active');
-  }, [automation, mappings, soundById]);
+  }, [automation, goalSoundId, mappings, soundById]);
   const chatEvents = useMemo(() => realtime.events.filter((event): event is ChatEvent => event.type === 'chat.message'), [realtime.events]);
   const participantObservations = useMemo(() => {
     const observations = new Map<string, ChatEvent>();
@@ -299,7 +392,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         firstSeenAt: known?.firstSeenAt ?? now, lastSeenAt: now,
       });
     }
-    return [...catalogue.values()].sort((left, right) => right.lastSeenAt.localeCompare(left.lastSeenAt));
+    return [...catalogue.values()].sort((left, right) => (right.lastSeenAt ?? '').localeCompare(left.lastSeenAt ?? ''));
   }, [giftEvents, gifts]);
   const filteredGifts = useMemo(() => {
     const query = catalogQuery.trim().toLocaleLowerCase();
@@ -311,42 +404,50 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     });
   }, [catalogFilter, catalogQuery, mappingByGift, observedGifts]);
   const assignedGiftCount = mappingByGift.size;
+  const draftGift: ObservedGift | null = regionalChoice && !observedGifts.some((gift) => gift.giftId === regionalChoice.gift.giftId)
+    ? { ...regionalChoice.gift, firstSeenAt: null, lastSeenAt: null } : null;
+  const mappingGifts = draftGift ? [draftGift, ...observedGifts] : observedGifts;
+  const selectedGift = mappingGifts.find((gift) => gift.giftId === giftSelection);
+  const giftId = selectedGift?.giftId ?? '';
+  const savedMapping = savedMappingByGift.get(giftId);
+  const mappedSound = soundById.get(mappingByGift.get(giftId)?.soundAssetId ?? '');
+  const selectedSoundId = soundSelection ?? (mappedSound?.status === 'active' ? mappedSound.id : '');
+  const reactionCheckDisabled = realtime.connectionState !== 'stopped' ? 'Нажмите «Остановить», чтобы проверить реакцию перед эфиром.'
+    : !realtime.isTransportConnected || !realtime.hasCurrentSnapshot ? 'Ждём состояние подключения к эфиру.'
+    : !workspaceReady ? 'Загружаем настройки звука…'
+    : !workspaceSettingsLoaded || !soundLibraryLoaded ? 'Не удалось загрузить привязки или настройки звука. Обновите страницу.'
+    : null;
+  const liveActive = updateBlockedByLive(realtime.connectionState);
+  const liveStateKnown = realtime.isTransportConnected && realtime.hasCurrentSnapshot;
 
   useEffect(() => {
     let current = true;
     queueMicrotask(() => { if (current) setAudioCacheStatus(audioEnabled ? 'warming' : 'idle'); });
     if (!audioEnabled || !workspaceReady) return () => { current = false; };
-    void player.current.reconcile(warmSounds).then(() => player.current.warm(warmSounds)).then((result) => {
+    void player.reconcile(warmSounds).then(() => player.warm(warmSounds)).then((result) => {
       if (current) setAudioCacheStatus(result.failed > 0 ? 'fallback' : 'ready');
     });
     return () => { current = false; };
-  }, [audioEnabled, warmSounds, workspaceReady]);
+  }, [audioEnabled, player, warmSounds, workspaceReady]);
 
-  useEffect(() => {
-    if (!audioEnabled) return;
-    for (const event of giftEvents) {
-      if (event.sequence <= lastPlayedSequence.current) continue;
-      lastPlayedSequence.current = event.sequence;
-      const mapping = mappingByGift.get(event.giftId);
-      const sound = mapping ? soundById.get(mapping.soundAssetId) : undefined;
-      if (sound?.status === 'active') player.current.enqueue(sound, event.repeatCount, settings);
+  useLayoutEffect(() => {
+    if (liveOnly) {
+      window.scrollTo(0, 0);
+      liveHeading.current?.focus({ preventScroll: true });
+      return;
     }
-  }, [audioEnabled, giftEvents, mappingByGift, settings, soundById]);
-  useEffect(() => {
-    if (!audioEnabled || !automation) return;
-    for (const event of realtime.events) {
-      if (event.sequence <= lastSpokenSequence.current) continue;
-      lastSpokenSequence.current = event.sequence;
-      if (event.type === 'chat.message') {
-        if (event.speakerContext?.isModerator) playReaction(speechPolicy.current.evaluateParticipantSeen('moderator_seen', event, automation));
-        if (event.speakerContext?.isGiftGiver) playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, automation));
-        const job = speechPolicy.current.evaluateChat(event, automation);
-        if (job) speechQueue?.enqueue(job, automation.policy.maxQueueSize);
-      }
-      if (event.type === 'gift.received') playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, automation));
+    const target = returnFocus.current;
+    returnFocus.current = null;
+    if (target === 'mapping') {
+      mappingInput.current?.focus({ preventScroll: true });
+      mappingInput.current?.scrollIntoView({ block: 'center' });
     }
-  }, [audioEnabled, automation, playReaction, realtime.events, speechQueue]);
-  useEffect(() => { if (followChat) chatFeed.current?.scrollTo({ top: chatFeed.current.scrollHeight, behavior: 'smooth' }); }, [chatEvents.length, followChat]);
+    if (target === 'entry') {
+      window.scrollTo(0, consoleScroll.current);
+      liveEntry.current?.focus({ preventScroll: true });
+      liveEntry.current?.scrollIntoView({ block: 'nearest' });
+    }
+  }, [liveOnly]);
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setNotice('Сохраняем настройки…');
@@ -356,7 +457,6 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }
   async function connectLive() {
     const username = settings.tiktokUsername.trim(); if (!username) { setNotice('Введите TikTok ID'); return; }
-    speechPolicy.current.reset(); lastSpokenSequence.current = realtime.lastSequence;
     setNotice('Ищем активную трансляцию…'); const result = await realtimeClient.current?.connectLive(username);
     if (result && !result.ok && result.error.code === 'ACCESS_DENIED') {
       setNotice(AUTH_ERROR_COPY[result.error.message] ?? 'Подписка не разрешает новое подключение к эфиру.'); return;
@@ -376,6 +476,24 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     setNotice(result?.ok ? 'Команда принята — подключаемся…' : 'Сервер не принял команду подключения');
   }
   async function disconnectLive() { const result = await realtimeClient.current?.disconnectLive(); setNotice(result?.ok ? 'Подключение остановлено' : 'Не удалось остановить подключение'); }
+
+  async function saveGiftGoal(input: SaveGiftGoal): Promise<void> {
+    const client = realtimeClient.current;
+    const response = await fetch(`${workspacePath}/gift-goal`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (client === realtimeClient.current) client?.refreshSnapshot();
+  }
+
+  async function saveLikeGoal(input: SaveLikeGoal): Promise<void> {
+    const client = realtimeClient.current;
+    const response = await fetch(`${workspacePath}/like-goal`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (client === realtimeClient.current) client?.refreshSnapshot();
+  }
   async function reloadAutomation() {
     setAutomationStatus('loading');
     try {
@@ -385,32 +503,71 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       setAutomation(await response.json() as AutomationConfiguration); setAutomationStatus('ready'); setNotice('Настройки озвучивания загружены');
     } catch { setAutomationStatus('error'); setNotice('Настройки озвучивания пока недоступны'); }
   }
-  async function enableAudio() {
-    lastPlayedSequence.current = realtime.lastSequence; lastSpokenSequence.current = realtime.lastSequence; ownership.current?.claim();
-    const preview = sounds.find((sound) => sound.id === selectedSoundId);
+  async function enableAudio(): Promise<boolean> {
+    ownership.current?.claim();
+    const preview = mappedSound?.status === 'active' ? mappedSound : sounds.find((sound) => sound.status === 'active');
+    const audioReady = player.unlock(settings.maxConcurrentSounds, preview?.url);
+    try { speechQueue?.unlock(); } catch { /* A speech failure does not prevent gift sounds. */ }
     try {
-      await player.current.unlock(settings.maxConcurrentSounds, preview?.url);
-      speechQueue?.unlock();
+      await audioReady;
+      audioEnabledRef.current = true;
       setAudioEnabled(true); setNotice(speechSupported ? 'Звук и озвучивание включены в этой вкладке' : 'Звуки включены, но этот браузер не поддерживает озвучивание текста');
-    } catch {
+      return true;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return false;
+      audioEnabledRef.current = false;
       setAudioEnabled(false); setNotice('Браузер не разрешил звук. Нажмите ещё раз.');
+      return false;
     }
   }
+  function stopAudio() {
+    player.stopAll();
+    speechQueue?.stop();
+    setNotice('Текущий звук остановлен, очередь очищена. Новые реакции продолжат звучать.');
+  }
   async function saveMapping(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (!giftId || !selectedSoundId) { setNotice('Выберите замеченный подарок и звук'); return; }
-    const response = await fetch(`${workspacePath}/gift-mappings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ giftId, soundAssetId: selectedSoundId, isEnabled: true }) });
-    if (!response.ok) { setNotice('Не удалось сохранить привязку'); return; }
-    const saved = await response.json() as GiftSoundMapping; setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]); setNotice(`Подарок ${observedGifts.find((gift) => gift.giftId === saved.giftId)?.giftName ?? saved.giftId} привязан к звуку`);
+    event.preventDefault();
+    if (!selectedGift || !selectedSoundId) { setNotice('Выберите подарок и звук'); return; }
+    const data: UpdateGiftSoundMapping = { giftId, soundAssetId: selectedSoundId, isEnabled: true };
+    if (draftGift?.giftId === giftId && regionalChoice) data.catalogRegion = regionalChoice.region;
+    try {
+      const response = await fetch(`${workspacePath}/gift-mappings`, {
+        method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data),
+      });
+      if (currentWorkspace.current !== workspaceId) return;
+      if (!response.ok) {
+        setNotice(data.catalogRegion && response.status === 404
+          ? 'Подарок больше не найден в списке региона или звук недоступен. Проверьте их и повторите.'
+          : 'Не удалось сохранить привязку');
+        return;
+      }
+      const saved = await response.json() as GiftSoundMapping;
+      if (currentWorkspace.current !== workspaceId) return;
+      setMappings((current) => [...current.filter((item) => item.giftId !== saved.giftId), saved]);
+      if (data.catalogRegion) {
+        setGifts((current) => current.some((gift) => gift.giftId === saved.giftId) ? current : [...current, selectedGift]);
+        setRegionalChoice((current) => current?.gift.giftId === saved.giftId ? null : current);
+      }
+      setNotice(`Подарок ${selectedGift.giftName} привязан к звуку`);
+    } catch {
+      if (currentWorkspace.current === workspaceId) setNotice('Не удалось сохранить привязку. Проверьте соединение и повторите.');
+    }
   }
   function previewSound() {
     previewSoundById(selectedSoundId);
   }
   function previewSoundById(soundId: string) {
     const sound = sounds.find((item) => item.id === soundId); if (!sound || sound.status !== 'active') return;
-    lastPlayedSequence.current = realtime.lastSequence; ownership.current?.claim();
-    void player.current.preview(sound, settings.volumePercent).then(() => {
+    ownership.current?.claim();
+    void player.preview(sound, settings.volumePercent).then(() => {
+      audioEnabledRef.current = true;
       setAudioEnabled(true); setNotice('Проверочный звук воспроизводится');
-    }).catch(() => { setAudioEnabled(false); });
+    }).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+        audioEnabledRef.current = false;
+        setAudioEnabled(false);
+      }
+    });
   }
   async function uploadSound() {
     if (!soundFile || isUploadingSound) return;
@@ -424,7 +581,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         setNotice(message); return;
       }
       const uploaded = await response.json() as SoundAsset;
-      setSounds((current) => [...current, uploaded]); setSelectedSoundId(uploaded.id); setSoundFile(null);
+      setSounds((current) => [...current, uploaded]); setSoundSelection(uploaded.id); setSoundFile(null);
       if (soundFileInput.current) soundFileInput.current.value = '';
       setNotice(`Звук «${uploaded.displayName}» загружен и выбран`);
     } catch {
@@ -454,52 +611,101 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     }
     await reloadSoundLibrary(sound.id); setNotice(`Звук «${sound.displayName}» удалён`);
   }
+  function changeMappingGift(id: string) {
+    setGiftSelection(id);
+    setSoundSelection(null);
+    setRegionalChoice((current) => current?.gift.giftId === id ? current : null);
+  }
   function selectGiftForMapping(id: string) {
-    setGiftId(id);
-    const mapping = mappingByGift.get(id);
-    if (mapping) setSelectedSoundId(mapping.soundAssetId);
+    changeMappingGift(id);
+    if (liveOnly) {
+      returnFocus.current = 'mapping';
+      setLiveOnly(false);
+      return;
+    }
     mappingInput.current?.focus();
     mappingInput.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
+  function selectRegionalGift(region: RegionalGiftRegion, gift: RegionalGift) {
+    selectGiftForMapping(gift.giftId);
+    setRegionalChoice({ region, gift });
+  }
   function selectWorkspace(nextWorkspaceId: string) {
+    currentWorkspace.current = nextWorkspaceId;
     sessionStorage.setItem('tiktok-helper.workspace', nextWorkspaceId);
+    soundLibraryRequest.current += 1;
     setNotice('Загружаем рабочее место…');
     setWorkspaceReady(false);
-    speechPolicy.current.reset(); speechQueue?.stop();
-    setRealtime(INITIAL_REALTIME_STATE);
+    setWorkspaceSettingsLoaded(false); setSoundLibraryLoaded(false);
+    setGiftSelection(''); setSoundSelection(null); setRegionalChoice(null);
+    soundsRef.current = new Map(); mappingsRef.current = new Map(); automationRef.current = null;
+    speechPolicy.current.reset(); player.stopAll(); speechQueue?.stop();
+    setRealtime(EMPTY_REALTIME_STATE);
     setSounds([]); setMappings([]); setGifts([]); setRecentChannels([]); setAutomation(null); setAutomationStatus('loading');
     setWorkspaceId(nextWorkspaceId);
   }
 
-  return <main className="console-shell">
-    <header className="topbar">
+  return <main className={liveOnly ? 'console-shell live-only' : 'console-shell'}>
+    <header className="topbar" hidden={liveOnly}>
       <div>
         <p className="eyebrow">TikTokHelper</p>
         <h1>Пульт трансляции</h1>
         <div className="topbar-links">
-          <CabinetLink live={updateBlockedByLive(realtime.connectionState)} />
+          <CabinetLink live={liveActive} />
           <TutorialGuide />
         </div>
       </div>
       <div className="account-area">
-        <div className="presence-pill" aria-live="polite"><span aria-hidden="true">●</span>Сейчас онлайн <b>{realtime.onlineUsers ?? '—'}</b></div>
+        <div className="presence-pill" aria-live="polite"><span aria-hidden="true">●</span>Онлайн в TikTokHelper <b>{realtime.onlineUsers ?? '—'}</b></div>
         <div className={`live-pill state-${realtime.connectionState}`}><span aria-hidden="true">●</span>{STATE_COPY[realtime.connectionState]}</div>
         {!pwa.installed ? <button type="button" className="quiet install-app-button" onClick={() => void pwa.install()}>Установить</button> : null}
         <div className="account-control"><span>{principal.displayName ?? 'Пользователь VLine'}</span>{principal.workspaces.length > 1 ? <label>Рабочее место<select value={workspaceId} onChange={(event) => selectWorkspace(event.target.value)}>{principal.workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.displayName}</option>)}</select></label> : <small>{principal.workspaces[0]?.displayName ?? 'Рабочее место не назначено'}</small>}{authMode === 'vline' ? <button type="button" className="quiet" onClick={() => void endSession().then(onLoggedOut).catch(() => setNotice('Не удалось выйти. Попробуйте ещё раз.'))}>Выйти</button> : null}</div>
       </div>
     </header>
-    <p className="notice" role="status" aria-live="polite">{notice}</p>
+    {liveOnly ? <header className="live-view-header">
+      <div className="live-view-heading">
+        <h1 ref={liveHeading} tabIndex={-1}>Только эфир</h1>
+        <div className="live-view-status" role="status">
+          <div className={`live-pill state-${liveStateKnown ? realtime.connectionState : 'stopped'}`}>
+            <span aria-hidden="true">●</span>{liveStateKnown ? STATE_COPY[realtime.connectionState] : 'Ждём состояние эфира'}
+          </div>
+          <span className="live-view-transport">{realtime.isTransportConnected ? 'Браузер на связи' : 'Браузер без связи'}</span>
+        </div>
+      </div>
+      <div className="live-view-actions">
+        <button type="button" className={audioEnabled ? 'danger' : undefined} disabled={!workspaceReady}
+          title={audioEnabled ? 'Остановить текущий звук и очистить очередь' : undefined}
+          onClick={audioEnabled ? stopAudio : () => void enableAudio()}>{audioEnabled ? 'Остановить звук' : 'Включить звук'}</button>
+        <button type="button" className="quiet live-view-return" onClick={() => {
+          returnFocus.current = 'entry';
+          setLiveOnly(false);
+        }}>К пульту</button>
+      </div>
+    </header> : null}
+    <p className="notice" role="status" hidden={liveOnly && LIVE_VIEW_DUPLICATE_NOTICES.has(notice)}>{notice}</p>
     {accessWarning ? <p className="access-error" role="alert">{accessWarning} Уже подключённый эфир продолжит работать, но новое подключение будет недоступно.</p> : null}
-    <section className="connection-panel" aria-labelledby="connection-title">
+    <section className="connection-panel" aria-labelledby="connection-title" hidden={liveOnly}>
       <div><h2 id="connection-title">Подключение</h2><p>TikTokHelper читает уже запущенный эфир — сам эфир запускается на телефоне.</p></div>
       <div className="username-field"><label><span>TikTok ID</span><input required value={settings.tiktokUsername} placeholder="@username" onChange={(event) => setSettings((current) => ({ ...current, tiktokUsername: event.target.value }))} /></label>{recentChannels.length > 0 ? <div className="recent-channels" aria-label="Недавние TikTok ID">{recentChannels.slice(0, 8).map((channel) => <button type="button" className="channel-chip" key={channel.tiktokUsername} onClick={() => setSettings((current) => ({ ...current, tiktokUsername: `@${channel.tiktokUsername}` }))}>@{channel.tiktokUsername}</button>)}</div> : <span className="field-hint">История появится после первого подключения.</span>}</div>
-      <div className="actions"><button type="button" onClick={() => void connectLive()} disabled={!realtime.isTransportConnected}>Подключить эфир</button><button type="button" className="secondary" onClick={() => void disconnectLive()}>Остановить</button></div>
+      <div className="actions">
+        <button type="button" onClick={() => void connectLive()} disabled={!realtime.isTransportConnected}>Подключить эфир</button>
+        <button type="button" className="secondary" onClick={() => void disconnectLive()}>Остановить</button>
+        {principal.isAdmin ? <button ref={liveEntry} type="button" className="quiet live-view-entry" onClick={() => {
+          consoleScroll.current = window.scrollY;
+          setLiveOnly(true);
+        }}>Только эфир</button> : null}
+      </div>
       <div className="connection-facts"><span>Браузер <b>{realtime.isTransportConnected ? 'на связи' : 'без связи'}</b></span><span>Чат и подарки <b>{operatorEventCount(realtime.events)}</b></span></div>
     </section>
-    <div className="feed-grid">
-      <section className="feed-panel chat-panel" aria-labelledby="chat-title"><header><div><p className="section-kicker">Прямой эфир</p><h2 id="chat-title">Чат</h2></div>{!followChat ? <button type="button" className="quiet" onClick={() => setFollowChat(true)}>К новым сообщениям</button> : null}</header><ul ref={chatFeed} className="chat-list" aria-live="polite" onScroll={(event) => { const target = event.currentTarget; setFollowChat(target.scrollHeight - target.scrollTop - target.clientHeight < 56); }}>{chatEvents.length === 0 ? <li className="empty-state"><strong>Сообщений пока нет</strong><span>После подключения новые реплики появятся здесь крупным текстом.</span></li> : chatEvents.map((message) => <li key={message.eventId} className="chat-message"><div><strong>{message.senderDisplayName}</strong><span>@{message.senderUsername}</span></div><p>{chatContentParts(message.text, message.emotes).map((part, index) => part.type === 'text' ? part.value : <img key={`${part.value.emoteId}-${index}`} className="chat-emote" src={part.value.imageUrl} alt={`:${part.value.emoteId}:`} loading="lazy" referrerPolicy="no-referrer" />)}</p></li>)}</ul></section>
-      <aside className="feed-panel gift-panel" aria-labelledby="gift-title"><header><div><p className="section-kicker">Реакции</p><h2 id="gift-title">Подарки</h2></div></header><ul className="gift-list">{giftEvents.length === 0 ? <li className="empty-state"><strong>Ждём первый подарок</strong><span>Серии будут показаны по реально добавленному количеству.</span></li> : giftEvents.slice(-30).toReversed().map((gift) => <li key={gift.eventId}>{gift.imageUrl ? <img className="gift-image" src={gift.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="gift-count">×{gift.repeatCount}</span>}<div><strong>{gift.giftName} ×{gift.repeatCount}</strong><span>{gift.senderDisplayName}</span></div><small>{mappingByGift.has(gift.giftId) ? 'звук назначен' : `ID ${gift.giftId} · без звука`}</small><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>)}</ul></aside>
-    </div>
+    {principal.isAdmin ? <LiveActivityPanel key={`activity:${workspaceId}`} state={realtime.liveActivity} isCurrent={liveStateKnown}
+      isLive={realtime.connectionState === 'live'} liveOnly={liveOnly} onSave={saveLikeGoal}
+      onRetry={() => realtimeClient.current?.refreshSnapshot()} /> : null}
+    {principal.isAdmin ? <GiftGoalPanel key={`gift-goal:${workspaceId}`} state={realtime.giftGoal} isCurrent={liveStateKnown}
+      liveOnly={liveOnly} gifts={observedGifts} sounds={sounds} error={liveStateKnown && !realtime.giftGoal}
+      onRetry={() => realtimeClient.current?.refreshSnapshot()} onSave={saveGiftGoal} onPreviewSound={previewSoundById} /> : null}
+    <LiveFeeds key={`${workspaceId}:${realtime.generation}:${realtime.connectionId ?? ''}`} chat={chatEvents} gifts={giftEvents} mappings={mappingByGift}
+      liveOnly={liveOnly} liveActive={liveActive} onConfigureGift={selectGiftForMapping} />
+    <div hidden={liveOnly}>
     {principal.isAdmin ? <details className="diagnostics-panel">
       <summary><span><b>Диагностика участников чата</b><small>{participantObservations.length} замечено в текущей истории</small></span><span aria-hidden="true">Развернуть</span></summary>
       <div className="diagnostics-intro"><strong>Безопасный просмотр</strong><span>Показываются только нормализованные поля текущего эфира. Исходные события, secUid, биографии и текст сообщений здесь не сохраняются.</span></div>
@@ -526,27 +732,86 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         </li>;
       })}</ul>}
     </details> : null}
-    {principal.isAdmin ? <NeuralTtsExperiment liveActive={updateBlockedByLive(realtime.connectionState)} /> : null}
-    <details className="catalog-panel">
+    {principal.isAdmin ? <NeuralTtsExperiment liveActive={liveActive} /> : null}
+    <details className="catalog-panel" onToggle={(event) => setCatalogOpen(event.currentTarget.open)}>
       <summary><span><b>Каталог подарков и звуков</b><small>{observedGifts.length} подарков · {mappings.length} привязок</small></span><span aria-hidden="true">Развернуть</span></summary>
+      {principal.isAdmin && catalogOpen && !liveOnly ? <RegionalGiftCatalog key={workspaceId}
+        workspacePath={workspacePath} mappings={mappingByGift} onSelect={selectRegionalGift} /> : null}
       <div className="catalog-tools"><label>Поиск по названию, ID или звуку<input type="search" value={catalogQuery} placeholder="Например: Rose, 5655 или Пук" onChange={(event) => setCatalogQuery(event.target.value)} /></label><fieldset><legend>Показывать</legend><div className="filter-pills"><button type="button" className={catalogFilter === 'all' ? 'active' : ''} aria-pressed={catalogFilter === 'all'} onClick={() => setCatalogFilter('all')}>Все <span>{observedGifts.length}</span></button><button type="button" className={catalogFilter === 'unassigned' ? 'active' : ''} aria-pressed={catalogFilter === 'unassigned'} onClick={() => setCatalogFilter('unassigned')}>Без звука <span>{observedGifts.length - assignedGiftCount}</span></button><button type="button" className={catalogFilter === 'assigned' ? 'active' : ''} aria-pressed={catalogFilter === 'assigned'} onClick={() => setCatalogFilter('assigned')}>Настроенные <span>{assignedGiftCount}</span></button></div></fieldset></div>
-      {filteredGifts.length === 0 ? <p className="catalog-empty">Ничего не найдено. Измените запрос или дождитесь новых подарков в эфире.</p> : <ul className="catalog-list">{filteredGifts.map((gift) => { const mapping = mappingByGift.get(gift.giftId); return <li key={gift.giftId}>{gift.imageUrl ? <img src={gift.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : <span className="catalog-placeholder" aria-hidden="true">🎁</span>}<div><strong>{gift.giftName}</strong><code>ID {gift.giftId}</code></div><div className={mapping ? 'mapping-state assigned' : 'mapping-state'}><span>{mapping ? 'Назначен звук' : 'Без звука'}</span><b>{mapping?.soundDisplayName ?? 'Выберите реакцию'}</b></div><button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button></li>; })}</ul>}
+      {filteredGifts.length === 0 ? <p className="catalog-empty">Ничего не найдено. Измените запрос или дождитесь новых подарков в эфире.</p> : <ul className="catalog-list">
+        {filteredGifts.map((gift) => {
+          const mapping = mappingByGift.get(gift.giftId);
+          return <li key={gift.giftId}>
+            <CatalogGiftImage key={gift.imageUrl} imageUrl={gift.imageUrl} />
+            <div><strong>{gift.giftName}</strong><code>ID {gift.giftId}</code>
+              {!gift.firstSeenAt ? <small>Из регионального каталога</small> : null}
+            </div>
+            <div className={mapping ? 'mapping-state assigned' : 'mapping-state'}>
+              <span>{mapping ? 'Назначен звук' : 'Без звука'}</span>
+              <b>{mapping?.soundDisplayName ?? 'Выберите реакцию'}</b>
+            </div>
+            <button type="button" className="quiet" onClick={() => selectGiftForMapping(gift.giftId)}>Настроить</button>
+          </li>;
+        })}
+      </ul>}
     </details>
     <details className="sound-library-panel">
       <summary><span><b>Библиотека звуков</b><small>{sounds.filter((sound) => sound.status === 'active').length} доступно · {sounds.filter((sound) => sound.status === 'quarantined').length} в карантине</small></span><span aria-hidden="true">Развернуть</span></summary>
       <ul className="sound-library-list">{sounds.map((sound) => <li key={sound.id} className={sound.status === 'quarantined' ? 'is-quarantined' : ''}>
         <div><strong>{sound.displayName}</strong><code>ID {sound.id}</code><small>{sound.status === 'quarantined' ? `Карантин: ${sound.quarantineReason}` : sound.isOwnedByCurrentUser ? 'Загружен вами' : 'Общий звук'} · привязок: {sound.usageCount}</small></div>
-        <div className="actions">{sound.status === 'active' ? <button type="button" className="secondary" onClick={() => { setSelectedSoundId(sound.id); previewSoundById(sound.id); }}>Прослушать</button> : null}{sound.canQuarantine ? <button type="button" className="danger" onClick={() => void quarantineSound(sound)}>В карантин</button> : null}{sound.canDelete ? <button type="button" className="danger" onClick={() => void deleteSound(sound)}>Удалить</button> : null}</div>
+        <div className="actions">{sound.status === 'active' ? <button type="button" className="secondary" onClick={() => { setSoundSelection(sound.id); previewSoundById(sound.id); }}>Прослушать</button> : null}{sound.canQuarantine ? <button type="button" className="danger" onClick={() => void quarantineSound(sound)}>В карантин</button> : null}{sound.canDelete ? <button type="button" className="danger" onClick={() => void deleteSound(sound)}>Удалить</button> : null}</div>
       </li>)}</ul>
     </details>
     {automationStatus === 'loading' ? <AutomationStatus status="loading" /> : null}
     {automationStatus === 'error' ? <AutomationStatus status="error" onRetry={() => void reloadAutomation()} /> : null}
-    {automationStatus === 'ready' && automation ? <AutomationEditor key={workspaceId} workspaceId={workspaceId} configuration={automation} sounds={sounds} speechSupported={speechSupported} speechQueue={speechQueue} onConfigurationChange={setAutomation} onPreviewSound={previewSoundById} onNotice={setNotice} /> : null}
+    {automationStatus === 'ready' && automation ? <AutomationEditor key={workspaceId} workspaceId={workspaceId}
+      configuration={automation} sounds={sounds} speechSupported={speechSupported} speechQueue={speechQueue}
+      giftReactionCatalog={principal.isAdmin ? observedGifts : undefined} giftReactionCheckDisabledReason={reactionCheckDisabled}
+      onCheckGiftReaction={(ruleId, trigger) => reactionCheck.current?.openGiftRule(ruleId, trigger)}
+      onConfigurationChange={setAutomation} onPreviewSound={previewSoundById} onNotice={setNotice} /> : null}
     <section className="control-grid" aria-label="Настройки звука">
-      <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? (speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.') : 'Браузеру нужно разрешить звук одним нажатием.'}</p>{audioEnabled ? <small>{audioCacheStatus === 'warming' ? `Подготавливаем используемые звуки: ${warmSounds.length}` : audioCacheStatus === 'fallback' ? 'Часть звуков будет загружаться обычным способом' : `Используемые звуки готовы: ${warmSounds.length}`}</small> : null}<div className="actions"><button type="button" disabled={!workspaceReady} onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : workspaceReady ? 'Включить звук' : 'Загружаем звуки…'}</button><button type="button" className="danger" onClick={() => { player.current.stopAll(); speechQueue?.stop(); setNotice('Все звуки и очередь остановлены'); }}>Стоп / очистить очередь</button></div></div>
-      <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}><p className="section-kicker">Реакция на подарок</p><h2>Привязка звука</h2><label>Замеченный подарок<select ref={mappingInput} value={giftId} onChange={(event) => setGiftId(event.target.value)}><option value="">Сначала дождитесь подарка в эфире</option>{observedGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}</select></label><label>Звук<select value={selectedSoundId} onChange={(event) => setSelectedSoundId(event.target.value)}>{sounds.filter((sound) => sound.status === 'active').map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}</select></label><div className="upload-box"><strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span><label className="file-picker"><input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} /><span className="file-picker-button">Выбрать файл</span><span className="file-picker-name">{soundFile?.name ?? 'Файл не выбран'}</span></label><button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>{isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}</button></div><div className="actions"><button type="button" className="secondary" onClick={previewSound}>Прослушать</button><button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button></div><p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p></form>
+      <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? (speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.') : 'Браузеру нужно разрешить звук одним нажатием.'}</p>{audioEnabled ? <small>{audioCacheStatus === 'warming' ? `Подготавливаем используемые звуки: ${warmSounds.length}` : audioCacheStatus === 'fallback' ? 'Часть звуков будет загружаться обычным способом' : `Используемые звуки готовы: ${warmSounds.length}`}</small> : null}<div className="actions"><button type="button" disabled={!workspaceReady} onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : workspaceReady ? 'Включить звук' : 'Загружаем звуки…'}</button><button type="button" className="danger" onClick={stopAudio}>Стоп / очистить очередь</button></div></div>
+      <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}>
+        <p className="section-kicker">Реакция на подарок</p>
+        <h2>Привязка звука</h2>
+        <label>Подарок
+          <select ref={mappingInput} value={giftId} onChange={(event) => changeMappingGift(event.target.value)}>
+            <option value="" disabled>{mappingGifts.length ? 'Выберите подарок' : principal.isAdmin ? 'Откройте каталог подарков' : 'Сначала дождитесь подарка в эфире'}</option>
+            {mappingGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}
+          </select>
+        </label>
+        <label>Звук
+          <select value={selectedSoundId} onChange={(event) => setSoundSelection(event.target.value)}>
+            <option value="" disabled>Выберите звук</option>
+            {sounds.filter((sound) => sound.status === 'active').map((sound) => <option key={sound.id} value={sound.id}>{sound.displayName}</option>)}
+          </select>
+        </label>
+        <div className="upload-box">
+          <strong>Добавить свой звук</strong><span>WAV, MP3, OGG или M4A · до 10 МБ</span>
+          <label className="file-picker">
+            <input ref={soundFileInput} aria-label="Аудиофайл" type="file" accept=".wav,.mp3,.ogg,.m4a,audio/wav,audio/mpeg,audio/ogg,audio/mp4" onChange={(event) => setSoundFile(event.target.files?.[0] ?? null)} />
+            <span className="file-picker-button">Выбрать файл</span>
+            <span className="file-picker-name">{soundFile?.name ?? 'Файл не выбран'}</span>
+          </label>
+          <button type="button" className="secondary" disabled={!soundFile || isUploadingSound} onClick={() => void uploadSound()}>
+            {isUploadingSound ? 'Загружаем…' : 'Загрузить и выбрать'}
+          </button>
+        </div>
+        <div className="actions">
+          <button type="button" className="secondary" disabled={!selectedSoundId} onClick={previewSound}>Прослушать</button>
+          <button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button>
+        </div>
+        {principal.isAdmin ? <div className="reaction-check-entry">
+          <ReactionCheck key={workspaceId} ref={reactionCheck} gift={selectedGift} gifts={observedGifts}
+            savedMapping={savedMapping} sounds={soundById} settings={settings}
+            automation={automation} disabledReason={reactionCheckDisabled} audioEnabled={audioEnabled}
+            onEnableAudio={enableAudio} player={player} speechQueue={speechQueue} />
+        </div> : null}
+        <p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p>
+      </form>
       <form className="control-card settings-card" onSubmit={(event) => void saveSettings(event)}><p className="section-kicker">Поведение серии</p><h2>Наложение</h2><label>Режим<select value={settings.playbackMode} onChange={(event) => setSettings((current) => ({ ...current, playbackMode: event.target.value as UpdateWorkspaceSettings['playbackMode'] }))}><option value="controlled_overlap">Умеренное наложение</option><option value="sequential">Последовательно</option><option value="strong_overlap">Сильное наложение</option></select></label><label>Перекрытие звука <output>{settings.overlapPercent}%</output><input type="range" min="0" max="100" value={settings.overlapPercent} onChange={(event) => setSettings((current) => ({ ...current, overlapPercent: event.target.valueAsNumber }))} /></label><div className="two-fields"><label>Одновременно<input type="number" min="1" max="32" value={settings.maxConcurrentSounds} onChange={(event) => setSettings((current) => ({ ...current, maxConcurrentSounds: event.target.valueAsNumber }))} /></label><label>Громкость <output>{settings.volumePercent}%</output><input type="range" min="0" max="100" value={settings.volumePercent} onChange={(event) => setSettings((current) => ({ ...current, volumePercent: event.target.valueAsNumber }))} /></label></div><button type="submit">Сохранить настройки</button></form>
     </section>
-    <footer><span>Недавние сообщения чата временно хранятся в памяти сервера и открытого браузера. В базу данных они не записываются.</span><SourceLink /></footer>
+    </div>
+    <footer>{liveOnly ? null : <span>Недавние сообщения чата временно хранятся в памяти сервера и открытого браузера. В базу данных они не записываются.</span>}<SourceLink /></footer>
   </main>;
 }

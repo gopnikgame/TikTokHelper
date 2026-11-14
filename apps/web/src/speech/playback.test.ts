@@ -53,4 +53,61 @@ describe('browser speech queue', () => {
     queue.enqueue({ id: '1', text: 'Тест', language: 'ru-RU', priority: 'normal' }, 5);
     expect(spoken[0]).toMatchObject({ voice: { name: 'English' }, rate: 1.4, volume: .6 });
   });
+
+  it('snapshots device settings for preview and does not cancel the synth while idle', () => {
+    const { queue, synthesis, spoken } = setup();
+    queue.setPreferences({ voiceName: 'Russian', rate: 1.4, volume: .6 });
+    const preview = queue.createPreviewQueue();
+    queue.setPreferences({ voiceName: 'English', rate: 2, volume: 0 });
+    const onResult = vi.fn();
+
+    preview.stop();
+    expect(synthesis.cancel).not.toHaveBeenCalled();
+    expect(preview.preferences).toEqual({ voiceName: 'Russian', rate: 1.4, volume: .6 });
+    preview.enqueue({ id: 'preview', text: 'Проверка', language: 'ru', priority: 'normal' }, 5, onResult);
+    expect(preview.active).toBe(true);
+    expect(spoken[0]).toMatchObject({ voice: { name: 'Russian' }, rate: 1.4, volume: .6 });
+    spoken[0]!.onend?.();
+    expect(preview.active).toBe(false);
+    preview.stop();
+    expect(synthesis.cancel).not.toHaveBeenCalled();
+    expect(onResult).toHaveBeenCalledExactlyOnceWith('ended');
+  });
+
+  it('allows a check when silent speech preparation never finishes', () => {
+    const { queue, synthesis, spoken } = setup();
+    queue.unlock();
+    expect(queue.active).toBe(false);
+    const preview = queue.createPreviewQueue();
+    expect(synthesis.cancel).toHaveBeenCalledOnce();
+
+    preview.enqueue({ id: 'preview', text: 'Проверка', language: 'ru', priority: 'normal' }, 5);
+    spoken[0]!.onend?.();
+    expect(preview.active).toBe(true);
+    expect(spoken[1]?.text).toBe('Проверка');
+  });
+
+  it('ignores late or repeated utterance events and reports the current result once', () => {
+    const { queue, synthesis, spoken } = setup();
+    const preview = queue.createPreviewQueue();
+    const obsolete = vi.fn();
+    const failure = vi.fn();
+    const success = vi.fn();
+    preview.enqueue({ id: 'old', text: 'Old', language: 'en', priority: 'normal' }, 5, obsolete);
+    preview.stop();
+    expect(synthesis.cancel).toHaveBeenCalledOnce();
+    preview.enqueue({ id: 'new', text: 'New', language: 'en', priority: 'normal' }, 5, failure);
+    preview.enqueue({ id: 'next', text: 'Next', language: 'en', priority: 'normal' }, 5, success);
+    spoken[0]!.onend?.();
+    spoken[0]!.onerror?.();
+    expect(obsolete).not.toHaveBeenCalled();
+    expect(spoken).toHaveLength(2);
+
+    spoken[1]!.onerror?.();
+    spoken[1]!.onend?.();
+    expect(failure).toHaveBeenCalledExactlyOnceWith('failed');
+    expect(spoken).toHaveLength(3);
+    spoken[2]!.onend?.();
+    expect(success).toHaveBeenCalledExactlyOnceWith('ended');
+  });
 });

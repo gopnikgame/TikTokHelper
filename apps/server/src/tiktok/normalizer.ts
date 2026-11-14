@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { ChatEmote, ChatEvent, ChatParticipantDiagnostic, GiftEvent } from '@tiktok-helper/contracts';
 
 type UnknownRecord = Record<string, unknown>;
@@ -147,6 +147,19 @@ export interface NormalizedGift extends GiftEvent {
   repeatEnd: boolean;
   streakable: boolean;
   senderIdentityKey: string;
+  groupId?: string;
+  occurredAt?: number;
+  upstreamEventId?: string;
+}
+
+export function tiktokRoomId(value: unknown): string | undefined {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) return undefined;
+  const id = text(value);
+  return id && /^[1-9]\d{0,19}$/.test(id) ? id : undefined;
+}
+
+export function messageRoomId(value: unknown): string | undefined {
+  return tiktokRoomId(record(record(value)?.common)?.roomId);
 }
 
 export function normalizeGift(rawValue: unknown, generation: number, sequence: number): NormalizedGift | undefined {
@@ -156,20 +169,36 @@ export function normalizeGift(rawValue: unknown, generation: number, sequence: n
   const giftDetails = record(raw.giftDetails);
   const gift = record(raw.gift);
   const extendedGift = record(raw.extendedGiftInfo);
-  const giftId = text(raw.giftId);
-  const repeatCount = positiveInteger(raw.repeatCount) ?? 1;
-  if (!author || !giftId) return undefined;
+  const giftId = boundedText(raw.giftId, 64);
+  const streakable = (positiveInteger(giftDetails?.giftType) ?? positiveInteger(gift?.type)) === 1;
+  const suppliedCount = raw.repeatCount;
+  const repeatCount = (typeof suppliedCount !== 'boolean' ? positiveInteger(suppliedCount) : undefined) ?? (
+    suppliedCount === undefined || (!streakable && (suppliedCount === 0 || suppliedCount === '0')) ? 1 : undefined
+  );
+  if (!author || !giftId || giftId === '0' || !repeatCount) return undefined;
   const user = record(raw.user);
+  const common = record(raw.common);
+  const groupId = tiktokRoomId(raw.groupId);
+  const occurredAt = positiveInteger(common?.createTime);
+  const repeatEnd = raw.repeatEnd === true || raw.repeatEnd === 1 || raw.repeatEnd === '1';
+  const suppliedId = boundedText(common?.msgId, 160);
+  const messageId = suppliedId && suppliedId !== '0' ? suppliedId : boundedText(raw.msgId, 160);
+  const upstreamEventId = messageId && messageId !== '0' ? messageId : undefined;
+  const orderId = boundedText(raw.orderId, 160);
   const identitySource = text(user?.secUid) ?? author.username.toLocaleLowerCase('en-US');
   const senderIdentityKey = createHash('sha256').update(identitySource).digest('hex');
-  const streakable = Number(giftDetails?.giftType ?? gift?.type) === 1;
+  const fallbackIdentity = streakable && groupId ? `group:${groupId}:${repeatCount}:${repeatEnd}`
+    : orderId && orderId !== '0' ? `order:${orderId}`
+    : occurredAt ? `time:${occurredAt}:${repeatCount}:${repeatEnd}` : undefined;
   return {
     type: 'gift.received', generation, sequence,
-    eventId: eventId(raw, ['gift', author.username, giftId, String(repeatCount), String(Boolean(raw.repeatEnd))]),
+    eventId: upstreamEventId ?? (fallbackIdentity
+      ? createHash('sha256').update(JSON.stringify([messageRoomId(raw), senderIdentityKey, giftId, fallbackIdentity])).digest('hex')
+      : randomUUID()),
     giftId, giftName: text(gift?.name) ?? text(giftDetails?.giftName) ?? text(extendedGift?.name) ?? giftId,
     senderDisplayName: author.displayName, senderUsername: author.username, senderIdentityKey, repeatCount,
     imageUrl: firstImageUrl(gift?.image, gift?.icon, gift?.previewImage, giftDetails?.giftImage, extendedGift?.image),
     diamondCount: nonNegativeInteger(gift?.diamondCount ?? giftDetails?.diamondCount ?? raw.diamondCount),
-    repeatEnd: Boolean(raw.repeatEnd), streakable,
+    repeatEnd, streakable, groupId, occurredAt, upstreamEventId,
   };
 }

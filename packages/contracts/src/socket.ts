@@ -1,4 +1,7 @@
 import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv';
+import type { GiftCompletedEvent } from './gift-completion.js';
+import type { GiftGoalState, GiftGoalUpdate } from './gift-goal.js';
+import type { LiveActivityState } from './live-activity.js';
 
 const identifierPattern = '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$';
 const commandIdPattern = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
@@ -82,6 +85,7 @@ export function validateClientEvent<EventName extends ClientEventName>(
 export interface ConnectionStateEvent {
   type: 'connection.state'; generation: number; sequence: number;
   state: 'stopped' | 'connecting' | 'live' | 'reconnecting' | 'offline' | 'failed';
+  connectionId?: string;
 }
 export interface ChatEvent {
   type: 'chat.message'; generation: number; sequence: number; eventId: string;
@@ -91,6 +95,7 @@ export interface ChatEvent {
   language?: string;
   mentionedUsernames?: string[];
   speakerContext?: ChatSpeakerContext;
+  historical?: true;
 }
 export interface SpeechLevelEntitlement {
   levelId: string;
@@ -125,6 +130,7 @@ export interface GiftEvent {
   type: 'gift.received'; generation: number; sequence: number; eventId: string;
   giftId: string; giftName: string; senderDisplayName: string; senderUsername: string; repeatCount: number;
   imageUrl?: string; diamondCount?: number;
+  historical?: true;
 }
 export interface SupportLevelGrantedEvent {
   eventId: string;
@@ -186,13 +192,19 @@ export type RealtimeEvent = ConnectionStateEvent | ChatEvent | GiftEvent;
 export interface RealtimeSnapshot {
   workspaceId: string; generation: number; lastSequence: number;
   connectionState: ConnectionStateEvent['state'];
+  connectionId?: string;
   replay: RealtimeEvent[];
   requiresFullRefresh: boolean;
+  giftGoal?: GiftGoalState;
+  liveActivity?: LiveActivityState;
 }
 export interface ServerToClientEvents {
   snapshot: (snapshot: RealtimeSnapshot) => void;
   event: (event: RealtimeEvent) => void;
   'presence:update': (payload: { onlineUsers: number }) => void;
   'support:level-granted': (event: SupportLevelGrantedEvent) => void;
+  'gift:completed': (event: GiftCompletedEvent) => void;
+  'gift-goal:update': (update: GiftGoalUpdate) => void;
+  'live-activity:update': (state: LiveActivityState) => void;
   'sound-library:changed': (payload: { soundId: string }) => void;
 }

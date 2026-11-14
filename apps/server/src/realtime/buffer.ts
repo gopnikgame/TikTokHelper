@@ -13,7 +13,8 @@ export class RecentEventBuffer {
   }
 
   add(workspaceId: string, event: RealtimeEvent): void {
-    const events = this.#events.get(workspaceId) ?? [];
+    const retained = this.#events.get(workspaceId);
+    const events = retained?.at(-1)?.generation === event.generation ? retained : [];
     events.push(event);
     if (events.length > this.capacity) events.splice(0, events.length - this.capacity);
     this.#events.set(workspaceId, events);
@@ -22,26 +23,22 @@ export class RecentEventBuffer {
   replay(workspaceId: string, generation?: number, lastSequence?: number): ReplayResult {
     const events = this.#events.get(workspaceId) ?? [];
     if (generation === undefined || lastSequence === undefined) return { events: [], requiresFullRefresh: false };
-    const currentGeneration = events.at(-1)?.generation;
+    const latest = events.at(-1);
     // A new browser has no generation cursor yet. Its snapshot is authoritative,
     // so include the bounded recent context from the current generation instead
     // of treating generation 0 as an unrecoverable gap.
-    if (generation === 0 && lastSequence === 0 && currentGeneration !== undefined) {
-      return {
-        events: events.filter((event) => event.generation === currentGeneration),
-        requiresFullRefresh: false,
-      };
+    if (generation === 0 && lastSequence === 0) {
+      return { events: [...events], requiresFullRefresh: false };
     }
-    if (currentGeneration !== undefined && generation !== currentGeneration) {
-      return { events: [], requiresFullRefresh: true };
+    if (!latest || generation !== latest.generation || lastSequence > latest.sequence) {
+      return { events: [...events], requiresFullRefresh: true };
     }
-    const sameGeneration = events.filter((event) => event.generation === generation);
-    const oldestSequence = sameGeneration[0]?.sequence;
+    const oldestSequence = events[0]?.sequence;
     if (oldestSequence !== undefined && lastSequence + 1 < oldestSequence) {
-      return { events: [], requiresFullRefresh: true };
+      return { events: [...events], requiresFullRefresh: true };
     }
     return {
-      events: sameGeneration.filter((event) => event.sequence > lastSequence),
+      events: events.filter((event) => event.sequence > lastSequence),
       requiresFullRefresh: false,
     };
   }

@@ -1,3 +1,5 @@
+import { regionalGiftRegionSchema, type RegionalGift, type RegionalGiftRegion } from './regional-gifts.js';
+
 export interface SoundAsset {
   id: string;
   displayName: string;
@@ -20,13 +22,9 @@ export interface UploadSoundQuery {
   displayName: string;
 }
 
-export interface ObservedGift {
-  giftId: string;
-  giftName: string;
-  imageUrl: string | null;
-  diamondCount: number | null;
-  firstSeenAt: string;
-  lastSeenAt: string;
+export interface ObservedGift extends RegionalGift {
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
 }
 
 export interface GiftSoundMapping {
@@ -41,6 +39,7 @@ export interface UpdateGiftSoundMapping {
   giftId: string;
   soundAssetId: string;
   isEnabled: boolean;
+  catalogRegion?: RegionalGiftRegion;
 }
 
 const uuid = { type: 'string', format: 'uuid' } as const;
@@ -81,7 +80,8 @@ export const observedGiftSchema = {
     giftId: { type: 'string' }, giftName: { type: 'string' },
     imageUrl: { anyOf: [{ type: 'string', format: 'uri' }, { type: 'null' }] },
     diamondCount: { anyOf: [{ type: 'integer', minimum: 0 }, { type: 'null' }] },
-    firstSeenAt: { type: 'string', format: 'date-time' }, lastSeenAt: { type: 'string', format: 'date-time' },
+    firstSeenAt: { anyOf: [{ type: 'string', format: 'date-time' }, { type: 'null' }] },
+    lastSeenAt: { anyOf: [{ type: 'string', format: 'date-time' }, { type: 'null' }] },
   },
 } as const;
 export const observedGiftsSchema = { type: 'array', items: observedGiftSchema } as const;
@@ -98,6 +98,6 @@ export const updateGiftSoundMappingSchema = {
   type: 'object', additionalProperties: false, required: ['giftId', 'soundAssetId', 'isEnabled'],
   properties: {
     giftId: { type: 'string', minLength: 1, maxLength: 80, pattern: '^[^/\\\\]+$' },
-    soundAssetId: uuid, isEnabled: { type: 'boolean' },
+    soundAssetId: uuid, isEnabled: { type: 'boolean' }, catalogRegion: regionalGiftRegionSchema,
   },
 } as const;

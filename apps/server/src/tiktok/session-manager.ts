@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { ChatSpeakerContext, ConnectionStateEvent, GiftEvent } from '@tiktok-helper/contracts';
-import { normalizeChat, normalizeGift } from './normalizer.js';
-import type {
-  LiveConnector, LiveConnectorFactory, LiveConnectionState, LiveSessionSnapshot, RealtimeEventSink,
+import type { ChatSpeakerContext, ConnectionStateEvent, GiftCompletedEvent, GiftEvent, LikeGoalConfiguration, LiveActivityState } from '@tiktok-helper/contracts';
+import { GiftStreakTracker } from './gift-streaks.js';
+import { LiveActivity, normalizeLiveActivity, PendingLiveActivity, type ActivitySample } from './live-activity.js';
+import { messageRoomId, normalizeChat, normalizeGift, tiktokRoomId } from './normalizer.js';
+import {
+  LIVE_ACTIVITY_EVENTS, type GiftAccounting, type LiveConnector, type LiveConnectorFactory, type LiveConnectionState,
+  type LiveSessionSnapshot, type RealtimeEventSink,
 } from './types.js';
 
 export interface Scheduler {
@@ -23,14 +26,47 @@ interface Session {
   stopped: boolean;
   reconnectAttempt: number;
   reconnectTimer?: unknown;
+  disconnecting?: Promise<void>;
   tiktokUsername: string;
-  seenEventIds: Set<string>;
-  giftStreakCounts: Map<string, number>;
+  seenChatIds: Set<string>;
+  gifts: GiftStreakTracker;
+  activity: LiveActivity;
+  roomId?: string;
+  connectionId: string;
   streamId: string;
+  prepared: boolean;
+  giftOverflow: boolean;
+}
+
+interface GiftAcceptance {
+  repeatCount: number;
+  applyEntitlements?: () => void;
+  announce?: () => void;
+}
+
+interface PendingMessage {
+  kind: 'chat' | 'gift';
+  raw: unknown;
+  historical: boolean;
+}
+
+const MAX_PENDING_MESSAGES = 500;
+const MAX_PENDING_GIFTS = 1_000;
+const MAX_GIFT_COMPLETION_VALUE = 2_147_483_647;
+
+function createStreamId(roomId: string | undefined): string {
+  if (!roomId) return randomUUID();
+  const hash = createHash('sha256').update('tiktok-helper:room:').update(roomId).digest();
+  // RFC 9562 name-based UUIDv8, so the existing PostgreSQL UUID columns can identify a room.
+  hash[6] = (hash[6]! & 0x0f) | 0x80;
+  hash[8] = (hash[8]! & 0x3f) | 0x80;
+  const hex = hash.toString('hex', 0, 16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 export interface TikTokDiagnostic {
-  event: 'connect_failed' | 'connector_error' | 'disconnected';
+  event: 'connect_failed' | 'connector_error' | 'disconnected' | 'gift_intake_full' | 'gift_accounting_failed' | 'gift_completion_failed'
+    | 'gift_observer_failed' | 'live_activity_observer_failed';
   errorName?: string;
   code?: string | number;
   statusCode?: number;
@@ -49,6 +85,8 @@ function diagnostic(error: unknown, event: TikTokDiagnostic['event']): TikTokDia
 
 export class TikTokSessionManager {
   readonly #sessions = new Map<string, Session>();
+  readonly #pendingGifts = new Map<string, { done: Promise<void>; count: number }>();
+  readonly #likeGoals = new Map<string, LikeGoalConfiguration>();
 
   constructor(
     private readonly connectorFactory: LiveConnectorFactory,
@@ -56,12 +94,18 @@ export class TikTokSessionManager {
     private readonly scheduler: Scheduler = systemScheduler,
     private readonly diagnostics: (entry: TikTokDiagnostic) => void = () => undefined,
     private readonly connectionRequested: (workspaceId: string, username: string) => void = () => undefined,
-    private readonly giftObserved: (workspaceId: string, streamId: string, gift: GiftEvent, senderIdentityKey: string) => void = () => undefined,
+    private readonly giftObserved: (
+      workspaceId: string, streamId: string, gift: GiftEvent, senderIdentityKey: string, accounting: GiftAccounting,
+    ) => void | Promise<GiftAcceptance> = () => undefined,
     private readonly sessionPrepared: (workspaceId: string, streamId: string) => Promise<void> = async () => undefined,
     private readonly resolveSpeakerContext: (
       workspaceId: string, senderIdentityKey: string,
       roles: { isModerator: boolean; isGiftGiver: boolean },
     ) => ChatSpeakerContext = (_workspaceId, _identityKey, roles) => ({ ...roles, speechLevels: [] }),
+    private readonly rememberHistoricalStreak?: (workspaceId: string, key: string, count: number) => Promise<void>,
+    private readonly giftCompleted?: (event: GiftCompletedEvent, streakable: boolean) => void | Promise<void>,
+    private readonly giftAccepted?: (workspaceId: string, connectionId: string, gift: GiftEvent, identityKey: string) => void,
+    private readonly liveActivityChanged?: (workspaceId: string) => void,
   ) {}
 
   async start(workspaceId: string, username: string): Promise<LiveSessionSnapshot> {
@@ -71,14 +115,18 @@ export class TikTokSessionManager {
     if (current && !current.stopped && current.tiktokUsername === normalizedUsername) {
       return this.status(workspaceId);
     }
-    await this.stop(workspaceId);
+    const generation = (current?.generation ?? 0) + 1;
+    const previousStop = this.stop(workspaceId);
     const session: Session = {
-      connector: null, generation: (this.#sessions.get(workspaceId)?.generation ?? 0) + 1,
+      connector: null, generation,
       sequence: 0, state: 'stopped', stopped: false, reconnectAttempt: 0,
-      tiktokUsername: normalizedUsername, seenEventIds: new Set(), giftStreakCounts: new Map(), streamId: randomUUID(),
+      tiktokUsername: normalizedUsername, seenChatIds: new Set(), gifts: new GiftStreakTracker(),
+      activity: new LiveActivity(this.#likeGoals.get(workspaceId)),
+      connectionId: randomUUID(), streamId: randomUUID(), prepared: false, giftOverflow: false,
+      disconnecting: previousStop.then(() => undefined),
     };
     this.#sessions.set(workspaceId, session);
-    await this.sessionPrepared(workspaceId, session.streamId);
+    await previousStop;
     await this.#connect(workspaceId, session, false);
     return this.status(workspaceId);
   }
@@ -92,8 +140,9 @@ export class TikTokSessionManager {
     const connector = session.connector;
     session.connector = null;
     connector?.removeAllListeners();
-    if (connector) await connector.disconnect().catch(() => undefined);
     this.#transition(workspaceId, session, 'stopped');
+    if (connector) this.#disconnectConnector(session, connector);
+    await session.disconnecting;
     return this.status(workspaceId);
   }
 
@@ -101,34 +150,140 @@ export class TikTokSessionManager {
     const session = this.#sessions.get(workspaceId);
     return session ? {
       workspaceId, tiktokUsername: session.tiktokUsername, generation: session.generation,
-      lastSequence: session.sequence, state: session.state,
+      lastSequence: session.sequence, state: session.state, connectionId: session.connectionId,
     } : this.#emptySnapshot(workspaceId);
+  }
+
+  getLiveActivity(workspaceId: string): LiveActivityState {
+    const session = this.#sessions.get(workspaceId);
+    const activity = session?.activity ?? new LiveActivity(this.#likeGoals.get(workspaceId));
+    return activity.snapshot(workspaceId, session?.generation ?? 0, session?.connectionId ?? null);
+  }
+
+  setLikeGoal(workspaceId: string, configuration: LikeGoalConfiguration): void {
+    if (configuration.revision <= (this.#likeGoals.get(workspaceId)?.revision ?? 0)) return;
+    this.#likeGoals.set(workspaceId, { ...configuration });
+    this.#sessions.get(workspaceId)?.activity.configure(configuration);
+    this.#notifyLiveActivity(workspaceId);
+  }
+
+  #isActiveStream(workspaceId: string, streamId: string, generation: number): boolean {
+    const session = this.#sessions.get(workspaceId);
+    return !!session && !session.stopped && session.state !== 'offline'
+      && session.streamId === streamId && session.generation === generation;
   }
 
   async close(): Promise<void> {
     await Promise.all([...this.#sessions.keys()].map(async (workspaceId) => this.stop(workspaceId)));
+    await Promise.all([...this.#pendingGifts.values()].map(({ done }) => done));
   }
 
   async #connect(workspaceId: string, session: Session, reconnecting: boolean): Promise<void> {
-    if (session.stopped) return;
+    if (session.stopped || this.#sessions.get(workspaceId) !== session) return;
     this.#transition(workspaceId, session, reconnecting ? 'reconnecting' : 'connecting');
-    const connector = this.connectorFactory(session.tiktokUsername);
+    let connector: LiveConnector;
+    try { connector = this.connectorFactory(session.tiktokUsername); }
+    catch (error) {
+      this.diagnostics(diagnostic(error, 'connect_failed'));
+      this.#transition(workspaceId, session, 'failed');
+      this.#scheduleReconnect(workspaceId, session);
+      return;
+    }
     session.connector = connector;
-    connector.on('chat', (raw) => this.#onChat(workspaceId, session, raw));
-    connector.on('gift', (raw) => this.#onGift(workspaceId, session, raw));
-    connector.on('streamEnd', () => { void this.#goOffline(workspaceId, session); });
-    connector.on('disconnected', (event) => { this.diagnostics(diagnostic(event, 'disconnected')); this.#scheduleReconnect(workspaceId, session); });
-    connector.on('error', (error) => { this.diagnostics(diagnostic(error, 'connector_error')); this.#scheduleReconnect(workspaceId, session); });
+    const isCurrent = () => !session.stopped && session.connector === connector && this.#sessions.get(workspaceId) === session;
+    const pending: PendingMessage[] = [];
+    const pendingActivity = new PendingLiveActivity();
+    let ready = false;
+    const deliver = ({ kind, raw, historical }: PendingMessage) => {
+      const roomId = messageRoomId(raw);
+      if (roomId && session.roomId && roomId !== session.roomId) return;
+      if (kind === 'chat') this.#onChat(workspaceId, session, raw, historical);
+      else this.#onGift(workspaceId, session, raw, historical);
+    };
+    const receive = (kind: PendingMessage['kind'], raw: unknown, historical = false) => {
+      if (!isCurrent()) return;
+      if (ready) { deliver({ kind, raw, historical }); return; }
+      if (pending.length >= MAX_PENDING_MESSAGES) {
+        const chat = pending.findIndex((message) => message.kind === 'chat');
+        if (chat < 0 && kind === 'chat') return;
+        pending.splice(Math.max(0, chat), 1);
+      }
+      pending.push({ kind, raw, historical });
+    };
+    connector.on('chat', (raw, historical) => receive('chat', raw, historical));
+    connector.on('gift', (raw, historical) => receive('gift', raw, historical));
+    const deliverActivity = (sample: ActivitySample) => {
+      if (sample.roomId && session.roomId && sample.roomId !== session.roomId) return;
+      if (session.activity.apply(sample)) this.#notifyLiveActivity(workspaceId);
+    };
+    for (const kind of LIVE_ACTIVITY_EVENTS) connector.on(kind, (raw, historical = false) => {
+      if (!isCurrent()) return;
+      const sample = normalizeLiveActivity(kind, raw, historical);
+      if (!sample) return;
+      if (ready) { deliverActivity(sample); return; }
+      pendingActivity.add(sample);
+    });
+    connector.on('streamEnd', () => { if (isCurrent()) void this.#goOffline(workspaceId, session); });
+    connector.on('disconnected', (event) => {
+      if (!isCurrent()) return;
+      this.diagnostics(diagnostic(event, 'disconnected'));
+      this.#scheduleReconnect(workspaceId, session);
+    });
+    connector.on('error', (error) => {
+      if (!isCurrent()) return;
+      this.diagnostics(diagnostic(error, 'connector_error'));
+      if (ready) this.#scheduleReconnect(workspaceId, session);
+    });
     try {
-      await connector.connect();
-      if (session.stopped || session.connector !== connector) return;
+      const connectedRoom = tiktokRoomId(await connector.connect());
+      if (!isCurrent()) {
+        await connector.disconnect().catch(() => undefined);
+        return;
+      }
+      const firstKnownRoom = pending.find((message) => !message.historical && messageRoomId(message.raw));
+      const observedRoom = connectedRoom ?? messageRoomId(firstKnownRoom?.raw) ?? pendingActivity.firstRoomId;
+      pendingActivity.selectRoom(observedRoom ?? session.roomId);
+      if (observedRoom && observedRoom !== session.roomId) {
+        const wasPrepared = session.prepared;
+        session.roomId = observedRoom;
+        session.streamId = createStreamId(observedRoom);
+        if (wasPrepared) {
+          session.generation += 1;
+          session.sequence = 0;
+          session.state = 'stopped';
+          session.seenChatIds.clear();
+          session.gifts = new GiftStreakTracker();
+          session.activity = new LiveActivity(this.#likeGoals.get(workspaceId));
+          session.connectionId = randomUUID();
+          session.prepared = false;
+          this.#transition(workspaceId, session, 'connecting');
+        }
+      }
+      if (!session.prepared || reconnecting) {
+        // Take a fresh entitlement snapshot after gifts from the previous connection commit.
+        await this.#pendingGifts.get(workspaceId)?.done;
+        if (!isCurrent()) return;
+        await this.sessionPrepared(workspaceId, session.streamId);
+        if (!isCurrent()) return;
+        session.prepared = true;
+      }
       session.reconnectAttempt = 0;
       this.#transition(workspaceId, session, 'live');
+      ready = true;
+      for (const message of pending) deliver(message);
+      pending.length = 0;
+      for (const sample of pendingActivity.drain()) {
+        if (!isCurrent()) break;
+        deliverActivity(sample);
+      }
     } catch (error) {
+      if (!isCurrent()) return;
       this.diagnostics(diagnostic(error, 'connect_failed'));
       connector.removeAllListeners();
-      await connector.disconnect().catch(() => undefined);
       session.connector = null;
+      this.#disconnectConnector(session, connector);
+      await session.disconnecting;
+      if (session.stopped || this.#sessions.get(workspaceId) !== session) return;
       if (error instanceof Error && error.message === 'TIKTOK_USER_OFFLINE') {
         this.#transition(workspaceId, session, 'offline');
       } else {
@@ -140,31 +295,42 @@ export class TikTokSessionManager {
 
   async #goOffline(workspaceId: string, session: Session): Promise<void> {
     if (session.stopped) return;
-    session.connector?.removeAllListeners();
-    await session.connector?.disconnect().catch(() => undefined);
+    const connector = session.connector;
     session.connector = null;
+    connector?.removeAllListeners();
     this.#transition(workspaceId, session, 'offline');
+    if (connector) this.#disconnectConnector(session, connector);
+    await session.disconnecting;
   }
 
   #scheduleReconnect(workspaceId: string, session: Session): void {
     if (session.stopped || session.reconnectTimer !== undefined) return;
-    session.connector?.removeAllListeners();
+    const connector = session.connector;
     session.connector = null;
+    connector?.removeAllListeners();
+    if (connector) this.#disconnectConnector(session, connector);
     if (session.state !== 'offline') this.#transition(workspaceId, session, 'reconnecting');
     const delay = Math.min(30_000, 1_000 * 2 ** session.reconnectAttempt++);
     session.reconnectTimer = this.scheduler.set(delay, () => {
       session.reconnectTimer = undefined;
-      void this.#connect(workspaceId, session, true);
+      void Promise.resolve(session.disconnecting).then(() => this.#connect(workspaceId, session, true));
     });
   }
 
-  #onChat(workspaceId: string, session: Session, raw: unknown): void {
+  #disconnectConnector(session: Session, connector: LiveConnector): void {
+    session.disconnecting = connector.disconnect().catch(() => undefined);
+  }
+
+  #onChat(workspaceId: string, session: Session, raw: unknown, historical: boolean): void {
     const event = normalizeChat(raw, session.generation, session.sequence + 1);
-    if (!event || !this.#accept(session, event.eventId)) return;
+    if (!event || session.seenChatIds.has(event.eventId)) return;
+    session.seenChatIds.add(event.eventId);
+    if (session.seenChatIds.size > 10_000) session.seenChatIds.delete(session.seenChatIds.values().next().value!);
     session.sequence = event.sequence;
     const identityKey = this.#workspaceIdentityKey(workspaceId, event.senderIdentityKey);
     const projectEvent = {
       ...event,
+      ...(historical ? { historical: true as const } : {}),
       speakerContext: this.resolveSpeakerContext(workspaceId, identityKey, {
         isModerator: event.participant?.moderator === true,
         isGiftGiver: event.participant?.giftGiver === true,
@@ -174,46 +340,134 @@ export class TikTokSessionManager {
     this.sink(workspaceId, projectEvent);
   }
 
-  #onGift(workspaceId: string, session: Session, raw: unknown): void {
+  #onGift(workspaceId: string, session: Session, raw: unknown, historical: boolean): void {
     const event = normalizeGift(raw, session.generation, session.sequence + 1);
-    if (!event || !this.#accept(session, event.eventId)) return;
-    const streakKey = `${event.senderIdentityKey}\u001f${event.giftId}`;
-    const previousCount = session.giftStreakCounts.get(streakKey) ?? 0;
-    const increment = event.streakable ? Math.max(0, event.repeatCount - previousCount) : event.repeatCount;
-    if (event.streakable && !event.repeatEnd) session.giftStreakCounts.set(streakKey, event.repeatCount);
-    else session.giftStreakCounts.delete(streakKey);
-    if (increment === 0) return;
-    session.sequence = event.sequence;
-    const projectEvent: GiftEvent = { ...event, repeatCount: increment };
-    delete (projectEvent as Partial<typeof event>).repeatEnd;
-    delete (projectEvent as Partial<typeof event>).streakable;
-    delete (projectEvent as Partial<typeof event>).senderIdentityKey;
+    if (!event) return;
+    const roomKey = session.roomId ?? messageRoomId(raw) ?? session.streamId;
+    const streakKey = event.streakable && event.groupId
+      ? createHash('sha256').update(JSON.stringify([
+        roomKey, event.senderIdentityKey, event.giftId, event.groupId,
+      ])).digest('hex') : undefined;
+    const pending = this.#pendingGifts.get(workspaceId);
+    if (!historical && pending && pending.count >= MAX_PENDING_GIFTS) {
+      if (!session.giftOverflow) this.diagnostics({ event: 'gift_intake_full' });
+      session.giftOverflow = true;
+      return;
+    }
+    if (!historical) session.giftOverflow = false;
+    const advancesHistory = historical && streakKey && event.repeatCount > session.gifts.historicalCount(event);
+    const { increment, completion } = session.gifts.apply(event, historical);
+    const rememberHistoricalStreak = this.rememberHistoricalStreak;
+    if (advancesHistory && rememberHistoricalStreak && (!pending || pending.count < MAX_PENDING_GIFTS)) {
+      const remember = () => rememberHistoricalStreak(workspaceId, streakKey, event.repeatCount);
+      this.#trackGift(workspaceId, (pending?.done ?? Promise.resolve()).then(remember).catch(remember));
+    }
+    if (increment === 0 && (!completion || !this.giftCompleted)) return;
+    const streamId = session.streamId;
+    const connector = session.connector;
+    const isFresh = () => session.state === 'live' && session.connector === connector
+      && this.#isActiveStream(workspaceId, streamId, event.generation);
+    const complete = (repeatCount = completion?.repeatCount) => {
+      if (!this.giftCompleted || !completion || !repeatCount || repeatCount > MAX_GIFT_COMPLETION_VALUE || !isFresh()) return;
+      const completionKey = streakKey ?? createHash('sha256').update(JSON.stringify([
+        roomKey, event.senderIdentityKey, event.giftId, event.eventId,
+      ])).digest('hex');
+      const diamondCount = completion.diamondCount;
+      const completed: GiftCompletedEvent = {
+        eventId: `gift-complete:${completionKey}`, workspaceId, connectionId: session.connectionId, generation: event.generation,
+        giftId: event.giftId, giftName: event.giftName.slice(0, 160), repeatCount,
+        senderDisplayName: event.senderDisplayName.slice(0, 120), senderUsername: event.senderUsername.slice(0, 64),
+        ...(diamondCount !== undefined && diamondCount <= MAX_GIFT_COMPLETION_VALUE ? { diamondCount } : {}),
+      };
+      const failed = (error: unknown) => this.diagnostics(diagnostic(error, 'gift_completion_failed'));
+      try { return this.giftCompleted(completed, event.streakable)?.catch(failed); }
+      catch (error) { failed(error); }
+    };
+    if (increment === 0) {
+      // A final packet can close the series without adding gifts. Keep it behind the series' last write.
+      const result = pending ? pending.done.then(() => complete()) : complete();
+      if (result) this.#trackGift(workspaceId, result);
+      return;
+    }
+    const eventId = event.streakable ? `streak:${createHash('sha256').update(JSON.stringify([
+      streakKey ?? [session.roomId ?? session.streamId, event.senderIdentityKey, event.giftId, event.eventId], event.repeatCount,
+    ])).digest('hex')}` : event.eventId;
+    const projectEvent: GiftEvent = {
+      type: 'gift.received', generation: event.generation, sequence: event.sequence, eventId,
+      giftId: event.giftId, giftName: event.giftName, repeatCount: increment,
+      senderDisplayName: event.senderDisplayName, senderUsername: event.senderUsername,
+      imageUrl: event.imageUrl, diamondCount: event.diamondCount,
+    };
     const workspaceIdentityKey = this.#workspaceIdentityKey(workspaceId, event.senderIdentityKey);
-    this.giftObserved(workspaceId, session.streamId, projectEvent, workspaceIdentityKey);
-    this.sink(workspaceId, projectEvent);
+    const accounting: GiftAccounting = {
+      streak: streakKey ? { key: streakKey, historicalCount: session.gifts.historicalCount(event), totalCount: event.repeatCount } : undefined,
+      upstreamEventId: event.streakable ? event.upstreamEventId : undefined,
+    };
+    const finish = (result: GiftAcceptance | void) => {
+      if (!this.#isActiveStream(workspaceId, streamId, projectEvent.generation)) return;
+      result?.applyEntitlements?.();
+      const repeatCount = result?.repeatCount ?? increment;
+      if (repeatCount > 0) {
+        const acceptedGift: GiftEvent = {
+          ...projectEvent, sequence: ++session.sequence, repeatCount,
+          ...(!isFresh() ? { historical: true } : {}),
+        };
+        this.sink(workspaceId, acceptedGift);
+        try { this.giftAccepted?.(workspaceId, session.connectionId, acceptedGift, workspaceIdentityKey); }
+        catch (error) { this.diagnostics(diagnostic(error, 'gift_observer_failed')); }
+        if (isFresh()) result?.announce?.();
+      }
+      if (event.streakable || repeatCount > 0) return complete(event.streakable ? completion?.repeatCount : repeatCount);
+    };
+    const accept = () => this.giftObserved(workspaceId, streamId, projectEvent, workspaceIdentityKey, accounting);
+    const retry = (error: unknown) => {
+      // The event/series keys also protect the retry if commit succeeded before its response was lost.
+      this.diagnostics(diagnostic(error, 'gift_accounting_failed'));
+      return accept();
+    };
+    if (!pending) {
+      try {
+        const result = accept();
+        const settled = result ? result.catch<GiftAcceptance | void>(retry).then(finish) : finish(result);
+        if (settled) this.#trackGift(workspaceId, settled);
+      } catch (error) {
+        this.#trackGift(workspaceId, Promise.resolve().then<GiftAcceptance | void>(() => retry(error)).then(finish));
+      }
+      return;
+    }
+    this.#trackGift(workspaceId, pending.done.then<GiftAcceptance | void>(accept).catch<GiftAcceptance | void>(retry).then(finish));
+  }
+
+  #trackGift(workspaceId: string, result: Promise<void>): void {
+    const pending = this.#pendingGifts.get(workspaceId) ?? { done: Promise.resolve(), count: 0 };
+    pending.count += 1;
+    pending.done = result.catch((error: unknown) => {
+      this.diagnostics(diagnostic(error, 'gift_accounting_failed'));
+    }).finally(() => {
+      pending.count -= 1;
+      if (!pending.count) this.#pendingGifts.delete(workspaceId);
+    });
+    this.#pendingGifts.set(workspaceId, pending);
   }
 
   #workspaceIdentityKey(workspaceId: string, senderIdentityKey: string): string {
     return createHash('sha256').update(workspaceId).update('\0').update(senderIdentityKey).digest('hex');
   }
 
-  #accept(session: Session, eventId: string): boolean {
-    if (session.seenEventIds.has(eventId)) return false;
-    session.seenEventIds.add(eventId);
-    if (session.seenEventIds.size > 10_000) {
-      const oldest = session.seenEventIds.values().next().value as string | undefined;
-      if (oldest) session.seenEventIds.delete(oldest);
-    }
-    return true;
+  #notifyLiveActivity(workspaceId: string): void {
+    try { this.liveActivityChanged?.(workspaceId); }
+    catch (error: unknown) { this.diagnostics(diagnostic(error, 'live_activity_observer_failed')); }
   }
 
   #transition(workspaceId: string, session: Session, state: LiveConnectionState): void {
     if (session.state === state) return;
     session.state = state;
+    session.activity.connectionChanged(state === 'live');
     const event: ConnectionStateEvent = {
-      type: 'connection.state', generation: session.generation, sequence: ++session.sequence, state,
+      type: 'connection.state', generation: session.generation, sequence: ++session.sequence, state, connectionId: session.connectionId,
     };
     this.sink(workspaceId, event);
+    this.#notifyLiveActivity(workspaceId);
   }
 
   #emptySnapshot(workspaceId: string): LiveSessionSnapshot {

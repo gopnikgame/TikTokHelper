@@ -20,18 +20,32 @@ export interface AudioLike {
   play(): Promise<void>;
 }
 
-interface Job { sound: SoundAsset; settings: PlaybackSettings }
+type PlaybackResult = 'ended' | 'failed';
+interface Job {
+  sound: SoundAsset;
+  settings: PlaybackSettings;
+  onResult?: (result: PlaybackResult) => void;
+}
 
-const SILENT_AUDIO_DATA_URL = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+const SILENT_AUDIO_DATA_URL = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+
+export function playbackOverlapPercent(settings: Pick<PlaybackSettings, 'playbackMode' | 'overlapPercent'>): number {
+  if (settings.playbackMode === 'sequential') return 0;
+  if (settings.playbackMode === 'strong_overlap') return Math.max(60, settings.overlapPercent);
+  return settings.overlapPercent;
+}
 
 export class SoundPlaybackQueue {
   readonly #queue: Job[] = [];
-  readonly #active = new Set<AudioLike>();
+  readonly #active = new Map<AudioLike, () => void>();
   readonly #managedActive = new Set<ManagedPlaybackHandle>();
   readonly #unlocked: AudioLike[] = [];
+  readonly #warming = new Map<AudioLike, Promise<void>>();
   #launchTimer: ReturnType<typeof setTimeout> | undefined;
   #starting = false;
+  #preparingPreviews = 0;
   #epoch = 0;
+  #preview: { queue: SoundPlaybackQueue; onInterrupted: () => void } | undefined;
 
   constructor(
     private readonly createAudio: (url: string) => AudioLike = (url) => new Audio(url),
@@ -41,47 +55,98 @@ export class SoundPlaybackQueue {
 
   get pending(): number { return this.#queue.length; }
   get active(): number { return this.#active.size + this.#managedActive.size; }
+  get busy(): boolean {
+    return this.#starting || this.active > 0 || this.pending > 0 || this.#warming.size > 0 || this.#preparingPreviews > 0;
+  }
+
+  createPreviewQueue(onInterrupted: () => void = () => undefined): SoundPlaybackQueue {
+    this.#interruptPreview();
+    const queue = new SoundPlaybackQueue(this.createAudio, undefined, this.managed);
+    this.#preview = { queue, onInterrupted };
+    return queue;
+  }
+
+  stopPreview(queue: SoundPlaybackQueue): void {
+    if (this.#preview?.queue === queue) this.#preview = undefined;
+    queue.stopAll();
+  }
+
+  #interruptPreview(): void {
+    const preview = this.#preview;
+    if (!preview) return;
+    this.stopPreview(preview.queue);
+    preview.onInterrupted();
+  }
 
   async unlock(instances: number, warmupUrl?: string): Promise<void> {
-    let managedReady = false;
-    try { await this.managed?.enable(); managedReady = this.managed !== undefined; } catch { /* HTMLAudio remains the compatibility path. */ }
+    const epoch = this.#epoch;
+    const managedReady = this.managed?.enable().then(() => true, () => false) ?? Promise.resolve(false);
     const count = Math.min(8, Math.max(1, Math.trunc(instances)));
-    const attempts: Promise<void>[] = [];
-    for (let index = this.#unlocked.length; index < count; index += 1) {
+    for (let index = this.#unlocked.length + this.#warming.size; index < count; index += 1) {
       const audio = this.createAudio(warmupUrl ?? SILENT_AUDIO_DATA_URL);
       audio.volume = 0;
       audio.load();
-      attempts.push(audio.play().then(() => {
+      const attempt = audio.play().then(() => {
+        if (epoch !== this.#epoch) return;
         audio.pause(); audio.currentTime = 0; this.#unlocked.push(audio);
-      }).catch(() => this.onError()));
+      }, () => {
+        if (epoch === this.#epoch) this.onError();
+      }).finally(() => {
+        if (epoch === this.#epoch) this.#warming.delete(audio);
+      });
+      this.#warming.set(audio, attempt);
     }
-    await Promise.all(attempts);
-    if (this.#unlocked.length === 0 && !managedReady) throw new Error('audio playback was not unlocked');
+    const [ready] = await Promise.all([managedReady, ...this.#warming.values()]);
+    if (epoch !== this.#epoch) throw new DOMException('Audio preparation cancelled', 'AbortError');
+    if (this.#unlocked.length === 0 && !ready) throw new Error('audio playback was not unlocked');
   }
 
   async preview(sound: SoundAsset, volumePercent: number): Promise<void> {
+    this.#interruptPreview();
+    const epoch = this.#epoch;
     if (this.managed) {
+      this.#preparingPreviews += 1;
       try {
-        const handle = await this.managed.play(sound, volumePercent, () => this.#managedActive.delete(handle));
+        const handle = await this.managed.play(sound, volumePercent,
+          () => this.#managedActive.delete(handle), () => epoch === this.#epoch);
+        if (epoch !== this.#epoch) {
+          handle.stop();
+          throw new DOMException('Audio playback cancelled', 'AbortError');
+        }
         this.#managedActive.add(handle);
         return;
-      } catch { /* Fall through to the media element. */ }
+      } catch {
+        if (epoch !== this.#epoch) throw new DOMException('Audio playback cancelled', 'AbortError');
+        // Fall through to the media element.
+      } finally {
+        if (epoch === this.#epoch) this.#preparingPreviews -= 1;
+      }
     }
     const audio = this.createAudio(sound.url);
     audio.volume = volumePercent / 100;
-    audio.load();
-    this.#active.add(audio);
-    const release = () => { this.#active.delete(audio); };
+    const release = () => {
+      this.#active.delete(audio);
+      audio.removeEventListener('ended', release);
+      audio.removeEventListener('error', release);
+    };
+    this.#active.set(audio, () => { release(); audio.pause(); audio.currentTime = 0; });
     audio.addEventListener('ended', release, { once: true });
     audio.addEventListener('error', release, { once: true });
-    const playback = audio.play();
-    void playback.catch(() => { this.onError(); release(); });
-    return playback;
+    audio.load();
+    try { await audio.play(); }
+    catch (error) {
+      if (epoch !== this.#epoch) throw new DOMException('Audio playback cancelled', 'AbortError');
+      this.onError();
+      release();
+      throw error;
+    }
+    if (epoch !== this.#epoch) throw new DOMException('Audio playback cancelled', 'AbortError');
   }
 
-  enqueue(sound: SoundAsset, count: number, settings: PlaybackSettings): void {
+  enqueue(sound: SoundAsset, count: number, settings: PlaybackSettings, onResult?: Job['onResult']): void {
     const safeCount = Math.min(5_000, Math.max(0, Math.trunc(count)));
-    for (let index = 0; index < safeCount; index += 1) this.#queue.push({ sound, settings });
+    if (safeCount > 0) this.#interruptPreview();
+    for (let index = 0; index < safeCount; index += 1) this.#queue.push({ sound, settings, onResult });
     this.#pump();
   }
 
@@ -91,12 +156,16 @@ export class SoundPlaybackQueue {
   reconcile(sounds: readonly SoundAsset[]): Promise<void> { return this.managed?.reconcile(sounds) ?? Promise.resolve(); }
 
   stopAll(): void {
+    this.#interruptPreview();
     this.#epoch += 1;
     this.#queue.length = 0;
     if (this.#launchTimer) clearTimeout(this.#launchTimer);
     this.#launchTimer = undefined;
-    for (const audio of this.#active) { audio.pause(); audio.currentTime = 0; }
-    this.#active.clear();
+    this.#starting = false;
+    this.#preparingPreviews = 0;
+    for (const cancel of this.#active.values()) cancel();
+    for (const audio of this.#warming.keys()) { audio.pause(); audio.currentTime = 0; }
+    this.#warming.clear();
     for (const handle of this.#managedActive) handle.stop();
     this.#managedActive.clear();
   }
@@ -106,19 +175,29 @@ export class SoundPlaybackQueue {
     const next = this.#queue[0];
     if (!next || this.active >= next.settings.maxConcurrentSounds) return;
     this.#queue.shift();
+    this.#starting = true;
     if (this.managed) {
-      this.#starting = true;
       const epoch = this.#epoch;
-      void this.managed.play(next.sound, next.settings.volumePercent, () => {
-        if (handle) this.#managedActive.delete(handle);
-        this.#pump();
-      }).then((started) => {
-        if (epoch !== this.#epoch) { started.stop(); return; }
-        handle = started;
-        this.#managedActive.add(started);
-        this.#scheduleNext(started.durationMs, next.settings);
-      }).catch(() => { if (epoch === this.#epoch) this.#startMedia(next); }).finally(() => { this.#starting = false; this.#pump(); });
       let handle: ManagedPlaybackHandle | undefined;
+      let ended = false;
+      void this.managed.play(next.sound, next.settings.volumePercent, () => {
+        if (epoch !== this.#epoch || ended) return;
+        ended = true;
+        if (handle) this.#managedActive.delete(handle);
+        next.onResult?.('ended');
+        this.#pump();
+      }, () => epoch === this.#epoch).then((started) => {
+        if (epoch !== this.#epoch) { started.stop(); return; }
+        this.#starting = false;
+        if (!ended) {
+          handle = started;
+          this.#managedActive.add(started);
+          this.#scheduleNext(started.durationMs, next.settings);
+        }
+        this.#pump();
+      }, () => {
+        if (epoch === this.#epoch) this.#startMedia(next);
+      });
       return;
     }
     this.#startMedia(next);
@@ -128,35 +207,41 @@ export class SoundPlaybackQueue {
     const audio = this.#unlocked.shift() ?? this.createAudio(next.sound.url);
     audio.src = next.sound.url;
     audio.volume = next.settings.volumePercent / 100;
-    this.#active.add(audio);
     let finished = false;
-    const onEnded = () => finish(true);
-    const onPlaybackError = () => { this.onError(); finish(false); };
-    const finish = (reusable: boolean) => {
+    let awaitingMetadata = true;
+    const onEnded = () => finish('ended');
+    const onPlaybackError = () => finish('failed');
+    const onMetadata = () => {
+      if (finished || !awaitingMetadata) return;
+      awaitingMetadata = false;
+      this.#starting = false;
+      const durationMs = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration * 1_000 : 1_000;
+      this.#scheduleNext(durationMs, next.settings);
+    };
+    const finish = (result?: PlaybackResult) => {
       if (finished) return;
       finished = true;
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onPlaybackError);
+      audio.removeEventListener('loadedmetadata', onMetadata);
       this.#active.delete(audio);
-      if (reusable) { audio.currentTime = 0; this.#unlocked.push(audio); }
+      if (awaitingMetadata) this.#starting = false;
+      if (!result) return;
+      if (result === 'ended') { audio.currentTime = 0; this.#unlocked.push(audio); }
+      if (result === 'failed') this.onError();
+      next.onResult?.(result);
       this.#pump();
     };
+    this.#active.set(audio, () => { finish(); audio.pause(); audio.currentTime = 0; });
     audio.addEventListener('ended', onEnded, { once: true });
     audio.addEventListener('error', onPlaybackError, { once: true });
-    audio.addEventListener('loadedmetadata', () => {
-      const durationMs = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration * 1_000 : 1_000;
-      this.#scheduleNext(durationMs, next.settings);
-    }, { once: true });
+    audio.addEventListener('loadedmetadata', onMetadata, { once: true });
     audio.load();
-    void audio.play().catch(() => { this.onError(); finish(false); });
+    void audio.play().catch(onPlaybackError);
   }
 
   #scheduleNext(durationMs: number, settings: PlaybackSettings): void {
-    const overlap = settings.playbackMode === 'sequential'
-      ? 0
-      : settings.playbackMode === 'strong_overlap'
-        ? Math.max(60, settings.overlapPercent)
-        : settings.overlapPercent;
+    const overlap = playbackOverlapPercent(settings);
     const delay = Math.max(0, durationMs * (1 - overlap / 100));
     this.#launchTimer = setTimeout(() => { this.#launchTimer = undefined; this.#pump(); }, delay);
   }

@@ -5,10 +5,16 @@ import {
   type QuarantineSoundInput, type UpdateGiftSoundMapping, type UploadSoundQuery, type WorkspaceParams,
 } from '@tiktok-helper/contracts';
 import type { SoundRepository } from './repository.js';
+import type { RegionalGiftCatalogReader } from '../gifts/regional-catalog.js';
 import { MAX_SOUND_BYTES, type SoundUploadStore } from './upload.js';
 import { LOCAL_ACCESS_USER_ID } from '../auth/local-access.js';
 
-export interface SoundRoutesOptions { repository: SoundRepository; uploadStore?: SoundUploadStore; onSoundChanged?: (soundId: string) => void }
+export interface SoundRoutesOptions {
+  repository: SoundRepository;
+  regionalCatalog?: Pick<RegionalGiftCatalogReader, 'find'>;
+  uploadStore?: SoundUploadStore;
+  onSoundChanged?: (soundId: string) => void;
+}
 interface SoundParams extends WorkspaceParams { soundId: string }
 const actor = (request: { authPrincipal?: { userId: string; isAdmin: boolean } }) => request.authPrincipal
   ? { userId: request.authPrincipal.userId, isAdmin: request.authPrincipal.isAdmin }
@@ -81,12 +87,20 @@ export const soundRoutes: FastifyPluginAsync<SoundRoutesOptions> = async (app, o
   app.put<{ Params: WorkspaceParams; Body: UpdateGiftSoundMapping }>('/api/workspaces/:workspaceId/gift-mappings', {
     schema: {
       params: workspaceParamsSchema, body: updateGiftSoundMappingSchema,
-      response: { 200: giftSoundMappingSchema, 404: apiErrorSchema },
+      response: { 200: giftSoundMappingSchema, 403: apiErrorSchema, 404: apiErrorSchema },
     },
   }, async (request, reply) => {
-    const mapping = await options.repository.saveMapping(request.params.workspaceId, request.body);
+    const { catalogRegion, ...input } = request.body;
+    if (catalogRegion && !request.authPrincipal?.isAdmin) {
+      return reply.code(403).send({
+        error: { code: 'FORBIDDEN', message: 'Administrator permission required', requestId: request.id },
+      });
+    }
+    const regionalGift = catalogRegion ? await options.regionalCatalog?.find(catalogRegion, input.giftId) : undefined;
+    const mapping = catalogRegion && !regionalGift ? null
+      : await options.repository.saveMapping(request.params.workspaceId, input, regionalGift);
     return mapping ?? reply.code(404).send({ error: {
-      code: 'GIFT_OR_SOUND_NOT_FOUND', message: 'Observed gift or sound not found', requestId: request.id,
+      code: 'GIFT_OR_SOUND_NOT_FOUND', message: 'Gift or sound not found', requestId: request.id,
     } });
   });
 };

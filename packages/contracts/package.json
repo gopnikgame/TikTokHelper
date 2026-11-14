@@ -7,6 +7,26 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./automation": {
+      "types": "./dist/automation.d.ts",
+      "default": "./dist/automation.js"
+    },
+    "./gift-completion": {
+      "types": "./dist/gift-completion.d.ts",
+      "default": "./dist/gift-completion.js"
+    },
+    "./gift-goal": {
+      "types": "./dist/gift-goal.d.ts",
+      "default": "./dist/gift-goal.js"
+    },
+    "./live-activity": {
+      "types": "./dist/live-activity.d.ts",
+      "default": "./dist/live-activity.js"
+    },
+    "./regional-gifts": {
+      "types": "./dist/regional-gifts.d.ts",
+      "default": "./dist/regional-gifts.js"
     }
   },
   "scripts": {

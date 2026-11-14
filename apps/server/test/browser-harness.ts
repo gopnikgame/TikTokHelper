@@ -5,8 +5,13 @@
  */
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import type { AutomationConfiguration, GiftEvent } from '@tiktok-helper/contracts';
+import type { AutomationConfiguration, GiftEvent, GiftGoalConfiguration, LikeGoalConfiguration } from '@tiktok-helper/contracts';
 import { buildApp } from '../src/app.js';
+import type { AuthRepository } from '../src/auth/repository.js';
+import { AuthService } from '../src/auth/service.js';
+import type { GiftGoalRepository } from '../src/gift-goals/repository.js';
+import { GiftGoalRuntime } from '../src/gift-goals/runtime.js';
+import type { LikeGoalRepository } from '../src/like-goals/repository.js';
 import { attachRealtimeServer, type RealtimeServer } from '../src/realtime/server.js';
 import { TikTokSessionManager } from '../src/tiktok/session-manager.js';
 import type { ConnectorStep } from './helpers/scripted-connector.js';
@@ -19,9 +24,27 @@ const sourceRevision = 'browser-harness';
 const soundId = '17efb17e-6289-4a33-9c7f-b88eb770d36b';
 const levelId = '2d616882-aa64-48c3-988f-c67d0730df48';
 const now = '2026-09-17T12:00:00.000Z';
+const giftRuleScenario = process.env.BROWSER_HARNESS_GIFT_RULES === '1';
+const giftGoalScenario = process.env.BROWSER_HARNESS_GIFT_GOAL === '1';
+const activityScenario = process.env.BROWSER_HARNESS_LIVE_ACTIVITY === '1';
 let connectorNumber = 0;
 const connectors: ScriptedConnector[] = [];
 let accessExpired = false;
+const fixturePrincipal = {
+  userId: '123e4567-e89b-42d3-a456-426614174000', displayName: 'Тестовый пользователь', isAdmin: giftRuleScenario || giftGoalScenario || activityScenario,
+  workspaces: [{ id: workspaceId, displayName: 'Тестовый эфир' }],
+};
+const fixtureAccess = async () => accessExpired
+  ? { allowed: false as const, reason: 'subscription_expired' as const, validUntil: null }
+  : { allowed: true as const, reason: 'active_subscription' as const, validUntil: 1_800_000_000_000 };
+const fixtureAuth = giftGoalScenario || activityScenario ? Object.assign(new AuthService({} as AuthRepository, {
+  exchange: async () => { throw new Error('No identity exchange in the browser fixture'); },
+}, {
+  bridgeAuthorizeUrl: 'https://cabinet.example.test/', clientId: 'fixture', redirectUri: `http://${host}:${port}/auth/callback`,
+}), {
+  resolveCookie: async () => ({ principal: fixturePrincipal, sessionId: 'fixture', identitySubject: 'fixture' }),
+  checkEntitlement: fixtureAccess,
+}) : undefined;
 
 function rawChat(id: string, text: string, options: { moderator?: boolean; giftGiver?: boolean; emote?: boolean } = {}) {
   return {
@@ -33,15 +56,63 @@ function rawChat(id: string, text: string, options: { moderator?: boolean; giftG
   };
 }
 
-function rawGift(id: string, repeatCount: number, repeatEnd: boolean) {
+function rawGift(id: string, repeatCount: number, repeatEnd: boolean, groupId = '7484000000000000011') {
   return {
     common: { msgId: id }, user: { secUid: 'fixture-donor', displayId: 'fixture_donor', nickname: 'Даритель' },
-    giftId: '5655', repeatCount, repeatEnd,
+    giftId: '5655', repeatCount, repeatEnd, groupId,
     giftDetails: { giftType: 1 }, gift: { name: 'Rose', diamondCount: 100, image: { urlList: [`http://${host}:${port}/fixture-gift.svg`] } },
   };
 }
 
 function connectorSteps(index: number): ConnectorStep[] {
+  if (activityScenario) {
+    const follow = { common: { msgId: '7484000000000000023' }, user: { nickname: 'Тестовый подписчик' } };
+    const share = { common: { msgId: '7484000000000000024' }, user: { nickname: 'Тестовый зритель' } };
+    if (index === 1) return [
+      { afterMs: 10, eventName: 'like', historical: true, payload: { total: '40' } },
+      { afterMs: 20, eventName: 'roomUser', payload: { total: '81', totalUser: '1012' } },
+      { afterMs: 30, eventName: 'like', payload: { total: '120', count: 15 } },
+      { afterMs: 50, eventName: 'follow', payload: follow },
+      { afterMs: 60, eventName: 'share', payload: share },
+      { afterMs: 70, eventName: 'share', payload: share },
+      { afterMs: 90, eventName: 'chat', payload: rawChat('activity-chat', 'Реплика в тестовом эфире') },
+      { afterMs: 750, eventName: 'like', payload: { total: '157', count: 2 } },
+      { afterMs: 770, eventName: 'like', payload: { total: '149', count: 12 } },
+      { afterMs: 780, eventName: 'like', payload: { total: '157', count: 12 } },
+      { afterMs: 1600, eventName: 'disconnected', payload: { code: 1006 } },
+    ];
+    if (index === 2) return [
+      { afterMs: 10, eventName: 'follow', historical: true, payload: follow },
+      { afterMs: 20, eventName: 'like', historical: true, payload: { total: '166' } },
+      { afterMs: 40, eventName: 'roomUser', payload: { total: '73' } },
+      { afterMs: 50, eventName: 'like', payload: { total: '176', count: 1 } },
+      { afterMs: 60, eventName: 'chat', payload: rawChat('activities-reconnect', 'Эфир восстановлен') },
+    ];
+    return [
+      { afterMs: 40, eventName: 'roomUser', payload: { total: '7' } },
+      { afterMs: 60, eventName: 'like', payload: { total: '50' } },
+      { afterMs: 80, eventName: 'chat', payload: rawChat('activities-new-room', 'Это другой эфир') },
+    ];
+  }
+  if (process.env.BROWSER_HARNESS_GIFT_REPLAY === '1') {
+    if (index === 1) return [
+      { afterMs: 10, eventName: 'gift', historical: true, payload: rawGift('historical-gift', 3, false) },
+      { afterMs: 20, eventName: 'chat', historical: true, payload: rawChat('historical-mod-1', 'Историческая реплика', { moderator: true }) },
+      { afterMs: 60, eventName: 'gift', payload: rawGift('series-a', 4, false) },
+      { afterMs: 80, eventName: 'gift', payload: rawGift('series-b', 1, false, '7484000000000000012') },
+      { afterMs: 120, eventName: 'gift', payload: rawGift('series-a-late', 2, false) },
+      { afterMs: 170, eventName: 'gift', payload: rawGift('series-a', 5, true) },
+      { afterMs: 200, eventName: 'gift', payload: rawGift('series-a-repeated', 5, true) },
+      { afterMs: 250, eventName: 'disconnected', payload: { code: 1006, reason: 'scripted reconnect' } },
+    ];
+    return [
+      { afterMs: 15, eventName: 'gift', historical: true, payload: rawGift('history-a-reconnect', 5, true) },
+      { afterMs: 35, eventName: 'chat', historical: true, payload: rawChat('historical-mod-2', 'История после переподключения', { moderator: true }) },
+      { afterMs: 90, eventName: 'gift', payload: rawGift('series-b', 2, true, '7484000000000000012') },
+      { afterMs: 1800, eventName: 'gift', payload: rawGift('series-c', 1, true, '7484000000000000013') },
+      { afterMs: 1850, eventName: 'chat', payload: rawChat('fresh-mod', 'Новая реплика модератора', { moderator: true }) },
+    ];
+  }
   if (index === 1) return [
     { afterMs: 40, eventName: 'chat', payload: rawChat('chat-1', '[thanks] Привет из тестового эфира', { moderator: true, emote: true }) },
     { afterMs: 80, eventName: 'gift', payload: rawGift('gift-1', 1, false) },
@@ -57,13 +128,39 @@ function connectorSteps(index: number): ConnectorStep[] {
 }
 
 const realtimeRef: { current?: RealtimeServer } = {};
-const manager = new TikTokSessionManager(
+const goalConfigurations = new Map<string, GiftGoalConfiguration>();
+const goalRepository: GiftGoalRepository = {
+  async get(id) { return goalConfigurations.get(id) ?? null; },
+  async save(id, input) {
+    const saved = { ...input, revision: (goalConfigurations.get(id)?.revision ?? 0) + 1 };
+    goalConfigurations.set(id, saved);
+    return saved;
+  },
+};
+const giftGoals = new GiftGoalRuntime(goalRepository, (id) => manager.status(id), (update) => realtimeRef.current?.publishGiftGoal(update));
+const likeConfigurations = new Map<string, LikeGoalConfiguration>();
+const likeGoalRepository: LikeGoalRepository = {
+  async get(id) { return likeConfigurations.get(id) ?? { targetCount: null, revision: 0 }; },
+  async save(id, { targetCount }) {
+    const previous = await likeGoalRepository.get(id);
+    if (previous.targetCount === targetCount) return previous;
+    const configuration = { targetCount, revision: previous.revision + 1 };
+    likeConfigurations.set(id, configuration);
+    return configuration;
+  },
+};
+const manager: TikTokSessionManager = new TikTokSessionManager(
   () => {
-    const connector = new ScriptedConnector(connectorSteps(++connectorNumber));
+    const index = ++connectorNumber;
+    const connector = new ScriptedConnector(connectorSteps(index), activityScenario && index >= 3
+      ? '7484000000000000002' : '7484000000000000001');
     connectors.push(connector);
     return connector;
   },
-  (currentWorkspaceId, event) => realtimeRef.current?.publish(currentWorkspaceId, event),
+  (currentWorkspaceId, event) => {
+    realtimeRef.current?.publish(currentWorkspaceId, event);
+    if (event.type === 'connection.state') giftGoals.trackConnection(currentWorkspaceId, event);
+  },
   undefined,
   () => undefined,
   () => undefined,
@@ -81,11 +178,24 @@ const manager = new TikTokSessionManager(
     ...roles,
     speechLevels: roles.isGiftGiver ? [{ levelId, levelName: 'Голос эфира', cooldownSeconds: 5, expiresAt: null }] : [],
   }),
+  undefined,
+  (event) => realtimeRef.current?.publishGiftCompleted(event),
+  (id, connectionId, gift, identityKey) => giftGoals.observe(id, connectionId, gift, identityKey),
+  (id) => realtimeRef.current?.scheduleLiveActivity(id),
 );
 
 const app = buildApp({
   logger: false,
   tiktokManager: manager,
+  authService: fixtureAuth,
+  ...(giftGoalScenario ? {
+    giftGoalRepository: goalRepository,
+    onGiftGoalChanged: (id, configuration) => giftGoals.configure(id, configuration),
+  } : {}),
+  ...(activityScenario ? {
+    likeGoalRepository,
+    onLikeGoalChanged: (id, configuration) => manager.setLikeGoal(id, configuration),
+  } : {}),
   staticRoot: resolve(import.meta.dirname, '../../web/dist'),
 });
 
@@ -106,7 +216,11 @@ const automation: AutomationConfiguration = {
     id: randomUUID(), workspaceId, name: 'Модератор появился', eventType: 'moderator_seen',
     supportLevelId: null, speechTemplate: 'Модератор {user} подключился', soundAssetId: null,
     cooldownSeconds: 5, isEnabled: true, position: 0,
-  }],
+  }, ...(giftRuleScenario ? [{
+    id: 'dd849089-4eaa-44d9-92f4-2802eebf3181', workspaceId, name: 'Спасибо за розы', eventType: 'gift_completed' as const,
+    giftId: '5655', minimumGiftPoints: 300, supportLevelId: null, speechTemplate: '{user}, спасибо за {gift} ×{count}!',
+    soundAssetId: null, cooldownSeconds: 10, isEnabled: true, position: 1,
+  }] : [])],
 };
 
 const settings = {
@@ -114,16 +228,10 @@ const settings = {
   overlapPercent: 25, maxConcurrentSounds: 4, volumePercent: 80, revision: 1,
 };
 
-app.get('/api/auth/session', async () => ({
-  authenticated: true, mode: 'vline',
-  user: {
-    userId: '123e4567-e89b-42d3-a456-426614174000', displayName: 'Тестовый пользователь', isAdmin: false,
-    workspaces: [{ id: workspaceId, displayName: 'Тестовый эфир' }],
-  },
-}));
-app.get('/api/auth/access', async () => accessExpired
-  ? { allowed: false, reason: 'subscription_expired', validUntil: null }
-  : { allowed: true, reason: 'active_subscription', validUntil: 1_800_000_000_000 });
+if (!fixtureAuth) {
+  app.get('/api/auth/session', async () => ({ authenticated: true, mode: 'vline', user: fixturePrincipal }));
+  app.get('/api/auth/access', fixtureAccess);
+}
 app.post('/fixture/expire-access', async () => { accessExpired = true; return { status: 'expired' }; });
 
 app.get('/api/workspaces/:workspaceId/settings', async () => settings);
@@ -147,12 +255,18 @@ app.get('/fixture-gift.svg', async (_request, reply) => reply.type('image/svg+xm
 app.get('/fixture.wav', async (_request, reply) => reply.type('audio/wav').send(Buffer.from('524946462c00000057415645666d74201000000001000100401f0000401f00000100080064617461080000008080808080808080', 'hex')));
 
 realtimeRef.current = attachRealtimeServer(app, manager, {
+  ...(fixturePrincipal.isAdmin ? { authenticate: () => fixturePrincipal } : {}),
+  ...(giftGoalScenario ? { giftGoals: {
+    prepare: (id) => giftGoals.prepare(id, true),
+    snapshot: (id) => giftGoals.snapshot(id),
+  } } : {}),
   authorizeWorkspace: (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
   authorizeLiveConnect: async () => accessExpired
     ? { ok: false, error: { code: 'ACCESS_DENIED', message: 'subscription_expired' } }
     : { ok: true },
 });
 app.addHook('preClose', async () => realtimeRef.current?.close());
+app.addHook('onClose', async () => giftGoals.close());
 
 await app.listen({ host, port });
 process.stdout.write(`BROWSER_HARNESS_READY http://${host}:${port} revision=${sourceRevision}\n`);

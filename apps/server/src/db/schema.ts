@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
+import type { RegionalGift, RegionalGiftPage, RegionalGiftRegion } from '@tiktok-helper/contracts';
 import {
-  bigint, boolean, check, foreignKey, index, integer, pgTable, primaryKey, smallint, text,
+  bigint, boolean, check, foreignKey, index, integer, jsonb, pgTable, primaryKey, smallint, text,
   timestamp, unique, uniqueIndex, uuid, varchar,
 } from 'drizzle-orm/pg-core';
 
@@ -169,11 +170,21 @@ export const giftCatalog = pgTable('gift_catalog', {
   diamondCount: integer('diamond_count'),
   firstSeenWorkspaceId: varchar('first_seen_workspace_id', { length: 64 })
     .references(() => workspaces.id, { onDelete: 'set null' }),
-  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
-  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow(),
 }, (table) => [
   index('gift_catalog_last_seen_idx').on(table.lastSeenAt),
   check('gift_catalog_diamond_count_chk', sql`${table.diamondCount} is null or ${table.diamondCount} >= 0`),
+]);
+
+export const regionalGiftCatalog = pgTable('regional_gift_catalog', {
+  region: varchar('region', { length: 2 }).$type<RegionalGiftRegion>().primaryKey(),
+  gifts: jsonb('gifts').$type<RegionalGift[]>().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  retryAt: timestamp('retry_at', { withTimezone: true }),
+  lastError: varchar('last_error', { length: 12 }).$type<Extract<RegionalGiftPage['status'], 'rate_limited' | 'unavailable'>>(),
+}, (table) => [
+  check('regional_gift_catalog_region_chk', sql`${table.region} in ('US', 'CA', 'AE', 'DE', 'BY')`),
 ]);
 
 export const giftSoundRules = pgTable('gift_sound_rules', {
@@ -190,6 +201,32 @@ export const giftSoundRules = pgTable('gift_sound_rules', {
   index('gift_sound_rules_sound_asset_idx').on(table.soundAssetId),
   foreignKey({ columns: [table.soundAssetId], foreignColumns: [soundLibraryAssets.id] })
     .onDelete('restrict'),
+]);
+
+export const giftGoalSettings = pgTable('gift_goal_settings', {
+  workspaceId: varchar('workspace_id', { length: 64 }).primaryKey()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  giftId: varchar('gift_id', { length: 80 }).notNull()
+    .references(() => giftCatalog.giftId, { onDelete: 'restrict' }),
+  targetCount: integer('target_count').notNull(),
+  soundAssetId: uuid('sound_asset_id').references(() => soundLibraryAssets.id, { onDelete: 'set null' }),
+  isEnabled: boolean('is_enabled').notNull().default(false),
+  revision: integer('revision').notNull().default(1),
+}, (table) => [
+  index('gift_goal_settings_gift_idx').on(table.giftId),
+  index('gift_goal_settings_sound_asset_idx').on(table.soundAssetId),
+  check('gift_goal_settings_target_count_chk', sql`${table.targetCount} between 1 and 1000000`),
+  check('gift_goal_settings_revision_chk', sql`${table.revision} > 0`),
+]);
+
+export const likeGoalSettings = pgTable('like_goal_settings', {
+  workspaceId: varchar('workspace_id', { length: 64 }).primaryKey()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  targetCount: integer('target_count'),
+  revision: integer('revision').notNull().default(1),
+}, (table) => [
+  check('like_goal_settings_target_count_chk', sql`${table.targetCount} is null or ${table.targetCount} between 1 and 10000000`),
+  check('like_goal_settings_revision_chk', sql`${table.revision} > 0`),
 ]);
 
 export const workspaceSpeechPolicies = pgTable('workspace_speech_policies', {
@@ -248,6 +285,8 @@ export const eventReactions = pgTable('event_reactions', {
   name: varchar('name', { length: 80 }).notNull(),
   eventType: varchar('event_type', { length: 32 }).notNull(),
   supportLevelId: uuid('support_level_id'),
+  giftId: varchar('gift_id', { length: 80 }).references(() => giftCatalog.giftId, { onDelete: 'restrict' }),
+  minimumGiftPoints: integer('minimum_gift_points'),
   speechTemplate: varchar('speech_template', { length: 500 }),
   soundAssetId: uuid('sound_asset_id').references(() => soundLibraryAssets.id, { onDelete: 'set null' }),
   cooldownSeconds: integer('cooldown_seconds').notNull().default(0),
@@ -259,7 +298,13 @@ export const eventReactions = pgTable('event_reactions', {
   index('event_reactions_workspace_position_idx').on(table.workspaceId, table.position),
   index('event_reactions_sound_asset_idx').on(table.soundAssetId),
   foreignKey({ columns: [table.workspaceId, table.supportLevelId], foreignColumns: [supportLevels.workspaceId, supportLevels.id] }).onDelete('cascade'),
-  check('event_reactions_type_chk', sql`${table.eventType} in ('moderator_seen', 'donor_seen', 'support_level_reached')`),
+  check('event_reactions_type_chk', sql`${table.eventType} in ('moderator_seen', 'donor_seen', 'support_level_reached', 'gift_completed')`),
+  check('event_reactions_gift_filter_chk', sql`(
+    ${table.eventType} = 'gift_completed' and ${table.supportLevelId} is null
+      and ${table.minimumGiftPoints} is not null and ${table.minimumGiftPoints} >= 0
+  ) or (
+    ${table.eventType} <> 'gift_completed' and ${table.giftId} is null and ${table.minimumGiftPoints} is null
+  )`),
   check('event_reactions_cooldown_chk', sql`${table.cooldownSeconds} between 0 and 86400`),
   check('event_reactions_position_chk', sql`${table.position} between 0 and 10000`),
 ]);
@@ -317,4 +362,14 @@ export const processedGiftEvents = pgTable('processed_gift_events', {
 }, (table) => [
   primaryKey({ columns: [table.workspaceId, table.eventId] }),
   index('processed_gift_events_expiry_idx').on(table.expiresAt),
+]);
+
+export const processedGiftStreaks = pgTable('processed_gift_streaks', {
+  workspaceId: varchar('workspace_id', { length: 64 }).notNull()
+    .references(() => workspaces.id, { onDelete: 'cascade' }),
+  streakKey: varchar('streak_key', { length: 64 }).notNull(),
+  repeatCount: bigint('repeat_count', { mode: 'number' }).notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.workspaceId, table.streakKey] }),
+  check('processed_gift_streaks_repeat_count_chk', sql`${table.repeatCount} >= 0`),
 ]);

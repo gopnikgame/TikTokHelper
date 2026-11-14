@@ -4,7 +4,7 @@ import fastifyStatic from '@fastify/static';
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import {
   apiErrorSchema, authSessionSchema, healthResponseSchema, readinessResponseSchema,
-  type ApiErrorResponse, type AuthSessionResponse, type HealthResponse, type ReadinessResponse,
+  type ApiErrorResponse, type AuthSessionResponse, type GiftGoalConfiguration, type HealthResponse, type LikeGoalConfiguration, type ReadinessResponse,
 } from '@tiktok-helper/contracts';
 import { settingsRoutes } from './settings/routes.js';
 import type { SettingsRepository } from './settings/repository.js';
@@ -15,6 +15,12 @@ import { tiktokRoutes } from './tiktok/routes.js';
 import type { TikTokSessionManager } from './tiktok/session-manager.js';
 import { giftRoutes } from './gifts/routes.js';
 import type { GiftCatalogRepository } from './gifts/repository.js';
+import { regionalGiftRoutes } from './gifts/regional-routes.js';
+import type { RegionalGiftCatalogReader } from './gifts/regional-catalog.js';
+import { giftGoalRoutes } from './gift-goals/routes.js';
+import type { GiftGoalRepository } from './gift-goals/repository.js';
+import { likeGoalRoutes } from './like-goals/routes.js';
+import type { LikeGoalRepository } from './like-goals/repository.js';
 import { recentChannelRoutes } from './channels/routes.js';
 import type { RecentChannelRepository } from './channels/repository.js';
 import { authRoutes } from './auth/routes.js';
@@ -39,6 +45,9 @@ export interface BuildAppOptions {
   settingsRepository?: SettingsRepository;
   soundRepository?: SoundRepository;
   giftCatalogRepository?: GiftCatalogRepository;
+  regionalGiftCatalog?: RegionalGiftCatalogReader;
+  giftGoalRepository?: GiftGoalRepository;
+  likeGoalRepository?: LikeGoalRepository;
   recentChannelRepository?: RecentChannelRepository;
   automationRepository?: AutomationRepository;
   supporterRepository?: Pick<SupporterRepository, 'resetWorkspaceStatistics'>;
@@ -51,6 +60,8 @@ export interface BuildAppOptions {
   ttsAssetRoot?: string;
   localWorkspaceId?: string;
   onSoundChanged?: (soundId: string) => void;
+  onGiftGoalChanged?: (workspaceId: string, configuration: GiftGoalConfiguration) => void;
+  onLikeGoalChanged?: (workspaceId: string, configuration: LikeGoalConfiguration) => void;
   onAutomationChanged?: (workspaceId: string) => void;
   onSupporterStatisticsReset?: (workspaceId: string) => void;
 }
@@ -218,11 +229,26 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   }
 
   if (options.soundRepository) {
-    app.register(soundRoutes, { repository: options.soundRepository, uploadStore: options.soundUploadStore, onSoundChanged: options.onSoundChanged });
+    app.register(soundRoutes, {
+      repository: options.soundRepository, regionalCatalog: options.regionalGiftCatalog,
+      uploadStore: options.soundUploadStore, onSoundChanged: options.onSoundChanged,
+    });
   }
 
   if (options.giftCatalogRepository) {
     app.register(giftRoutes, { repository: options.giftCatalogRepository });
+  }
+
+  if (options.regionalGiftCatalog) {
+    app.register(regionalGiftRoutes, { catalog: options.regionalGiftCatalog });
+  }
+
+  if (options.giftGoalRepository) {
+    app.register(giftGoalRoutes, { repository: options.giftGoalRepository, onChanged: options.onGiftGoalChanged });
+  }
+
+  if (options.likeGoalRepository) {
+    app.register(likeGoalRoutes, { repository: options.likeGoalRepository, onChanged: options.onLikeGoalChanged });
   }
 
   if (options.recentChannelRepository) {

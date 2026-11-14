@@ -16,10 +16,11 @@ export class ManagedAudioPlayback {
     if (this.#context.state !== 'running') throw new Error('Web Audio is unavailable');
   }
 
-  async play(sound: SoundAsset, volumePercent: number, onEnded: () => void): Promise<ManagedPlaybackHandle> {
+  async play(sound: SoundAsset, volumePercent: number, onEnded: () => void, canStart: () => boolean = () => true): Promise<ManagedPlaybackHandle> {
     const context = this.#context;
     if (!context || context.state !== 'running' || sound.status !== 'active') throw new Error('Managed playback is unavailable');
     const buffer = await this.#loadBuffer(sound, context);
+    if (!canStart()) throw new DOMException('Audio playback cancelled', 'AbortError');
     const source = context.createBufferSource();
     const gain = context.createGain();
     source.buffer = buffer;

@@ -35,7 +35,7 @@ describe('supporter entitlement cache', () => {
     const list = vi.fn(async () => []);
     const cache = new EntitlementCache({ listActiveSpeechEntitlements: list });
     await cache.prepare('primary', '123e4567-e89b-42d3-a456-426614174001');
-    cache.addGranted('primary', 'viewer-key', [{
+    cache.addGranted('primary', '123e4567-e89b-42d3-a456-426614174001', 'viewer-key', [{
       level: {
         id: active.levelId, workspaceId: 'primary', name: active.levelName,
         thresholdPoints: 10_000, pointsScope: 'lifetime', privilegeDuration: 'permanent',
@@ -54,5 +54,22 @@ describe('supporter entitlement cache', () => {
     await cache.prepare('primary', '123e4567-e89b-42d3-a456-426614174001');
     cache.clear('primary');
     expect(cache.speakerContext('primary', 'viewer-key', { isModerator: false, isGiftGiver: true }).speechLevels).toEqual([]);
+  });
+
+  it('cannot apply an old entitlement load after a room switch or statistics reset', async () => {
+    const old = Promise.withResolvers<Array<{ identityKey: string; entitlement: typeof active }>>();
+    const newRoom = Promise.withResolvers<Array<{ identityKey: string; entitlement: typeof active }>>();
+    const read = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(newRoom.promise);
+    const cache = new EntitlementCache({ listActiveSpeechEntitlements: read });
+    const first = cache.prepare('primary', 'stream-before');
+    const second = cache.prepare('primary', 'stream-after');
+    old.resolve([{ identityKey: 'viewer-key', entitlement: active }]);
+    await first;
+    const roles = { isModerator: false, isGiftGiver: true };
+    expect(cache.speakerContext('primary', 'viewer-key', roles).speechLevels).toEqual([]);
+    cache.clear('primary');
+    newRoom.resolve([{ identityKey: 'viewer-key', entitlement: active }]);
+    await second;
+    expect(cache.speakerContext('primary', 'viewer-key', roles).speechLevels).toEqual([]);
   });
 });

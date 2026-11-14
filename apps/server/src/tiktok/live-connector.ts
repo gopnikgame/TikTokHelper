@@ -1,6 +1,6 @@
 import {
   ControlEvent, TikTokLiveConnection, UserOfflineError, WebcastEvent,
-  type TikTokLiveConstructorConnectionOptions,
+  type ProtoMessageFetchResult, type TikTokLiveConstructorConnectionOptions,
 } from 'tiktok-live-connector';
 import { HttpProxyAgent } from 'http-proxy-agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
@@ -65,8 +65,28 @@ function createProxyOptions(proxy: URL | undefined): ProxyConnectionOptions {
   };
 }
 
+class HistoryAwareLiveConnection extends TikTokLiveConnection {
+  readonly #historicalEvents = new WeakSet<object>();
+
+  isHistorical(event: unknown): boolean {
+    return typeof event === 'object' && event !== null && this.#historicalEvents.has(event);
+  }
+
+  protected override processProtoMessageFetchResult(batch: ProtoMessageFetchResult): Promise<void> {
+    // v2.5.0 processes the initial signing batch before creating the WebSocket client.
+    // The upstream data callbacks receive the decoded objects without this envelope.
+    const initialBatch = this.wsClient === null;
+    for (const message of batch.messages) {
+      if (!initialBatch && message.isHistory !== true) continue;
+      const event = message.decodedData?.data;
+      if (typeof event === 'object' && event !== null) this.#historicalEvents.add(event);
+    }
+    return super.processProtoMessageFetchResult(batch);
+  }
+}
+
 class TikTokConnector implements LiveConnector {
-  readonly #connection: TikTokLiveConnection;
+  readonly #connection: HistoryAwareLiveConnection;
 
   constructor(username: string, proxyOptions: ProxyConnectionOptions) {
     const options: TikTokLiveConstructorConnectionOptions = {
@@ -78,16 +98,17 @@ class TikTokConnector implements LiveConnector {
       processInitialData: true,
       ...proxyOptions,
     };
-    this.#connection = new TikTokLiveConnection(username, options);
+    this.#connection = new HistoryAwareLiveConnection(username, options);
   }
 
-  async connect(): Promise<void> {
+  async connect(): Promise<string | undefined> {
     try {
-      await this.#connection.connect();
+      const { roomId } = await this.#connection.connect();
+      const id = typeof roomId === 'string' ? roomId.trim() : '';
+      return id && id !== '0' ? id : undefined;
     } catch (error) {
       // In 2.5.0 a rejected WebSocket upgrade can leave the handshake socket open.
-      const wsClient = this.#connection.wsClient as unknown as RuntimeWebSocket | null;
-      if (wsClient && wsClient.readyState === wsClient.CONNECTING) wsClient.terminate();
+      this.#cancelHandshake();
       if (error instanceof UserOfflineError) {
         throw new Error('TIKTOK_USER_OFFLINE', { cause: error });
       }
@@ -95,11 +116,19 @@ class TikTokConnector implements LiveConnector {
     }
   }
 
-  async disconnect(): Promise<void> { await this.#connection.disconnect(); }
+  async disconnect(): Promise<void> {
+    this.#cancelHandshake();
+    await this.#connection.disconnect();
+  }
+
+  #cancelHandshake(): void {
+    const wsClient = this.#connection.wsClient as unknown as RuntimeWebSocket | null;
+    if (wsClient && wsClient.readyState === wsClient.CONNECTING) wsClient.terminate();
+  }
 
   on<EventName extends keyof ConnectorEventMap>(
     eventName: EventName,
-    handler: (event: ConnectorEventMap[EventName]) => void,
+    handler: (event: ConnectorEventMap[EventName], historical?: boolean) => void,
   ): void {
     const events = {
       connected: ControlEvent.CONNECTED,
@@ -107,9 +136,20 @@ class TikTokConnector implements LiveConnector {
       error: ControlEvent.ERROR,
       chat: WebcastEvent.CHAT,
       gift: WebcastEvent.GIFT,
+      roomUser: WebcastEvent.ROOM_USER,
+      like: WebcastEvent.LIKE,
+      follow: WebcastEvent.FOLLOW,
+      share: WebcastEvent.SHARE,
       streamEnd: WebcastEvent.STREAM_END,
     } as const;
-    (this.#connection as unknown as RuntimeEmitter).on(events[eventName], handler as (event: unknown) => void);
+    const emitter = this.#connection as unknown as RuntimeEmitter;
+    if (eventName !== 'connected' && eventName !== 'disconnected' && eventName !== 'error' && eventName !== 'streamEnd') {
+      emitter.on(events[eventName], (event) => handler(
+        event as ConnectorEventMap[EventName], this.#connection.isHistorical(event) || undefined,
+      ));
+    } else {
+      emitter.on(events[eventName], handler as (event: unknown) => void);
+    }
   }
 
   removeAllListeners(): void { (this.#connection as unknown as RuntimeEmitter).removeAllListeners(); }

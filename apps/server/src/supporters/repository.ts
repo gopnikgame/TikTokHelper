@@ -3,9 +3,10 @@ import type { GiftEvent, SpeechLevelEntitlement, SupportLevel } from '@tiktok-he
 
 import type { Database } from '../db/client.js';
 import {
-  processedGiftEvents, supporterLevelGrants, supporterStreamTotals, supporters,
+  processedGiftEvents, processedGiftStreaks, supporterLevelGrants, supporterStreamTotals, supporters,
   supportLevels, workspaces,
 } from '../db/schema.js';
+import type { GiftAccounting } from '../tiktok/types.js';
 
 export interface GrantedSupportLevel {
   level: SupportLevel;
@@ -14,6 +15,7 @@ export interface GrantedSupportLevel {
 
 export interface SupportProcessingResult {
   duplicate: boolean;
+  repeatCount: number;
   pointsAdded: number;
   streamTotal: number;
   lifetimeTotal: number;
@@ -22,11 +24,15 @@ export interface SupportProcessingResult {
 
 export interface SupporterRepository {
   resetWorkspaceStatistics(workspaceId: string): Promise<number>;
-  processGift(workspaceId: string, streamId: string, gift: GiftEvent, identityKey: string): Promise<SupportProcessingResult>;
+  rememberHistoricalStreak(workspaceId: string, key: string, repeatCount: number): Promise<void>;
+  claimGiftCompletion(workspaceId: string, eventId: string): Promise<boolean>;
+  processGift(workspaceId: string, streamId: string, gift: GiftEvent, identityKey: string, accounting?: GiftAccounting): Promise<SupportProcessingResult>;
   listActiveSpeechEntitlements(workspaceId: string, streamId: string): Promise<Array<{
     identityKey: string; entitlement: SpeechLevelEntitlement;
   }>>;
 }
+
+const GIFT_EVENT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 
 function presentLevel(row: typeof supportLevels.$inferSelect): SupportLevel {
   return {
@@ -46,8 +52,31 @@ export function giftPoints(gift: Pick<GiftEvent, 'diamondCount' | 'repeatCount'>
   return Number.isSafeInteger(points) && points > 0 ? points : 0;
 }
 
+function withoutPoints(repeatCount: number): SupportProcessingResult {
+  return { duplicate: repeatCount === 0, repeatCount, pointsAdded: 0, streamTotal: 0, lifetimeTotal: 0, grantedLevels: [] };
+}
+
 export function createSupporterRepository(db: Database): SupporterRepository {
   return {
+    async rememberHistoricalStreak(workspaceId, streakKey, repeatCount) {
+      await db.transaction(async (tx) => {
+        await tx.insert(workspaces).values({ id: workspaceId, displayName: workspaceId }).onConflictDoNothing();
+        await tx.insert(processedGiftStreaks).values({ workspaceId, streakKey, repeatCount }).onConflictDoUpdate({
+          target: [processedGiftStreaks.workspaceId, processedGiftStreaks.streakKey],
+          set: { repeatCount },
+          where: sql`${processedGiftStreaks.repeatCount} < ${repeatCount}`,
+        });
+      });
+    },
+    async claimGiftCompletion(workspaceId, eventId) {
+      return db.transaction(async (tx) => {
+        await tx.insert(workspaces).values({ id: workspaceId, displayName: workspaceId }).onConflictDoNothing();
+        const [claimed] = await tx.insert(processedGiftEvents).values({
+          workspaceId, eventId, expiresAt: new Date(Date.now() + GIFT_EVENT_RETENTION_MS),
+        }).onConflictDoNothing().returning({ eventId: processedGiftEvents.eventId });
+        return claimed !== undefined;
+      });
+    },
     async resetWorkspaceStatistics(workspaceId) {
       const deleted = await db.delete(supporters).where(eq(supporters.workspaceId, workspaceId))
         .returning({ identityKey: supporters.identityKey });
@@ -77,15 +106,39 @@ export function createSupporterRepository(db: Database): SupporterRepository {
         },
       }));
     },
-    async processGift(workspaceId, streamId, gift, identityKey) {
-      const pointsAdded = giftPoints(gift);
-      if (pointsAdded === 0) return { duplicate: false, pointsAdded: 0, streamTotal: 0, lifetimeTotal: 0, grantedLevels: [] };
+    async processGift(workspaceId, streamId, gift, identityKey, accounting) {
       return db.transaction(async (tx) => {
         await tx.insert(workspaces).values({ id: workspaceId, displayName: workspaceId }).onConflictDoNothing();
+        const expiresAt = new Date(Date.now() + GIFT_EVENT_RETENTION_MS);
+        const upstreamEventId = accounting?.upstreamEventId;
+        const [legacyCopy] = upstreamEventId && upstreamEventId !== gift.eventId
+          ? await tx.select({ eventId: processedGiftEvents.eventId }).from(processedGiftEvents).where(and(
+            eq(processedGiftEvents.workspaceId, workspaceId), eq(processedGiftEvents.eventId, upstreamEventId),
+          )).limit(1) : [];
         const [accepted] = await tx.insert(processedGiftEvents).values({
-          workspaceId, eventId: gift.eventId, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          workspaceId, eventId: gift.eventId, expiresAt,
         }).onConflictDoNothing().returning({ eventId: processedGiftEvents.eventId });
-        if (!accepted) return { duplicate: true, pointsAdded: 0, streamTotal: 0, lifetimeTotal: 0, grantedLevels: [] };
+        if (!accepted) return withoutPoints(0);
+
+        const streak = accounting?.streak;
+        let repeatCount = legacyCopy ? 0 : gift.repeatCount;
+        if (streak) {
+          // Lock the series before advancing its cumulative count. The startup history can
+          // set a higher baseline than our last database write after a reconnect.
+          await tx.insert(processedGiftStreaks).values({ workspaceId, streakKey: streak.key, repeatCount: 0 }).onConflictDoNothing();
+          const key = and(eq(processedGiftStreaks.workspaceId, workspaceId), eq(processedGiftStreaks.streakKey, streak.key));
+          const [previous] = await tx.select({ repeatCount: processedGiftStreaks.repeatCount }).from(processedGiftStreaks)
+            .where(key).for('update');
+          if (!previous) throw new Error('Gift streak is missing');
+          if (streak.totalCount > previous.repeatCount) {
+            await tx.update(processedGiftStreaks).set({ repeatCount: streak.totalCount }).where(key);
+          }
+          if (!legacyCopy || previous.repeatCount > 0 || streak.historicalCount > 0) {
+            repeatCount = Math.max(0, streak.totalCount - Math.max(streak.historicalCount, previous.repeatCount));
+          }
+        }
+        const pointsAdded = giftPoints({ ...gift, repeatCount });
+        if (pointsAdded === 0) return withoutPoints(repeatCount);
 
         const [supporter] = await tx.insert(supporters).values({
           workspaceId, identityKey, username: gift.senderUsername,
@@ -122,7 +175,7 @@ export function createSupporterRepository(db: Database): SupporterRepository {
           if (grant) grantedLevels.push({ level: presentLevel(row), expiresAt: expiresAt?.toISOString() ?? null });
         }
         return {
-          duplicate: false, pointsAdded, streamTotal: stream.points,
+          duplicate: false, repeatCount, pointsAdded, streamTotal: stream.points,
           lifetimeTotal: supporter.lifetimePoints, grantedLevels,
         };
       });

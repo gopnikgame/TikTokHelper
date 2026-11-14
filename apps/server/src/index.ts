@@ -6,11 +6,17 @@ import { createDatabase } from './db/client.js';
 import { createSettingsRepository } from './settings/repository.js';
 import { createTikTokConnectorFactory } from './tiktok/live-connector.js';
 import { TikTokSessionManager } from './tiktok/session-manager.js';
+import type { LiveSessionSnapshot } from './tiktok/types.js';
 import { attachRealtimeServer, type RealtimeServer } from './realtime/server.js';
 import { createSoundRepository } from './sounds/repository.js';
 import { createSoundUploadStore } from './sounds/upload.js';
 import { inspectSoundFile, synchronizeSoundMetadata } from './sounds/metadata.js';
 import { createGiftCatalogRepository } from './gifts/repository.js';
+import { createRegionalGiftStore, RegionalGiftCatalog } from './gifts/regional-catalog.js';
+import { fetchRegionalGifts } from './gifts/regional-provider.js';
+import { createGiftGoalRepository } from './gift-goals/repository.js';
+import { createLikeGoalRepository } from './like-goals/repository.js';
+import { GiftGoalRuntime } from './gift-goals/runtime.js';
 import { createRecentChannelRepository } from './channels/repository.js';
 import { createAuthRepository } from './auth/repository.js';
 import { HttpIdentityBridge } from './auth/bridge-client.js';
@@ -33,6 +39,10 @@ const soundRoot = process.env.SOUND_ROOT;
 const soundUploadRoot = process.env.SOUND_UPLOAD_ROOT;
 if (soundUploadRoot) await mkdir(soundUploadRoot, { recursive: true });
 const giftCatalogRepository = createGiftCatalogRepository(db);
+const regionalCatalogKey = process.env.TIKTOK_REGIONAL_CATALOG_API_KEY?.trim() || undefined;
+const regionalGiftCatalog = new RegionalGiftCatalog(createRegionalGiftStore(db), (region) => fetchRegionalGifts(region, regionalCatalogKey));
+const giftGoalRepository = createGiftGoalRepository(db);
+const likeGoalRepository = createLikeGoalRepository(db);
 const recentChannelRepository = createRecentChannelRepository(db);
 const soundRepository = createSoundRepository(db, giftCatalogRepository, basePath);
 const authRepository = createAuthRepository(db);
@@ -55,7 +65,16 @@ if (soundRoot) {
 const soundMetadata = await synchronizeSoundMetadata(db, { soundRoot, soundUploadRoot });
 process.stdout.write(`${JSON.stringify({ level: 'info', component: 'sounds', event: 'metadata_synchronized', ...soundMetadata })}\n`);
 const realtimeRef: { current?: RealtimeServer } = {};
-const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
+async function prepareLiveActivity(id: string): Promise<void> {
+  if (tiktokManager.getLiveActivity(id).likeGoal.revision > 0) return;
+  tiktokManager.setLikeGoal(id, await likeGoalRepository.get(id));
+}
+const giftGoals = new GiftGoalRuntime(
+  giftGoalRepository,
+  (id): LiveSessionSnapshot => tiktokManager.status(id),
+  (update) => realtimeRef.current?.publishGiftGoal(update),
+);
+const tiktokManager: TikTokSessionManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
   if (event.type === 'gift.received') {
     void giftCatalogRepository.observe(workspaceId, event).catch((error: unknown) => {
       process.stderr.write(`${JSON.stringify({
@@ -65,6 +84,7 @@ const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspace
     });
   }
   realtimeRef.current?.publish(workspaceId, event);
+  if (event.type === 'connection.state') giftGoals.trackConnection(workspaceId, event);
 }, undefined, (entry) => process.stderr.write(`${JSON.stringify({ level: 'error', component: 'tiktok', ...entry })}\n`), (workspaceId, username) => {
   void recentChannelRepository.record(workspaceId, username).catch((error: unknown) => {
     process.stderr.write(`${JSON.stringify({
@@ -72,31 +92,47 @@ const tiktokManager = new TikTokSessionManager(createTikTokConnector, (workspace
       errorName: error instanceof Error ? error.name : 'UnknownError',
     })}\n`);
   });
-}, (workspaceId, streamId, gift, identityKey) => {
-  void supporterRepository.processGift(workspaceId, streamId, gift, identityKey).then((result) => {
-    entitlementCache.addGranted(workspaceId, identityKey, result.grantedLevels);
-    for (const grant of result.grantedLevels) realtimeRef.current?.publishSupportLevelGranted(workspaceId, {
-      eventId: `${gift.eventId}:${grant.level.id}`, workspaceId,
-      senderDisplayName: gift.senderDisplayName, senderUsername: gift.senderUsername,
-      levelId: grant.level.id, levelName: grant.level.name,
-      thresholdPoints: grant.level.thresholdPoints, pointsAdded: result.pointsAdded,
-      streamTotal: result.streamTotal, lifetimeTotal: result.lifetimeTotal,
-      expiresAt: grant.expiresAt,
-    });
-  }).catch((error: unknown) => {
+}, async (workspaceId, streamId, gift, identityKey, accounting) => {
+  const result = await supporterRepository.processGift(workspaceId, streamId, gift, identityKey, accounting);
+  return {
+    repeatCount: result.repeatCount,
+    applyEntitlements: () => entitlementCache.addGranted(workspaceId, streamId, identityKey, result.grantedLevels),
+    announce() {
+      for (const grant of result.grantedLevels) realtimeRef.current?.publishSupportLevelGranted(workspaceId, {
+        eventId: `${gift.eventId}:${grant.level.id}`, workspaceId,
+        senderDisplayName: gift.senderDisplayName, senderUsername: gift.senderUsername,
+        levelId: grant.level.id, levelName: grant.level.name,
+        thresholdPoints: grant.level.thresholdPoints, pointsAdded: result.pointsAdded,
+        streamTotal: result.streamTotal, lifetimeTotal: result.lifetimeTotal,
+        expiresAt: grant.expiresAt,
+      });
+    },
+  };
+}, async (workspaceId, streamId) => {
+  await Promise.all([giftGoals.prepare(workspaceId).catch((error: unknown) => {
     process.stderr.write(`${JSON.stringify({
-      level: 'error', component: 'supporters', event: 'gift_support_processing_failed',
+      level: 'warn', component: 'gift_goals', event: 'gift_goal_load_failed',
       errorName: error instanceof Error ? error.name : 'UnknownError',
     })}\n`);
-  });
-}, async (workspaceId, streamId) => {
+  }), prepareLiveActivity(workspaceId).catch((error: unknown) => {
+    process.stderr.write(`${JSON.stringify({
+      level: 'warn', component: 'live_activity', event: 'like_goal_load_failed',
+      errorName: error instanceof Error ? error.name : 'UnknownError',
+    })}\n`);
+  })]);
   await entitlementCache.prepare(workspaceId, streamId).catch((error: unknown) => {
     process.stderr.write(`${JSON.stringify({
       level: 'error', component: 'supporters', event: 'entitlement_cache_prepare_failed',
       errorName: error instanceof Error ? error.name : 'UnknownError',
     })}\n`);
   });
-}, (workspaceId, identityKey, roles) => entitlementCache.speakerContext(workspaceId, identityKey, roles));
+}, (workspaceId, identityKey, roles) => entitlementCache.speakerContext(workspaceId, identityKey, roles),
+supporterRepository.rememberHistoricalStreak, async (event, streakable) => {
+  // Ordinary gifts have already been claimed by processGift. Finals with no increment need their own claim.
+  if (streakable && !await supporterRepository.claimGiftCompletion(event.workspaceId, event.eventId)) return;
+  realtimeRef.current?.publishGiftCompleted(event);
+}, (workspaceId, connectionId, gift, identityKey) => giftGoals.observe(workspaceId, connectionId, gift, identityKey),
+(id) => realtimeRef.current?.scheduleLiveActivity(id));
 const app = buildApp({
   readinessCheck: async () => {
     try { await db.execute(sql`select 1`); return true; } catch { return false; }
@@ -104,6 +140,9 @@ const app = buildApp({
   settingsRepository: createSettingsRepository(db),
   soundRepository,
   giftCatalogRepository,
+  regionalGiftCatalog,
+  giftGoalRepository,
+  likeGoalRepository,
   recentChannelRepository,
   automationRepository,
   supporterRepository,
@@ -114,7 +153,17 @@ const app = buildApp({
   authService,
   ttsAssetRoot: process.env.TTS_ASSET_ROOT,
   localWorkspaceId: workspaceId,
-  onSoundChanged: (soundId) => realtimeRef.current?.publishSoundLibraryChanged(soundId),
+  onSoundChanged: (soundId) => {
+    realtimeRef.current?.publishSoundLibraryChanged(soundId);
+    void giftGoals.refreshSound(soundId).catch((error: unknown) => {
+      process.stderr.write(`${JSON.stringify({
+        level: 'warn', component: 'gift_goals', event: 'gift_goal_sound_refresh_failed',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      })}\n`);
+    });
+  },
+  onGiftGoalChanged: (workspaceId, configuration) => giftGoals.configure(workspaceId, configuration),
+  onLikeGoalChanged: (id, configuration) => tiktokManager.setLikeGoal(id, configuration),
   onAutomationChanged: (changedWorkspaceId) => {
     void entitlementCache.refresh(changedWorkspaceId).catch((error: unknown) => {
       process.stderr.write(`${JSON.stringify({
@@ -128,6 +177,11 @@ const app = buildApp({
 });
 realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
   origin: authService?.publicOrigin,
+  prepareLiveActivity,
+  giftGoals: {
+    prepare: (id) => giftGoals.prepare(id, true),
+    snapshot: (id) => giftGoals.snapshot(id),
+  },
   sessionRecheckIntervalMs: authService?.integrated ? 15_000 : undefined,
   ...(authService ? { authenticate: async (headers: import('node:http').IncomingHttpHeaders) => (
     (await resolveAccessPrincipal(headers, authService, workspaceId))?.principal ?? null
@@ -144,7 +198,7 @@ realtimeRef.current = attachRealtimeServer(app, tiktokManager, {
   } } : {}),
 });
 app.addHook('preClose', async () => realtimeRef.current?.close());
-app.addHook('onClose', async () => client.end());
+app.addHook('onClose', async () => { giftGoals.close(); await client.end(); });
 
 try {
   await app.listen({ host: process.env.HOST ?? '127.0.0.1', port: Number(process.env.PORT ?? 3000) });

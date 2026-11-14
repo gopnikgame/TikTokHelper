@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AutomationConfiguration, ChatEvent } from '@tiktok-helper/contracts';
+import type { AutomationConfiguration, ChatEvent, EventReaction, GiftCompletedEvent } from '@tiktok-helper/contracts';
 import { renderTemplate, SpeechPolicyEngine } from './policy.js';
 
 const levelId = '123e4567-e89b-42d3-a456-426614174000';
@@ -25,6 +25,17 @@ const chat = (overrides: Partial<ChatEvent> = {}): ChatEvent => ({
     levelId, levelName: 'Голос', cooldownSeconds: 30, expiresAt: null,
   }] },
   ...overrides,
+});
+const rose = (overrides: Partial<GiftCompletedEvent> = {}): GiftCompletedEvent => ({
+  eventId: 'gift-complete:a', workspaceId: 'primary', generation: 1,
+  connectionId: '123e4567-e89b-42d3-a456-426614174000',
+  giftId: '5655', giftName: 'Rose', senderDisplayName: 'Viewer', senderUsername: 'viewer', repeatCount: 3, diamondCount: 100,
+  ...overrides,
+});
+const giftRule = (overrides: Partial<EventReaction> = {}): EventReaction => ({
+  id: 'rule-1', workspaceId: 'primary', eventType: 'gift_completed', name: 'Розы', giftId: '5655', minimumGiftPoints: 300,
+  supportLevelId: null, speechTemplate: '{user}, {gift} ×{count} на {points}', soundAssetId: 'bell', cooldownSeconds: 10,
+  isEnabled: true, position: 0, ...overrides,
 });
 
 describe('speech policy engine', () => {
@@ -76,5 +87,40 @@ describe('speech policy engine', () => {
       .toEqual({ speech: null, soundAssetIds: [] });
     engine.reset();
     expect(engine.evaluateParticipantSeen('moderator_seen', chat({ eventId: 'chat-3' }), config).speech).not.toBeNull();
+  });
+
+  it('evaluates total value and selected gift with one thank-you and one optional sound', () => {
+    const config = configuration();
+    config.eventReactions = [giftRule()];
+    const engine = new SpeechPolicyEngine();
+    const available = () => true;
+    expect(engine.evaluateGiftCompletion(rose({ eventId: 'below', repeatCount: 2 }), config, available)).toBeNull();
+    expect(engine.evaluateGiftCompletion(rose({ eventId: 'other', giftId: '999' }), config, available)).toBeNull();
+    expect(engine.evaluateGiftCompletion(rose({ eventId: 'unknown', diamondCount: undefined }), config, available)).toBeNull();
+    expect(engine.evaluateGiftCompletion(rose({ workspaceId: 'another' }), config, available)).toBeNull();
+    expect(engine.evaluateGiftCompletion(rose(), config, available)).toMatchObject({
+      speech: { text: 'Viewer, Rose ×3 на 300', language: 'ru-RU' }, soundAssetIds: ['bell'],
+    });
+    expect(engine.evaluateGiftCompletion(rose(), config, available)).toBeNull();
+  });
+
+  it('uses the first eligible rule and advances its pause only after it wins', () => {
+    const config = configuration();
+    config.eventReactions = [
+      giftRule({ id: 'fallback', giftId: null, minimumGiftPoints: 0, cooldownSeconds: 0, speechTemplate: 'Резерв', position: 3 }),
+      giftRule({ id: 'off', speechTemplate: 'Выключено', isEnabled: false }),
+      giftRule({ id: 'quarantined', speechTemplate: null, soundAssetId: 'quarantined' }),
+      giftRule({ position: 2 }),
+    ];
+    let now = 0;
+    const engine = new SpeechPolicyEngine(() => now);
+    const evaluate = (eventId: string, overrides: Partial<GiftCompletedEvent> = {}) =>
+      engine.evaluateGiftCompletion(rose({ eventId, ...overrides }), config, (id) => id === 'bell');
+    expect(evaluate('a')?.speech?.text).toContain('Rose ×3');
+    now = 9_999;
+    expect(evaluate('b')?.speech?.text).toBe('Резерв');
+    now = 10_000;
+    expect(evaluate('c')?.speech?.text).toContain('Rose ×3');
+    expect(evaluate('d', { diamondCount: undefined })?.speech?.text).toBe('Резерв');
   });
 });

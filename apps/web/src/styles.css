@@ -192,6 +192,14 @@ button.channel-chip:hover { border-color: var(--cyan); background: #19282a; }
 .rule-list { display: grid; gap: .65rem; }.rule-list > li { padding: .85rem; border: 1px solid #28313c; border-radius: .65rem; background: #11171e; }.rule-list > li.is-disabled { opacity: .7; }
 .rule-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }.rule-heading > div { display: grid; min-width: 0; gap: .15rem; }.rule-heading span, .rule-heading small { color: var(--muted); font-size: .78rem; }.rule-state { padding: .25rem .45rem; border-radius: 999px; background: #242d38; white-space: nowrap; }
 .rule-actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .75rem; }.rule-actions button { padding: .5rem .65rem; }
+.rule-heading > div { overflow-wrap: anywhere; }
+.rule-field-hint, .rule-list-hint { color: var(--muted); font-size: .8rem; line-height: 1.4; }
+.rule-field-error { color: #ff9db6; font-size: .8rem; line-height: 1.4; }
+.gift-reaction-picker, .gift-reaction-field { display: grid; min-width: 0; align-content: start; gap: .45rem; }
+.gift-reaction-selected { display: flex; align-items: center; gap: .65rem; overflow-wrap: anywhere; }
+.gift-reaction-selected img { width: 2rem; height: 2rem; object-fit: contain; flex-shrink: 0; }
+.gift-reaction-selected > div { display: grid; gap: .15rem; }
+.rule-heading + .gift-reaction-form { margin-top: .75rem; }
 .automation-empty { margin: 0; padding: 1rem; color: var(--muted); text-align: center; }
 .danger-zone { border-color: #743047; background: #211118; }
 .danger-zone > p { color: var(--muted); line-height: 1.45; }

@@ -57,3 +57,27 @@ The second connector emits a unique recovery message after the normal one-second
 - the browser console contained no errors or warnings during the completed scenario.
 
 Audible output and platform voice quality are not asserted by this harness. Those remain part of the deferred real-device matrix in [project-status.md](project-status.md).
+
+## Gift streaks and recovery
+
+Set `BROWSER_HARNESS_GIFT_REPLAY=1` before starting the local harness. The script sends a historical gift at count 3, two interleaved series from the same sender, a late lower count and a duplicate final packet. The next connection to the same room sends historical updates and two further gifts. Expect five gift rows of `Rose ×1`. With the browser transport interrupted after the first three rows, the fourth gift returns in the snapshot silently. The fifth gift plays once after the snapshot. Reload the page and enable sound to check that the five visible rows and the recovered chat remain silent.
+
+## Reactions on gift completion
+
+Start the harness with `BROWSER_HARNESS_GIFT_RULES=1` to use a fixture administrator and an enabled Rose rule at 300 points. Each Rose is worth 100 points. In «Озвучивание чата и реакции» open «Проверить правило» on «Спасибо за розы». Two gifts show a skipped reaction. Three give one thank-you. Checking «Правило только что сработало» at the same quantity shows the cooldown. A rule set to «Любой подарок» can also use the demo gift before the catalog has entries.
+
+Connect the fixture stream after enabling sound. The ordinary saved mapping receives increments `1` and `2`. The final packet sends one live-only completion at count `3` and the repeat sends none. The buffer restored after a browser reload contains the gift increments. To test audible output, perform the same check on the actual device and selected output.
+
+## Gift goal and donor statistics
+
+Start the local harness with `BROWSER_HARNESS_GIFT_GOAL=1`. Open «Настроить цель», select Rose, set the target to 2, choose a sound and enable the goal. The scripted stream adds 1 and then 2 Roses. The card shows `3 из 2` and one goal achievement. The last donor sent the increment of 2 and ranks first with 300 points. The ordinary mapping launches three separate sounds. The achievement adds one more sound.
+
+Reload while the scripted stream is connected. The status snapshot restores the count and the ranking silently. Automatic upstream reconnect to the same connection preserves the numbers. Stopping keeps the result visible and starting again opens a fresh count. The separate HTTP and Socket.IO tests exercise workspace isolation. The fixture stores configuration only in its own process. Production saves configuration in PostgreSQL and keeps the current connection's progress and ranking in server memory.
+
+## LIVE activity and like goal
+
+Start the harness with `BROWSER_HARNESS_LIVE_ACTIVITY=1`, then set a goal of 25 new likes. The first live room total is 120 and the card shows `0 из 25`. TikTokHelper's own online counter is separate from the 81 viewers in the fixture room. The next total of 157 gives `37 из 25`. A delayed total of 149 and another packet at 157 have no effect. In «Подписки и репосты», the duplicate share appears once.
+
+During the first room's scripted reconnect, the viewer counter is unavailable. The like total and goal baseline stay visible. The recovered connection gives 73 viewers and 176 likes, so the progress is `56 из 25`. Reload restores those numbers. Changing the target in the current LIVE starts from 176. After stopping and starting the next room, 50 becomes the new baseline and recent social actions are cleared. «Только эфир» keeps the metrics and goal visible above the chat.
+
+The installed `tiktok-live-connector` 2.5.0 decoded the viewer and like aggregates as `total` on distinct v3 message types in two public read-only probes. In about 90 seconds each, the two streams produced 41 and 46 room-statistic packets and 61 and 38 like packets. The first produced 4 shares and the second produced 9 follows. Some like totals arrived lower than the preceding packet. The goal therefore keeps the highest received room total, while the viewer counter uses the latest reading. Source packets can be incomplete. The probes retained counts and field presence only. [Connector v2.5.0 events](https://github.com/zerodytrash/TikTok-Live-Connector/blob/v2.5.0/README.md#roomuser)

@@ -16,10 +16,15 @@ export function browserSpeechSynthesisSupported(browserWindow: Window = window):
 }
 
 export interface SpeechPlaybackPreferences { voiceName: string; rate: number; volume: number }
+type SpeechResult = 'ended' | 'failed';
+interface QueuedSpeech { job: SpeechJob; onResult?: (result: SpeechResult) => void }
 
 export class SpeechPlaybackQueue {
-  readonly #queue: SpeechJob[] = [];
-  #active = false;
+  readonly #queue: QueuedSpeech[] = [];
+  #active: QueuedSpeech | undefined;
+  #warmup: UtteranceLike | undefined;
+  #isPreview = false;
+  #preview: { queue: SpeechPlaybackQueue; onInterrupted: () => void } | undefined;
   #preferences: SpeechPlaybackPreferences = { voiceName: '', rate: 1, volume: 1 };
 
   constructor(
@@ -28,7 +33,34 @@ export class SpeechPlaybackQueue {
   ) {}
 
   get pending(): number { return this.#queue.length; }
+  get active(): boolean { return this.#active !== undefined; }
   get voices(): SpeechVoiceLike[] { return this.synthesis.getVoices(); }
+  get preferences(): Readonly<SpeechPlaybackPreferences> { return this.#preferences; }
+
+  createPreviewQueue(onInterrupted: () => void = () => undefined): SpeechPlaybackQueue {
+    this.#interruptPreview();
+    if (this.#warmup && !this.active) {
+      this.#warmup = undefined;
+      this.synthesis.cancel();
+    }
+    const preview = new SpeechPlaybackQueue(this.synthesis, this.createUtterance);
+    preview.#isPreview = true;
+    preview.setPreferences(this.#preferences);
+    this.#preview = { queue: preview, onInterrupted };
+    return preview;
+  }
+
+  stopPreview(queue: SpeechPlaybackQueue): void {
+    if (this.#preview?.queue === queue) this.#preview = undefined;
+    queue.stop();
+  }
+
+  #interruptPreview(): void {
+    const preview = this.#preview;
+    if (!preview) return;
+    this.stopPreview(preview.queue);
+    preview.onInterrupted();
+  }
 
   setPreferences(preferences: SpeechPlaybackPreferences): void {
     this.#preferences = {
@@ -39,50 +71,80 @@ export class SpeechPlaybackQueue {
   }
 
   unlock(): void {
+    this.#interruptPreview();
     const utterance = this.createUtterance('\u00a0');
     utterance.volume = 0;
-    this.synthesis.speak(utterance);
+    const finish = () => { if (this.#warmup === utterance) this.#warmup = undefined; };
+    utterance.onend = finish;
+    utterance.onerror = finish;
+    this.#warmup = utterance;
+    try { this.synthesis.speak(utterance); }
+    catch (error) {
+      finish();
+      throw error;
+    }
   }
 
-  enqueue(job: SpeechJob, maximumQueueSize: number): boolean {
+  enqueue(job: SpeechJob, maximumQueueSize: number, onResult?: QueuedSpeech['onResult']): boolean {
     const limit = Math.min(100, Math.max(1, Math.trunc(maximumQueueSize)));
+    let dropped: QueuedSpeech | undefined;
     if (this.#queue.length >= limit) {
       if (job.priority !== 'moderator') return false;
-      const normalIndex = this.#queue.findIndex((item) => item.priority === 'normal');
+      const normalIndex = this.#queue.findIndex((item) => item.job.priority === 'normal');
       if (normalIndex < 0) return false;
-      this.#queue.splice(normalIndex, 1);
+      [dropped] = this.#queue.splice(normalIndex, 1);
     }
+    const item = { job, onResult };
     if (job.priority === 'moderator') {
-      const firstNormal = this.#queue.findIndex((item) => item.priority === 'normal');
-      this.#queue.splice(firstNormal < 0 ? this.#queue.length : firstNormal, 0, job);
-    } else this.#queue.push(job);
+      const firstNormal = this.#queue.findIndex((queued) => queued.job.priority === 'normal');
+      this.#queue.splice(firstNormal < 0 ? this.#queue.length : firstNormal, 0, item);
+    } else this.#queue.push(item);
+    dropped?.onResult?.('failed');
     this.#pump();
     return true;
   }
 
   stop(): void {
+    this.#interruptPreview();
+    // The browser cancels the whole synth, so an idle preview must leave it alone.
+    const cancel = !this.#isPreview || this.active || this.#warmup !== undefined;
     this.#queue.length = 0;
-    this.#active = false;
-    this.synthesis.cancel();
+    this.#active = undefined;
+    this.#warmup = undefined;
+    if (cancel) this.synthesis.cancel();
   }
 
   #pump(): void {
     if (this.#active) return;
-    const job = this.#queue.shift();
-    if (!job) return;
-    this.#active = true;
-    const utterance = this.createUtterance(job.text);
-    const requested = job.language.toLocaleLowerCase();
-    utterance.lang = job.language;
-    utterance.rate = this.#preferences.rate;
-    utterance.volume = this.#preferences.volume;
-    utterance.voice = this.synthesis.getVoices().find((voice) => voice.name === this.#preferences.voiceName)
-      ?? this.synthesis.getVoices().find((voice) => voice.lang.toLocaleLowerCase() === requested)
-      ?? this.synthesis.getVoices().find((voice) => voice.lang.toLocaleLowerCase().split('-')[0] === requested.split('-')[0])
-      ?? null;
-    const finish = () => { this.#active = false; this.#pump(); };
-    utterance.onend = finish;
-    utterance.onerror = finish;
-    this.synthesis.speak(utterance);
+    const item = this.#queue.shift();
+    if (!item) return;
+    this.#interruptPreview();
+    const { job, onResult } = item;
+    this.#active = item;
+    const warmup = this.#warmup;
+    const finish = (result: SpeechResult) => {
+      if (this.#active !== item) return;
+      this.#active = undefined;
+      if (result === 'ended' && this.#warmup === warmup) this.#warmup = undefined;
+      onResult?.(result);
+      this.#pump();
+    };
+    try {
+      const utterance = this.createUtterance(job.text);
+      const requested = job.language.toLocaleLowerCase();
+      const voices = this.voices;
+      utterance.lang = job.language;
+      utterance.rate = this.#preferences.rate;
+      utterance.volume = this.#preferences.volume;
+      utterance.voice = voices.find((voice) => voice.name === this.#preferences.voiceName)
+        ?? voices.find((voice) => voice.lang.toLocaleLowerCase() === requested)
+        ?? voices.find((voice) => voice.lang.toLocaleLowerCase().split('-')[0] === requested.split('-')[0])
+        ?? null;
+      utterance.onend = () => finish('ended');
+      utterance.onerror = () => finish('failed');
+      this.synthesis.speak(utterance);
+    } catch {
+      finish('failed');
+    }
   }
 }

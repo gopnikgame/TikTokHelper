@@ -4,7 +4,7 @@ import { Server } from 'socket.io';
 import {
   type ClientToServerEvents, type CommandAcknowledgement, type RealtimeEvent,
   type RealtimeSnapshot, type ServerToClientEvents, validateClientEvent,
-  type SupportLevelGrantedEvent,
+  type GiftCompletedEvent, type GiftGoalState, type GiftGoalUpdate, type LiveActivityState, type SupportLevelGrantedEvent,
 } from '@tiktok-helper/contracts';
 import type { TikTokSessionManager } from '../tiktok/session-manager.js';
 import { RecentEventBuffer } from './buffer.js';
@@ -22,6 +22,7 @@ function eventForPrincipal(event: RealtimeEvent, isAdmin: boolean): RealtimeEven
     ...(event.language ? { language: event.language } : {}),
     ...(event.mentionedUsernames ? { mentionedUsernames: event.mentionedUsernames } : {}),
     ...(event.speakerContext ? { speakerContext: event.speakerContext } : {}),
+    ...(event.historical ? { historical: event.historical } : {}),
   };
 }
 const invalidCommand: CommandAcknowledgement = {
@@ -38,12 +39,20 @@ export interface RealtimeServerOptions {
   bufferCapacity?: number;
   origin?: string;
   sessionRecheckIntervalMs?: number;
+  giftGoals?: {
+    prepare(workspaceId: string): Promise<void>;
+    snapshot(workspaceId: string): GiftGoalState | undefined;
+  };
+  prepareLiveActivity?(workspaceId: string): Promise<void>;
 }
 
 export interface RealtimeServer {
   publish(workspaceId: string, event: RealtimeEvent): void;
   publishSoundLibraryChanged(soundId: string): void;
   publishSupportLevelGranted(workspaceId: string, event: SupportLevelGrantedEvent): void;
+  publishGiftCompleted(event: GiftCompletedEvent): void;
+  publishGiftGoal(update: GiftGoalUpdate): void;
+  scheduleLiveActivity(workspaceId: string): void;
   close(): Promise<void>;
 }
 
@@ -55,6 +64,7 @@ export function attachRealtimeServer(
   const authorize = options.authorizeWorkspace ?? ((workspaceId: string) => workspaceId === 'primary');
   const buffer = new RecentEventBuffer(options.bufferCapacity);
   const commandResults = new Map<string, CommandAcknowledgement>();
+  const activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(app.server, {
     serveClient: false,
     transports: ['websocket'],
@@ -122,30 +132,52 @@ export function attachRealtimeServer(
       if (options.sessionRecheckIntervalMs && !await validateSession()) return false;
       return authorize(workspaceId, socket.data.authPrincipal as AuthPrincipal | undefined);
     };
+    const isAdministrator = () => (socket.data.authPrincipal as AuthPrincipal | undefined)?.isAdmin === true;
+    const prepareGiftGoal = async (workspaceId: string) => {
+      if (!isAdministrator()) return;
+      try { await options.giftGoals?.prepare(workspaceId); }
+      catch (error: unknown) {
+        app.log.warn({ event: 'gift_goal_load_failed', errorName: error instanceof Error ? error.name : 'UnknownError' });
+      }
+    };
     socket.on('workspace:subscribe', async (raw, acknowledge) => {
       if (typeof acknowledge !== 'function') return;
       const parsed = validateClientEvent('workspace:subscribe', raw);
       if (!parsed.ok) return acknowledge(invalidCommand);
       if (!await canAccess(parsed.value.workspaceId)) return acknowledge(forbidden);
-      const status = manager.status(parsed.value.workspaceId);
+      const { workspaceId } = parsed.value;
+      const diagnostics = isAdministrator();
+      if (diagnostics && (options.giftGoals || options.prepareLiveActivity)) {
+        await Promise.all([
+          prepareGiftGoal(workspaceId),
+          options.prepareLiveActivity?.(workspaceId).catch((error: unknown) => {
+            app.log.warn({ event: 'like_goal_load_failed', errorName: error instanceof Error ? error.name : 'UnknownError' });
+          }),
+        ]);
+      }
+      if (!socket.connected) return;
+      // The configured in-memory adapter joins synchronously. In the same turn we can
+      // send the snapshot before any subsequent live delta reaches the new subscriber.
+      await socket.join(roomFor(workspaceId, diagnostics));
+      const status = manager.status(workspaceId);
       const replay = buffer.replay(
-        parsed.value.workspaceId, parsed.value.generation, parsed.value.lastSequence,
+        workspaceId, parsed.value.generation ?? 0, parsed.value.lastSequence ?? 0,
       );
-      const diagnostics = (socket.data.authPrincipal as AuthPrincipal | undefined)?.isAdmin === true;
+      const giftGoal = diagnostics ? options.giftGoals?.snapshot(workspaceId) : undefined;
+      const liveActivity: LiveActivityState | undefined = diagnostics ? manager.getLiveActivity(workspaceId) : undefined;
       const snapshot: RealtimeSnapshot = {
-        workspaceId: parsed.value.workspaceId,
+        workspaceId,
         generation: status.generation,
+        connectionId: status.connectionId,
         lastSequence: status.lastSequence,
         connectionState: status.state,
         replay: replay.events.map((event) => eventForPrincipal(event, diagnostics)),
         requiresFullRefresh: replay.requiresFullRefresh,
+        ...(giftGoal ? { giftGoal } : {}),
+        ...(liveActivity ? { liveActivity } : {}),
       };
       socket.emit('snapshot', snapshot);
       socket.emit('presence:update', presencePayload());
-      await socket.join(roomFor(parsed.value.workspaceId, diagnostics));
-      for (const event of buffer.replay(
-        parsed.value.workspaceId, snapshot.generation, snapshot.lastSequence,
-      ).events) socket.emit('event', eventForPrincipal(event, diagnostics));
       acknowledge({ ok: true });
     });
 
@@ -162,6 +194,8 @@ export function attachRealtimeServer(
       const cached = commandResults.get(commandKey(parsed.value.workspaceId, parsed.value.commandId));
       if (cached) return acknowledge(cached.ok ? { ...cached, duplicate: true } : cached);
       try {
+        if (isAdministrator() && options.giftGoals) await prepareGiftGoal(parsed.value.workspaceId);
+        if (!socket.connected) return;
         await manager.start(parsed.value.workspaceId, parsed.value.tiktokUsername);
         const result: CommandAcknowledgement = { ok: true };
         remember(parsed.value.workspaceId, parsed.value.commandId, result);
@@ -201,6 +235,34 @@ export function attachRealtimeServer(
       io.to(roomFor(workspaceId, false)).emit('support:level-granted', event);
       io.to(roomFor(workspaceId, true)).emit('support:level-granted', event);
     },
-    async close() { io.local.disconnectSockets(true); },
+    publishGiftCompleted(event) {
+      const current = manager.status(event.workspaceId);
+      if (current.state !== 'live' || event.generation !== current.generation || event.connectionId !== current.connectionId) return;
+      io.to(roomFor(event.workspaceId, true)).emit('gift:completed', event);
+    },
+    publishGiftGoal(update) {
+      const { state } = update;
+      const current = manager.status(state.workspaceId);
+      if (current.generation !== state.generation || (current.connectionId ?? null) !== state.connectionId) return;
+      if (update.reached && current.state !== 'live') return;
+      io.to(roomFor(state.workspaceId, true)).emit('gift-goal:update', update);
+    },
+    scheduleLiveActivity(workspaceId) {
+      const room = roomFor(workspaceId, true);
+      if (!io.sockets.adapter.rooms.has(room) || activityTimers.has(workspaceId)) return;
+      const timer = setTimeout(() => {
+        activityTimers.delete(workspaceId);
+        if (io.sockets.adapter.rooms.has(room)) {
+          io.to(room).emit('live-activity:update', manager.getLiveActivity(workspaceId));
+        }
+      }, 500);
+      activityTimers.set(workspaceId, timer);
+      timer.unref();
+    },
+    async close() {
+      for (const timer of activityTimers.values()) clearTimeout(timer);
+      activityTimers.clear();
+      io.local.disconnectSockets(true);
+    },
   };
 }

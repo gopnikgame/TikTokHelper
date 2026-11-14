@@ -1,5 +1,6 @@
 import type {
-  AutomationConfiguration, ChatEvent, GiftEvent, ReactionEventType, SupportLevelGrantedEvent, TemplateVariable,
+  AutomationConfiguration, ChatEvent, EventReaction, GiftCompletedEvent, GiftEvent, ReactionEventType,
+  SupportLevelGrantedEvent, TemplateVariable,
 } from '@tiktok-helper/contracts';
 
 export interface SpeechJob {
@@ -14,6 +15,12 @@ export interface GrantReaction {
   soundAssetIds: string[];
 }
 
+export type GiftReactionInput = Pick<GiftCompletedEvent,
+  'eventId' | 'giftId' | 'giftName' | 'senderDisplayName' | 'senderUsername' | 'repeatCount' | 'diamondCount'>;
+type GiftReactionMatch =
+  | { status: 'ready'; reaction: GrantReaction }
+  | { status: 'disabled' | 'gift_mismatch' | 'unknown_value' | 'below_minimum' | 'unavailable' | 'cooldown' };
+
 const MAX_DEDUPLICATION_IDS = 2_000;
 
 export function renderTemplate(template: string, variables: Partial<Record<TemplateVariable, string | number>>): string {
@@ -21,6 +28,54 @@ export function renderTemplate(template: string, variables: Partial<Record<Templ
     const value = variables[name as TemplateVariable];
     return value === undefined ? token : String(value);
   });
+}
+
+export function giftTotalPoints(gift: Pick<GiftReactionInput, 'repeatCount' | 'diamondCount'>): number | undefined {
+  if (gift.diamondCount === undefined) return undefined;
+  const total = gift.diamondCount * gift.repeatCount;
+  return Number.isSafeInteger(total) && total >= 0 ? total : undefined;
+}
+
+export function evaluateGiftReaction(
+  rule: EventReaction, gift: GiftReactionInput, configuration: AutomationConfiguration,
+  isSoundAvailable: (soundId: string) => boolean, now: number, lastRun: number | undefined,
+): GiftReactionMatch {
+  if (!rule.isEnabled) return { status: 'disabled' };
+  if (rule.giftId && rule.giftId !== gift.giftId) return { status: 'gift_mismatch' };
+  const total = giftTotalPoints(gift);
+  const minimum = rule.minimumGiftPoints ?? 0;
+  if (minimum > 0 && total === undefined) return { status: 'unknown_value' };
+  if (total !== undefined && total < minimum) return { status: 'below_minimum' };
+  if (lastRun !== undefined && now - lastRun < rule.cooldownSeconds * 1_000) return { status: 'cooldown' };
+
+  const text = rule.speechTemplate ? renderTemplate(rule.speechTemplate, {
+    user: gift.senderDisplayName, username: gift.senderUsername,
+    gift: gift.giftName, count: gift.repeatCount, points: total ?? 'неизвестно',
+  }).trim() : '';
+  const soundAssetIds = rule.soundAssetId && isSoundAvailable(rule.soundAssetId) ? [rule.soundAssetId] : [];
+  if (!text && !soundAssetIds.length) return { status: 'unavailable' };
+  return {
+    status: 'ready',
+    reaction: {
+      speech: text ? {
+        id: gift.eventId, text, language: configuration.policy.fallbackLanguage, priority: 'normal',
+      } : null,
+      soundAssetIds,
+    },
+  };
+}
+
+export function findGiftReaction(
+  gift: GiftReactionInput, configuration: AutomationConfiguration, isSoundAvailable: (soundId: string) => boolean,
+  now: number, lastRunFor: (ruleId: string) => number | undefined,
+): { rule: EventReaction; reaction: GrantReaction } | null {
+  const rules = configuration.eventReactions.filter((rule) => rule.eventType === 'gift_completed')
+    .sort((left, right) => left.position - right.position);
+  for (const rule of rules) {
+    const result = evaluateGiftReaction(rule, gift, configuration, isSoundAvailable, now, lastRunFor(rule.id));
+    if (result.status === 'ready') return { rule, reaction: result.reaction };
+  }
+  return null;
 }
 
 export class SpeechPolicyEngine {
@@ -89,6 +144,17 @@ export class SpeechPolicyEngine {
         ...reactions.flatMap((item) => item.soundAssetId ? [item.soundAssetId] : []),
       ])],
     };
+  }
+
+  evaluateGiftCompletion(
+    event: GiftCompletedEvent, configuration: AutomationConfiguration, isSoundAvailable: (soundId: string) => boolean,
+  ): GrantReaction | null {
+    if (event.workspaceId !== configuration.policy.workspaceId || this.#seen.has(event.eventId)) return null;
+    this.#remember(event.eventId);
+    const now = this.now();
+    const match = findGiftReaction(event, configuration, isSoundAvailable, now, (ruleId) => this.#lastReactionAt.get(ruleId));
+    if (match) this.#lastReactionAt.set(match.rule.id, now);
+    return match?.reaction ?? null;
   }
 
   evaluateParticipantSeen(

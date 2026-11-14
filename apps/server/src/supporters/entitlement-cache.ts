@@ -8,6 +8,7 @@ interface WorkspaceCache {
 
 export class EntitlementCache {
   readonly #workspaces = new Map<string, WorkspaceCache>();
+  readonly #pending = new Map<string, { grants: Map<string, GrantedSupportLevel[]> }>();
 
   constructor(
     private readonly repository: Pick<SupporterRepository, 'listActiveSpeechEntitlements'>,
@@ -15,14 +16,26 @@ export class EntitlementCache {
   ) {}
 
   async prepare(workspaceId: string, streamId: string): Promise<void> {
-    const rows = await this.repository.listActiveSpeechEntitlements(workspaceId, streamId);
-    const byIdentity = new Map<string, SpeechLevelEntitlement[]>();
-    for (const row of rows) {
-      const current = byIdentity.get(row.identityKey) ?? [];
-      current.push(row.entitlement);
-      byIdentity.set(row.identityKey, current);
+    const request = { grants: new Map<string, GrantedSupportLevel[]>() };
+    this.#pending.set(workspaceId, request);
+    if (this.#workspaces.get(workspaceId)?.streamId !== streamId) {
+      this.#workspaces.set(workspaceId, { streamId, byIdentity: new Map() });
     }
-    this.#workspaces.set(workspaceId, { streamId, byIdentity });
+    try {
+      const rows = await this.repository.listActiveSpeechEntitlements(workspaceId, streamId);
+      if (this.#pending.get(workspaceId) !== request) return;
+      const byIdentity = new Map<string, SpeechLevelEntitlement[]>();
+      for (const row of rows) {
+        const current = byIdentity.get(row.identityKey) ?? [];
+        current.push(row.entitlement);
+        byIdentity.set(row.identityKey, current);
+      }
+      this.#workspaces.set(workspaceId, { streamId, byIdentity });
+      this.#pending.delete(workspaceId);
+      for (const [identityKey, grants] of request.grants) this.addGranted(workspaceId, streamId, identityKey, grants);
+    } finally {
+      if (this.#pending.get(workspaceId) === request) this.#pending.delete(workspaceId);
+    }
   }
 
   async refresh(workspaceId: string): Promise<void> {
@@ -32,6 +45,7 @@ export class EntitlementCache {
 
   clear(workspaceId: string): void {
     this.#workspaces.delete(workspaceId);
+    this.#pending.delete(workspaceId);
   }
 
   speakerContext(
@@ -44,9 +58,14 @@ export class EntitlementCache {
     return { ...roles, speechLevels };
   }
 
-  addGranted(workspaceId: string, identityKey: string, grants: GrantedSupportLevel[]): void {
+  addGranted(workspaceId: string, streamId: string, identityKey: string, grants: GrantedSupportLevel[]): void {
     const current = this.#workspaces.get(workspaceId);
-    if (!current || grants.length === 0) return;
+    if (current?.streamId !== streamId || grants.length === 0) return;
+    const request = this.#pending.get(workspaceId);
+    if (request) {
+      const pendingGrants = request.grants.get(identityKey) ?? [];
+      request.grants.set(identityKey, [...pendingGrants, ...grants]);
+    }
     const entitlements = current.byIdentity.get(identityKey) ?? [];
     for (const grant of grants) {
       if (!grant.level.grantsChatSpeech || !grant.level.isEnabled) continue;
