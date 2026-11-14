@@ -33,6 +33,11 @@ async function giftGoalUsage(executor: Pick<Database, 'execute'>, soundId?: stri
   `);
 }
 
+const reactionUsageColumns = {
+  value: count(),
+  giftCompletionCount: sql<number>`count(*) filter (where ${eventReactions.eventType} = 'gift_completed')`.mapWith(Number),
+};
+
 export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRepository, basePath: PublicBasePath = '/'): SoundRepository {
   const soundUrl = (storageKey: string) => storageKey.startsWith('uploaded/')
     ? `${basePath}media/sounds/${encodeURIComponent(storageKey.slice('uploaded/'.length))}`
@@ -41,14 +46,14 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
     const [giftRows, levelRows, reactionRows, goalRows] = await Promise.all([
       db.select({ value: count() }).from(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId)),
       db.select({ value: count() }).from(supportLevels).where(eq(supportLevels.soundAssetId, soundId)),
-      db.select({ value: count() }).from(eventReactions).where(eq(eventReactions.soundAssetId, soundId)),
+      db.select(reactionUsageColumns).from(eventReactions).where(eq(eventReactions.soundAssetId, soundId)),
       giftGoalUsage(db, soundId),
     ]);
     const usedByGoal = Number(goalRows[0]?.value ?? 0);
     const total = Number(giftRows[0]?.value ?? 0) + Number(levelRows[0]?.value ?? 0) + Number(reactionRows[0]?.value ?? 0) + usedByGoal;
-    return { total, usedByGoal };
+    return { total, usedByNewRule: usedByGoal > 0 || (reactionRows[0]?.giftCompletionCount ?? 0) > 0 };
   }
-  function present(row: typeof soundLibraryAssets.$inferSelect, actor?: SoundActor, used = 0, usedByGoal = false): SoundAsset {
+  function present(row: typeof soundLibraryAssets.$inferSelect, actor?: SoundActor, used = 0, usedByNewRule = false): SoundAsset {
     if (!row.contentSha256 || !row.byteSize) throw new Error(`Sound metadata is incomplete: ${row.id}`);
     const isOwnedByCurrentUser = actor !== undefined && row.createdByUserId === actor.userId;
     return {
@@ -57,7 +62,7 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
       status: row.status as SoundAsset['status'], createdByUserId: row.createdByUserId,
       isOwnedByCurrentUser, usageCount: used, quarantineReason: row.quarantineReason,
       canQuarantine: actor?.isAdmin === true && row.status === 'active',
-      canDelete: !usedByGoal && (row.status === 'quarantined' ? actor?.isAdmin === true : isOwnedByCurrentUser && used === 0),
+      canDelete: !usedByNewRule && (row.status === 'quarantined' ? actor?.isAdmin === true : isOwnedByCurrentUser && used === 0),
     };
   }
   return {
@@ -82,16 +87,19 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
         db.select().from(soundLibraryAssets),
         db.select({ soundId: giftSoundRules.soundAssetId, value: count() }).from(giftSoundRules).groupBy(giftSoundRules.soundAssetId),
         db.select({ soundId: supportLevels.soundAssetId, value: count() }).from(supportLevels).groupBy(supportLevels.soundAssetId),
-        db.select({ soundId: eventReactions.soundAssetId, value: count() }).from(eventReactions).groupBy(eventReactions.soundAssetId),
+        db.select({ soundId: eventReactions.soundAssetId, ...reactionUsageColumns }).from(eventReactions).groupBy(eventReactions.soundAssetId),
         giftGoalUsage(db),
       ]);
       const usage = new Map<string, number>();
-      const goalSoundIds = new Set(goalUsage.map((group) => group.soundId));
+      const protectedSoundIds = new Set(goalUsage.map((group) => group.soundId));
+      for (const group of reactionUsage) {
+        if (group.soundId && group.giftCompletionCount > 0) protectedSoundIds.add(group.soundId);
+      }
       for (const group of [...giftUsage, ...levelUsage, ...reactionUsage, ...goalUsage]) {
         if (group.soundId) usage.set(group.soundId, (usage.get(group.soundId) ?? 0) + Number(group.value));
       }
       return rows.filter((asset) => asset.status === 'active' || actor?.isAdmin)
-        .map((asset) => present(asset, actor, usage.get(asset.id) ?? 0, goalSoundIds.has(asset.id)));
+        .map((asset) => present(asset, actor, usage.get(asset.id) ?? 0, protectedSoundIds.has(asset.id)));
     },
     async createSound(workspaceId, sound, createdByUserId) {
       await db.insert(workspaces).values({ id: workspaceId, displayName: workspaceId }).onConflictDoNothing();
@@ -135,8 +143,8 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
         status: 'quarantined', quarantineReason: reason, quarantinedAt: new Date(), quarantinedByUserId: actor.userId,
       }).where(and(eq(soundLibraryAssets.id, soundId), eq(soundLibraryAssets.status, 'active'))).returning();
       if (!row) return null;
-      const { total, usedByGoal } = await usageCount(soundId);
-      return present(row, actor, total, usedByGoal > 0);
+      const { total, usedByNewRule } = await usageCount(soundId);
+      return present(row, actor, total, usedByNewRule);
     },
     async deleteSound(soundId, actor) {
       return db.transaction(async (tx) => {
@@ -145,14 +153,16 @@ export function createSoundRepository(db: Database, giftCatalog?: GiftCatalogRep
         const [giftUsage, levelUsage, reactionUsage, goalUsage] = await Promise.all([
           tx.select({ value: count() }).from(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId)),
           tx.select({ value: count() }).from(supportLevels).where(eq(supportLevels.soundAssetId, soundId)),
-          tx.select({ value: count() }).from(eventReactions).where(eq(eventReactions.soundAssetId, soundId)),
+          tx.select(reactionUsageColumns).from(eventReactions).where(eq(eventReactions.soundAssetId, soundId)),
           giftGoalUsage(tx, soundId),
         ]);
         const usedByGoal = Number(goalUsage[0]?.value ?? 0);
         const used = Number(giftUsage[0]?.value ?? 0) + Number(levelUsage[0]?.value ?? 0) + Number(reactionUsage[0]?.value ?? 0) + usedByGoal;
         if (actor.isAdmin) {
           if (asset.status !== 'quarantined') return { ok: false, reason: 'not_quarantined' } as const;
-          if (usedByGoal > 0) return { ok: false, reason: 'in_use', usageCount: used } as const;
+          if (usedByGoal > 0 || (reactionUsage[0]?.giftCompletionCount ?? 0) > 0) {
+            return { ok: false, reason: 'in_use', usageCount: used } as const;
+          }
           await tx.delete(giftSoundRules).where(eq(giftSoundRules.soundAssetId, soundId));
         } else {
           if (asset.createdByUserId !== actor.userId) return { ok: false, reason: 'forbidden' } as const;
