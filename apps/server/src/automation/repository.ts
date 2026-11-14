@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import type {
   AutomationConfiguration, EventReaction, SaveEventReaction, SaveSupportLevel,
   SupportLevel, UpdateWorkspaceSpeechPolicy, WorkspaceSpeechPolicy,
@@ -48,6 +48,7 @@ function presentReaction(row: typeof eventReactions.$inferSelect): EventReaction
 }
 
 export function createAutomationRepository(db: Database): AutomationRepository {
+  const legacyReaction = ne(eventReactions.eventType, 'gift_completed');
   async function soundIsActive(soundAssetId: string | null): Promise<boolean> {
     if (!soundAssetId) return true;
     const [sound] = await db.select({ id: soundLibraryAssets.id }).from(soundLibraryAssets)
@@ -61,7 +62,7 @@ export function createAutomationRepository(db: Database): AutomationRepository {
         db.select().from(workspaceSpeechPolicies).where(eq(workspaceSpeechPolicies.workspaceId, workspaceId)).limit(1),
         db.select().from(supportLevels).where(eq(supportLevels.workspaceId, workspaceId))
           .orderBy(asc(supportLevels.position), asc(supportLevels.thresholdPoints)),
-        db.select().from(eventReactions).where(eq(eventReactions.workspaceId, workspaceId))
+        db.select().from(eventReactions).where(and(eq(eventReactions.workspaceId, workspaceId), legacyReaction))
           .orderBy(asc(eventReactions.position), asc(eventReactions.createdAt)),
       ]);
       const policy = policyRow[0]
@@ -115,12 +116,12 @@ export function createAutomationRepository(db: Database): AutomationRepository {
     async updateEventReaction(workspaceId, id, input) {
       if (!await soundIsActive(input.soundAssetId)) return null;
       const [row] = await db.update(eventReactions).set({ ...input, updatedAt: new Date() })
-        .where(and(eq(eventReactions.workspaceId, workspaceId), eq(eventReactions.id, id))).returning();
+        .where(and(eq(eventReactions.workspaceId, workspaceId), eq(eventReactions.id, id), legacyReaction)).returning();
       return row ? presentReaction(row) : null;
     },
     async deleteEventReaction(workspaceId, id) {
       const rows = await db.delete(eventReactions)
-        .where(and(eq(eventReactions.workspaceId, workspaceId), eq(eventReactions.id, id))).returning({ id: eventReactions.id });
+        .where(and(eq(eventReactions.workspaceId, workspaceId), eq(eventReactions.id, id), legacyReaction)).returning({ id: eventReactions.id });
       return rows.length > 0;
     },
   };
