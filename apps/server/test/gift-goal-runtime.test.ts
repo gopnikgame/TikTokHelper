@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GiftGoalRuntime } from '../src/gift-goals/runtime.js';
+import type { LiveSessionSnapshot } from '../src/tiktok/types.js';
 
 const workspaceId = 'family';
 const connectionId = '11111111-1111-4111-8111-111111111111';
@@ -8,6 +9,34 @@ const configuration = { giftId: 'rose', targetCount: 4, soundAssetId, revision: 
 const liveStatus = () => ({ workspaceId, generation: 1, lastSequence: 2, state: 'live' as const, connectionId, tiktokUsername: 'fixture' });
 
 describe('gift goal runtime', () => {
+  it('exposes only progress for the current active goal in a live connection', async () => {
+    let status: LiveSessionSnapshot = liveStatus();
+    const getName = vi.fn(async () => 'Rose');
+    const runtime = new GiftGoalRuntime({ get: async () => configuration }, () => status, vi.fn(), getName);
+    try {
+      expect(runtime.overlaySnapshot(workspaceId)).toBeNull();
+      runtime.configure(workspaceId, configuration);
+      runtime.observe(workspaceId, connectionId, {
+        type: 'gift.received', eventId: 'sample-gift', generation: 1, sequence: 3,
+        giftId: 'rose', giftName: 'Rose', senderDisplayName: 'Viewer', senderUsername: 'viewer', repeatCount: 2,
+      }, 'fixture-private');
+      expect(runtime.overlaySnapshot(workspaceId)).toEqual({ giftName: null, progress: 2, targetCount: 4 });
+      await Promise.resolve();
+      expect(runtime.overlaySnapshot(workspaceId)).toEqual({ giftName: 'Rose', progress: 2, targetCount: 4 });
+      expect(getName).toHaveBeenCalledExactlyOnceWith('rose');
+      status = { ...status, state: 'stopped' };
+      expect(runtime.overlaySnapshot(workspaceId)).toBeNull();
+      status = { ...status, generation: 2, connectionId: soundAssetId, state: 'live', lastSequence: 1 };
+      expect(runtime.overlaySnapshot(workspaceId)).toBeNull();
+      runtime.trackConnection(workspaceId, { type: 'connection.state', state: 'live', connectionId: status.connectionId, generation: 2, sequence: 1 });
+      expect(runtime.overlaySnapshot(workspaceId)).toEqual({ giftName: 'Rose', progress: 0, targetCount: 4 });
+      runtime.configure(workspaceId, { ...configuration, revision: 2, isEnabled: false });
+      expect(runtime.overlaySnapshot(workspaceId)).toBeNull();
+    } finally {
+      runtime.close();
+    }
+  });
+
   it('coalesces ordinary progress but publishes a milestone immediately', () => {
     vi.useFakeTimers();
     const publish = vi.fn();

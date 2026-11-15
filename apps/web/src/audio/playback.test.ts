@@ -26,6 +26,7 @@ class FakeAudio implements AudioLike {
 const sequential: PlaybackSettings = {
   playbackMode: 'sequential', overlapPercent: 85, maxConcurrentSounds: 1, volumePercent: 80,
 };
+const controlled: PlaybackSettings = { ...sequential, requiresControlledVolume: true, volumePercent: 25 };
 
 describe('SoundPlaybackQueue', () => {
   it('stops a separately running check when the parent stops all audio', () => {
@@ -149,7 +150,7 @@ describe('SoundPlaybackQueue', () => {
       .createPreviewQueue();
     const oldResult = vi.fn();
     const newResult = vi.fn();
-    preview.enqueue(asset('/older.wav'), 1, sequential, oldResult);
+    preview.enqueue(asset('/older.wav'), 1, controlled, oldResult);
     const [, , oldEnded, canStartOld] = play.mock.calls[0]!;
     expect(canStartOld()).toBe(true);
     preview.stopAll();
@@ -250,6 +251,98 @@ describe('SoundPlaybackQueue', () => {
     expect(sound.src).toBe('/real-sound.mp3');
     expect(sound.volume).toBe(.65);
     await playback;
+  });
+
+  it('does not start a muted sound in the controlled profile', async () => {
+    const createAudio = vi.fn();
+    const onError = vi.fn();
+    const play = vi.fn();
+    const queue = new SoundPlaybackQueue(createAudio, onError, { play } as unknown as ManagedAudioPlayback);
+    const onResult = vi.fn();
+    queue.enqueue(asset('/muted.wav'), 100, { ...controlled, volumePercent: 0 }, onResult);
+    await expect(queue.preview(asset('/muted.wav'), 0, true)).rejects.toThrow('muted');
+    expect(queue.busy).toBe(false);
+    expect(play).not.toHaveBeenCalled();
+    expect(createAudio).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+    expect(onResult).not.toHaveBeenCalled();
+  });
+
+  it.each(['missing', 'decode failure'] as const)('disallows a media preview if managed playback is %s', async (failure) => {
+    const createAudio = vi.fn();
+    const onError = vi.fn();
+    const play = vi.fn().mockRejectedValue(new Error('decode failed'));
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const managed = failure === 'missing' ? undefined : { enable, play } as unknown as ManagedAudioPlayback;
+    const queue = new SoundPlaybackQueue(createAudio, onError, managed);
+
+    await expect(queue.preview(asset('/quiet.wav'), 25, true)).rejects.toThrow('Controlled audio volume is unavailable');
+    expect(onError).toHaveBeenCalledExactlyOnceWith('controlled_volume_unavailable');
+    expect(createAudio).not.toHaveBeenCalled();
+    expect(queue.busy).toBe(false);
+  });
+
+  it('enables controlled preview from a gesture and waits to play an arriving gift', async () => {
+    const ready = Promise.withResolvers<void>();
+    const createAudio = vi.fn();
+    const enable = vi.fn(() => ready.promise);
+    const play = vi.fn<ManagedAudioPlayback['play']>().mockResolvedValue({ durationMs: 10, stop: vi.fn() });
+    const queue = new SoundPlaybackQueue(createAudio, undefined, { enable, play } as unknown as ManagedAudioPlayback);
+
+    const preview = queue.preview(asset('/preview.wav'), 25, true);
+    expect(enable).toHaveBeenCalledOnce();
+    queue.enqueue(asset('/gift.wav'), 1, controlled);
+    expect(play).not.toHaveBeenCalled();
+
+    ready.resolve();
+    await preview;
+    expect(play).toHaveBeenCalledOnce();
+    play.mock.calls[0]?.[2]();
+    expect(play).toHaveBeenNthCalledWith(2, asset('/gift.wav'), 25, expect.any(Function), expect.any(Function));
+    expect(createAudio).not.toHaveBeenCalled();
+    queue.stopAll();
+  });
+
+  it('recovers after a controlled decode failure without a media fallback', async () => {
+    const createAudio = vi.fn();
+    const onError = vi.fn();
+    const play = vi.fn()
+      .mockRejectedValueOnce(new Error('decode failed'))
+      .mockResolvedValueOnce({ durationMs: 10, stop: vi.fn() });
+    const queue = new SoundPlaybackQueue(createAudio, onError, { play } as unknown as ManagedAudioPlayback);
+    const failed = vi.fn();
+    const played = vi.fn();
+
+    queue.enqueue(asset('/corrupt.wav'), 1, controlled, failed);
+    queue.enqueue(asset('/valid.wav'), 1, controlled, played);
+    await vi.waitFor(() => expect(queue.active).toBe(1));
+    expect(failed).toHaveBeenCalledExactlyOnceWith('failed');
+    expect(onError).toHaveBeenCalledExactlyOnceWith('controlled_volume_unavailable');
+    expect(createAudio).not.toHaveBeenCalled();
+    expect(play).toHaveBeenNthCalledWith(2, asset('/valid.wav'), 25, expect.any(Function), expect.any(Function));
+
+    play.mock.calls[1]![2]();
+    expect(played).toHaveBeenCalledExactlyOnceWith('ended');
+    queue.stopAll();
+  });
+
+  it('drains a large controlled series without Web Audio and keeps ordinary media playback available', async () => {
+    const media = new FakeAudio();
+    const createAudio = vi.fn(() => media);
+    const onError = vi.fn();
+    const queue = new SoundPlaybackQueue(createAudio, onError);
+    const failed = vi.fn();
+
+    queue.enqueue(asset('/quiet.wav'), 5_000, controlled, failed);
+    expect(failed).not.toHaveBeenCalled();
+    queue.enqueue(asset('/normal.wav'), 1, sequential);
+    await vi.waitFor(() => expect(media.play).toHaveBeenCalledOnce());
+    expect(failed).toHaveBeenCalledTimes(5_000);
+    expect(failed).toHaveBeenLastCalledWith('failed');
+    expect(onError).toHaveBeenCalledTimes(5_000);
+    expect(onError).toHaveBeenLastCalledWith('controlled_volume_unavailable');
+    expect(createAudio).toHaveBeenCalledExactlyOnceWith('/normal.wav');
+    queue.stopAll();
   });
 
   it('falls back to the media element when managed decoding fails', async () => {

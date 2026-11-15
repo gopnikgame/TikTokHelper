@@ -2,8 +2,9 @@ import { io, type Socket } from 'socket.io-client';
 import { isGiftCompletedEvent } from '@tiktok-helper/contracts/gift-completion';
 import { isGiftGoalState } from '@tiktok-helper/contracts/gift-goal';
 import { isLiveActivityState } from '@tiktok-helper/contracts/live-activity';
+import { isLivePollState } from '@tiktok-helper/contracts/live-poll';
 import type {
-  ClientToServerEvents, CommandAcknowledgement, GiftCompletedEvent, GiftGoalState, LiveActivityState, RealtimeEvent, RealtimeSnapshot,
+  ClientToServerEvents, CommandAcknowledgement, GiftCompletedEvent, GiftGoalState, LiveActivityState, LivePollState, RealtimeEvent, RealtimeSnapshot,
   ServerToClientEvents, SupportLevelGrantedEvent,
 } from '@tiktok-helper/contracts';
 import { appPath } from '../app-path.js';
@@ -19,11 +20,12 @@ export interface RealtimeViewState {
   onlineUsers: number | null;
   giftGoal: GiftGoalState | null;
   liveActivity: LiveActivityState | null;
+  livePoll: LivePollState | null;
 }
 
 export const EMPTY_REALTIME_STATE: RealtimeViewState = {
   connectionState: 'stopped', events: [], generation: 0, lastSequence: 0,
-  isTransportConnected: false, hasCurrentSnapshot: false, onlineUsers: null, giftGoal: null, liveActivity: null,
+  isTransportConnected: false, hasCurrentSnapshot: false, onlineUsers: null, giftGoal: null, liveActivity: null, livePoll: null,
 };
 
 type StateUpdate = 'applied' | 'ignored' | 'resync';
@@ -61,9 +63,11 @@ export class RealtimeStateModel {
     const sameCursor = sameGeneration && snapshot.lastSequence === previous.lastSequence;
     const goal = snapshot.giftGoal;
     const activity = snapshot.liveActivity;
+    const poll = snapshot.livePoll;
     const freshGoal = goal && (!previous.giftGoal || goal.revision > previous.giftGoal.revision);
     const freshActivity = activity && (!previous.liveActivity || activity.revision > previous.liveActivity.revision);
-    if (this.#snapshotOnTransport && (older || (sameCursor && previous.hasCurrentSnapshot && !freshGoal && !freshActivity))) return 'ignored';
+    const freshPoll = poll && (!previous.livePoll || poll.revision > previous.livePoll.revision);
+    if (this.#snapshotOnTransport && (older || (sameCursor && previous.hasCurrentSnapshot && !freshGoal && !freshActivity && !freshPoll))) return 'ignored';
 
     const bySequence = new Map<number, RealtimeEvent>();
     if (!snapshot.requiresFullRefresh && sameGeneration && sameConnection && snapshot.lastSequence >= previous.lastSequence) {
@@ -86,6 +90,8 @@ export class RealtimeStateModel {
         && (!goal || previous.giftGoal.revision > goal.revision) ? previous.giftGoal : goal ?? null,
       liveActivity: sameGeneration && sameConnection && this.#snapshotOnTransport && previous.liveActivity
         && (!activity || previous.liveActivity.revision > activity.revision) ? previous.liveActivity : activity ?? null,
+      livePoll: sameGeneration && sameConnection && this.#snapshotOnTransport && previous.livePoll
+        && (!poll || previous.livePoll.revision > poll.revision) ? previous.livePoll : poll ?? null,
     };
     this.#snapshotOnTransport = true;
     const queued = this.#beforeSnapshot.sort((left, right) => left.generation - right.generation || left.sequence - right.sequence);
@@ -118,6 +124,7 @@ export class RealtimeStateModel {
       connectionId: connectionId ?? (sameGeneration ? previous.connectionId : undefined),
       giftGoal: sameGeneration && (!connectionId || connectionId === previous.connectionId) ? previous.giftGoal : null,
       liveActivity: sameGeneration && (!connectionId || connectionId === previous.connectionId) ? previous.liveActivity : null,
+      livePoll: sameGeneration && (!connectionId || connectionId === previous.connectionId) ? previous.livePoll : null,
       connectionState: event.type === 'connection.state' ? event.state : connectionState,
       events: [...recent, event].slice(-this.eventCapacity),
       lastSequence: event.sequence,
@@ -143,6 +150,15 @@ export class RealtimeStateModel {
     return true;
   }
 
+  applyLivePoll(poll: LivePollState): boolean {
+    const current = this.#state;
+    if (!current.isTransportConnected || !current.hasCurrentSnapshot || poll.generation !== current.generation
+      || poll.connectionId !== (current.connectionId ?? null)
+      || (current.livePoll && poll.revision <= current.livePoll.revision)) return false;
+    this.#state = { ...current, livePoll: poll };
+    return true;
+  }
+
   #queueBeforeSnapshot(event: RealtimeEvent): void {
     this.#beforeSnapshot.push(event);
     if (this.#beforeSnapshot.length > 100) this.#beforeSnapshot.shift();
@@ -152,6 +168,7 @@ export class RealtimeStateModel {
 export interface RealtimeClient {
   connectLive(tiktokUsername: string): Promise<CommandAcknowledgement>;
   disconnectLive(): Promise<CommandAcknowledgement>;
+  applyLivePoll(poll: LivePollState): void;
   refreshSnapshot(): void;
   close(): void;
 }
@@ -166,7 +183,6 @@ export function createRealtimeClient(
   onLiveEvent?: (event: RealtimeEvent) => void,
   onGiftCompleted?: (event: GiftCompletedEvent) => void,
   onGiftGoalReached?: (state: GiftGoalState) => void,
-  includeLiveActivity = false,
 ): RealtimeClient {
   const model = new RealtimeStateModel();
   const socket: Socket<ServerToClientEvents, ClientToServerEvents> = socketOverride ?? io({
@@ -178,6 +194,10 @@ export function createRealtimeClient(
   let pendingSubscription: string | undefined;
   let resyncRequested = false;
   const notify = () => onState(model.state);
+
+  function receivePoll(poll: LivePollState): void {
+    if (poll.workspaceId === workspaceId && model.applyLivePoll(poll)) notify();
+  }
 
   function subscribe(): void {
     if (!model.state.isTransportConnected || pendingSubscription) return;
@@ -213,13 +233,17 @@ export function createRealtimeClient(
   socket.on('snapshot', (snapshot) => {
     if (snapshot.workspaceId !== workspaceId) return;
     const goal = snapshot.giftGoal;
-    const validGoal = onGiftGoalReached && isGiftGoalState(goal) && goal.workspaceId === workspaceId
+    const validGoal = isGiftGoalState(goal) && goal.workspaceId === workspaceId
       && goal.generation === snapshot.generation && goal.connectionId === (snapshot.connectionId ?? null);
     const activity = snapshot.liveActivity;
-    const validActivity = includeLiveActivity && isLiveActivityState(activity) && activity.workspaceId === workspaceId
+    const validActivity = isLiveActivityState(activity) && activity.workspaceId === workspaceId
       && activity.generation === snapshot.generation && activity.connectionId === (snapshot.connectionId ?? null);
+    const poll = snapshot.livePoll;
+    const validPoll = isLivePollState(poll) && poll.workspaceId === workspaceId
+      && poll.generation === snapshot.generation && poll.connectionId === (snapshot.connectionId ?? null);
     const outcome = model.applySnapshot({ ...snapshot,
       giftGoal: validGoal ? goal : undefined, liveActivity: validActivity ? activity : undefined,
+      livePoll: validPoll ? poll : undefined,
     });
     if (outcome !== 'ignored') notify();
     if (outcome === 'resync') resync();
@@ -246,15 +270,18 @@ export function createRealtimeClient(
       onGiftCompleted(event);
     }
   });
-  if (onGiftGoalReached) socket.on('gift-goal:update', (message) => {
+  socket.on('gift-goal:update', (message) => {
     const goal = message?.state;
     if (!isGiftGoalState(goal) || goal.workspaceId !== workspaceId || !model.applyGiftGoal(goal)) return;
     notify();
     if (message.reached === true && model.state.connectionState === 'live'
-      && goal.configuration?.isEnabled && goal.progress >= goal.configuration.targetCount) onGiftGoalReached(goal);
+      && goal.configuration?.isEnabled && goal.progress >= goal.configuration.targetCount) onGiftGoalReached?.(goal);
   });
-  if (includeLiveActivity) socket.on('live-activity:update', (activity) => {
+  socket.on('live-activity:update', (activity) => {
     if (isLiveActivityState(activity) && activity.workspaceId === workspaceId && model.applyLiveActivity(activity)) notify();
+  });
+  socket.on('live-poll:update', (poll) => {
+    if (isLivePollState(poll)) receivePoll(poll);
   });
 
   const command = <Payload extends { commandId: string; workspaceId: string }>(
@@ -277,6 +304,7 @@ export function createRealtimeClient(
       return result;
     },
     disconnectLive: () => command('live:disconnect', { commandId: crypto.randomUUID(), workspaceId }),
+    applyLivePoll: receivePoll,
     refreshSnapshot: subscribe,
     close: () => socket.close(),
   };

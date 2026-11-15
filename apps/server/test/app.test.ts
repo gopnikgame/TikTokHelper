@@ -49,6 +49,24 @@ describe('local access mode', () => {
     expect((await app.inject({ method: 'GET', url: '/api/auth/login' })).statusCode).toBe(404);
     expect((await app.inject({ method: 'POST', url: '/api/auth/logout' })).statusCode).toBe(404);
   });
+
+  it('uses the configured local workspace for the new operator routes', async () => {
+    const app = buildApp({
+      logger: false, localWorkspaceId: 'primary',
+      likeGoalRepository: {
+        get: async () => ({ targetCount: 100, revision: 1 }),
+        save: async (_id, { targetCount }) => ({ targetCount, revision: 2 }),
+      },
+    });
+    apps.add(app);
+
+    const path = '/api/workspaces/primary/like-goal';
+    const own = await app.inject({ url: path });
+    expect(own.statusCode).toBe(200);
+    expect(own.json()).toEqual({ targetCount: 100, revision: 1 });
+    const other = await app.inject({ method: 'PUT', url: '/api/workspaces/other/like-goal', payload: { targetCount: 200 } });
+    expect(other.statusCode).toBe(403);
+  });
 });
 
 describe('HTTP boundary and errors', () => {

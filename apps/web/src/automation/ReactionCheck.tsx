@@ -1,7 +1,8 @@
 import { type Ref, useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { AutomationConfiguration, GiftSoundMapping, ObservedGift, SoundAsset, UpdateWorkspaceSettings } from '@tiktok-helper/contracts';
+import type { AutomationConfiguration, GiftSoundMapping, ObservedGift, SoundAsset } from '@tiktok-helper/contracts';
 import { playbackOverlapPercent, type SoundPlaybackQueue } from '../audio/playback.js';
+import type { AudioProfileOutput } from '../audio-profiles/model.js';
 import type { SpeechPlaybackQueue } from '../speech/playback.js';
 import { giftTotalPoints } from '../speech/policy.js';
 import {
@@ -33,7 +34,7 @@ interface Props {
   gifts: ObservedGift[];
   savedMapping: GiftSoundMapping | undefined;
   sounds: ReadonlyMap<string, SoundAsset>;
-  settings: UpdateWorkspaceSettings;
+  audioOutput: AudioProfileOutput;
   automation: AutomationConfiguration | null;
   disabledReason: string | null;
   audioEnabled: boolean;
@@ -56,7 +57,8 @@ function resultStatus(result: Result, status: Report['status']) {
   return status === 'stopped' ? `Остановлено · ${result.played} из ${result.total}` : `Выполнено ${result.played} из ${result.total}`;
 }
 
-export function ReactionCheck({ ref, gift, gifts, savedMapping, sounds, settings, automation, disabledReason, audioEnabled, onEnableAudio, player, speechQueue }: Props) {
+export function ReactionCheck({ ref, gift, gifts, savedMapping, sounds, audioOutput, automation, disabledReason, audioEnabled, onEnableAudio, player, speechQueue }: Props) {
+  const { playback: settings, speechEnabled, speechVolumeLimit } = audioOutput;
   const titleId = useId();
   const hintId = useId();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -87,12 +89,16 @@ export function ReactionCheck({ ref, gift, gifts, savedMapping, sounds, settings
     : undefined;
   let actions: ReactionCheckAction[] = [];
   if (opened && sampleValid) {
-    const voiceVolume = speechQueue?.preferences.volume;
+    const voiceVolume = !speechEnabled ? 1
+      : speechQueue ? Math.min(speechQueue.preferences.volume, speechVolumeLimit) : undefined;
     if (sample === 'gift') actions = giftCheckActions(savedMapping, sounds, count, settings.volumePercent);
     else if (sample === 'donor') actions = donorCheckActions(automation, repeatDonor, sounds, settings.volumePercent, voiceVolume);
     else if (completionGift) actions = giftCompletionCheckActions(automation, sounds, {
       gift: completionGift, count: completionQuantity, ruleId: completionRuleId, withinCooldown, soundVolume: settings.volumePercent, voiceVolume,
     });
+    if (!speechEnabled) actions = actions.map((action) => action.type === 'speech' ? {
+      type: 'skipped', label: 'Озвучка', reason: 'Озвучивание выключено в тихом профиле.',
+    } : action);
   }
   const firstSound = actions.find((action) => action.type === 'sound');
   const speechIndex = actions.findIndex((action) => action.type === 'speech');
@@ -182,7 +188,7 @@ export function ReactionCheck({ ref, gift, gifts, savedMapping, sounds, settings
     if (firstSound) {
       const testSound = player.createPreviewQueue(interrupted);
       current.sound = testSound;
-      void testSound.unlock(settings.maxConcurrentSounds, firstSound.asset.url).then(() => {
+      void testSound.unlock(settings.maxConcurrentSounds, settings.requiresControlledVolume ? undefined : firstSound.asset.url).then(() => {
         if (run.current !== current) return;
         actions.forEach((action, index) => {
           if (action.type === 'sound') {

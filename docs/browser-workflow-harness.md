@@ -81,3 +81,60 @@ Start the harness with `BROWSER_HARNESS_LIVE_ACTIVITY=1`, then set a goal of 25 
 During the first room's scripted reconnect, the viewer counter is unavailable. The like total and goal baseline stay visible. The recovered connection gives 73 viewers and 176 likes, so the progress is `56 из 25`. Reload restores those numbers. Changing the target in the current LIVE starts from 176. After stopping and starting the next room, 50 becomes the new baseline and recent social actions are cleared. «Только эфир» keeps the metrics and goal visible above the chat.
 
 The installed `tiktok-live-connector` 2.5.0 decoded the viewer and like aggregates as `total` on distinct v3 message types in two public read-only probes. In about 90 seconds each, the two streams produced 41 and 46 room-statistic packets and 61 and 38 like packets. The first produced 4 shares and the second produced 9 follows. Some like totals arrived lower than the preceding packet. The goal therefore keeps the highest received room total, while the viewer counter uses the latest reading. Source packets can be incomplete. The probes retained counts and field presence only. [Connector v2.5.0 events](https://github.com/zerodytrash/TikTok-Live-Connector/blob/v2.5.0/README.md#roomuser)
+
+## Audio profiles
+
+Start the harness with `BROWSER_HARNESS_AUDIO_PROFILES=1`, enable sound and connect the fixture stream. The fixture waits for you to send each event.
+
+```powershell
+$eventUrl = 'http://127.0.0.1:4177/fixture/audio-profile-event'
+Invoke-RestMethod -Uri $eventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"gift"}'
+Invoke-RestMethod -Uri $eventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"chat"}'
+```
+
+Each gift request sends a new series of three Roses. Each chat request sends a new moderator message. Switch between «Обычный» and «Тихий» during the stream. Responses should keep the same connection ID, generation and connector number. The fixture WAV is silent. The browser test checks Web Audio gain and the parameters passed to speech synthesis. Audible output needs a device check.
+
+## Live chat polls
+
+Start the harness with `BROWSER_HARNESS_LIVE_POLLS=1`. Connect the fixture stream from «Тестовый эфир» and start a poll with two or more options.
+
+```powershell
+$pollEventUrl = 'http://127.0.0.1:4177/fixture/live-poll-event'
+Invoke-RestMethod -Uri $pollEventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"chat","viewer":1,"message":"!1"}'
+Invoke-RestMethod -Uri $pollEventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"chat","viewer":1,"message":"!2"}'
+Invoke-RestMethod -Uri $pollEventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"chat","viewer":2,"message":"!2"}'
+Invoke-RestMethod -Uri $pollEventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"reconnect"}'
+```
+
+The first two options should have one vote each. Reconnecting to the same room and reloading the browser should restore both counts. The client recovers counts from the current server snapshot. [Socket.IO delivery guarantees](https://socket.io/docs/v4/delivery-guarantees/)
+
+Finish the poll in «Только эфир» and confirm that the last result stays visible. A new poll can accept votes from the same two viewers again. Switch to «Другое тестовое рабочее место» and confirm that the first workspace's poll disappears even if the new socket is unavailable. The fixture uses only synthetic messages.
+
+## Stream widgets
+
+Start the harness with `BROWSER_HARNESS_GIFT_GOAL_OVERLAY=1`. In «Виджеты для OBS и LIVE Studio», select «Вид виджета», create its link, and copy it into a separate browser context. Each widget has its own link. The page stays transparent until the fixture stream is connected and the widget has data.
+
+For «Цель по подаркам», enable a goal of three Roses in the dashboard and send these fixture events.
+
+```powershell
+$overlayEventUrl = 'http://127.0.0.1:4177/fixture/gift-goal-overlay-event'
+Invoke-RestMethod -Uri $overlayEventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"gift","count":2}'
+Invoke-RestMethod -Uri $overlayEventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"duplicate"}'
+Invoke-RestMethod -Uri $overlayEventUrl -Method Post -ContentType 'application/json' -Body '{"kind":"gift","count":1}'
+```
+
+Expect one card and progress from zero to two, then three. The duplicate leaves the count at two. Reload keeps the current result. Stopping the stream hides the card and the next stream starts at zero. Revoke the link and confirm that the already open source becomes transparent on its next check. Reissuing a link requires updating the source URL.
+
+For «Последний подарок», open its link and send a fresh gift with `{"kind":"gift","count":2}`. The card shows `×2` and disappears eight seconds after the completed gift. Repeat with `{"kind":"duplicate"}` during that interval to check that the duplicate does not extend it.
+
+For «Цель по лайкам», save a goal of 100 before sending `{"kind":"likes","count":120}` and then `{"kind":"likes","count":180}` to `$overlayEventUrl`. The first total establishes the baseline, and the next shows 60 out of 100.
+
+For «Голосование», create a poll in the dashboard. Send `{"kind":"chat","viewer":1,"message":"!1"}` to `/fixture/live-poll-event`, then close the poll. The public card shows the vote and keeps the results for the current stream. Revoke one link and confirm the other widgets remain accessible.
+
+For an OBS preview, paste each link into a Browser Source. A 480 × 220 source fits the gift goal card. Increase the source height for polls with more answers. [OBS Browser Source](https://obsproject.com/kb/browser-source)
+
+## Workspace member access
+
+With `BROWSER_HARNESS_WORKSPACE_MEMBERS=1`, use separate browser contexts with the fixture cookie `fixture-member=one` or `fixture-member=two`. Both accounts are ordinary users and own separate workspaces. The gift, like and poll fixtures above are available to exercise the first workspace. The audio-profile fixture can emit a moderator chat message for the «Только эфир» view.
+
+Check that each user can configure their own goals and create widget links. Open a poll for the first user, cast a fixture vote and confirm the second user's panel still offers to start a poll. Request the first user's workspace routes with the second user's cookie and expect HTTP 403. Use a context with no fixture cookie for a read-only widget and expect HTTP 401 on operator routes.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ChatEvent, ClientToServerEvents, CommandAcknowledgement, GiftEvent, GiftGoalState, LiveActivityState, RealtimeSnapshot, ServerToClientEvents, SupportLevelGrantedEvent } from '@tiktok-helper/contracts';
+import type { ChatEvent, ClientToServerEvents, CommandAcknowledgement, GiftEvent, GiftGoalState, LiveActivityState, LivePollState, RealtimeSnapshot, ServerToClientEvents, SupportLevelGrantedEvent } from '@tiktok-helper/contracts';
 import type { Socket } from 'socket.io-client';
 import { createRealtimeClient, RealtimeStateModel } from './client.js';
 
@@ -24,6 +24,14 @@ const goal = (revision: number, progress: number): GiftGoalState => ({
 const activity = (revision: number, totalLikes: number): LiveActivityState => ({
   workspaceId: 'primary', generation: 2, connectionId: goalConnection, revision, viewers: 81, totalLikes,
   likeGoal: { targetCount: 25, revision: 1, baselineLikes: 120 }, recentActions: [],
+});
+
+const livePoll = (revision: number, votes: number): LivePollState => ({
+  workspaceId: 'primary', generation: 2, connectionId: goalConnection, revision,
+  poll: {
+    id: 'abcdef01-abcd-4abc-8abc-abcdef012345', question: 'Что включить?',
+    options: [{ label: 'Музыку', votes }, { label: 'Игру', votes: 0 }], status: 'open',
+  },
 });
 
 function fakeSocket() {
@@ -365,7 +373,7 @@ describe('realtime client commands', () => {
   it('keeps the current activity snapshot across duplicate updates and transport recovery', () => {
     const transport = fakeSocket();
     const onState = vi.fn();
-    createRealtimeClient('primary', onState, transport.socket, undefined, undefined, undefined, undefined, undefined, undefined, true);
+    createRealtimeClient('primary', onState, transport.socket);
     transport.receive('connect');
     transport.receive('live-activity:update', activity(5, 157));
     expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ liveActivity: null }));
@@ -392,14 +400,53 @@ describe('realtime client commands', () => {
     expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ liveActivity: null }));
   });
 
-  it('does not accept admin activity for an ordinary client', () => {
+  it('keeps the latest poll through HTTP, realtime updates and a fresh snapshot', () => {
+    const transport = fakeSocket();
+    const onState = vi.fn();
+    const client = createRealtimeClient('primary', onState, transport.socket);
+    transport.receive('connect');
+    transport.receive('live-poll:update', livePoll(1, 0));
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ livePoll: null }));
+    transport.receive('snapshot', snapshot({ connectionId: goalConnection }));
+    transport.acknowledgeSubscription();
+    transport.receive('snapshot', snapshot({ connectionId: goalConnection, livePoll: livePoll(1, 0) }));
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ livePoll: livePoll(1, 0), lastSequence: 3 }));
+
+    transport.receive('live-poll:update', livePoll(3, 2));
+    client.applyLivePoll(livePoll(2, 1));
+    transport.receive('live-poll:update', { ...livePoll(4, 3), workspaceId: 'another' });
+    transport.receive('live-poll:update', livePoll(5, 50_001));
+    transport.receive('snapshot', snapshot({ connectionId: goalConnection, livePoll: livePoll(2, 1) }));
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ livePoll: livePoll(3, 2) }));
+
+    transport.receive('disconnect', 'transport close');
+    transport.receive('connect');
+    transport.receive('snapshot', snapshot({ connectionId: goalConnection, livePoll: livePoll(6, 4) }));
+    transport.acknowledgeSubscription();
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ livePoll: livePoll(6, 4) }));
+
+    transport.receive('event', { type: 'connection.state', generation: 3, sequence: 1, state: 'connecting', connectionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+    client.applyLivePoll(livePoll(7, 5));
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ livePoll: null }));
+  });
+
+  it('accepts goals, activity and polls without a reaction callback', () => {
     const transport = fakeSocket();
     const onState = vi.fn();
     createRealtimeClient('primary', onState, transport.socket);
     transport.receive('connect');
-    transport.receive('snapshot', snapshot({ connectionId: goalConnection, liveActivity: activity(2, 120) }));
+    transport.receive('snapshot', snapshot({
+      connectionId: goalConnection, giftGoal: goal(1, 1), liveActivity: activity(2, 120), livePoll: livePoll(1, 0),
+    }));
     transport.acknowledgeSubscription();
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({
+      giftGoal: goal(1, 1), liveActivity: activity(2, 120), livePoll: livePoll(1, 0),
+    }));
+    transport.receive('gift-goal:update', { state: goal(2, 2), reached: true });
     transport.receive('live-activity:update', activity(3, 150));
-    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({ liveActivity: null }));
+    transport.receive('live-poll:update', livePoll(2, 1));
+    expect(onState).toHaveBeenLastCalledWith(expect.objectContaining({
+      giftGoal: goal(2, 2), liveActivity: activity(3, 150), livePoll: livePoll(2, 1),
+    }));
   });
 });

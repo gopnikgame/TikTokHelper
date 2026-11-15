@@ -1,7 +1,11 @@
 import { type FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { AutomationConfiguration, AuthPrincipal, ChatEvent, GiftCompletedEvent, GiftEvent, GiftGoalState, GiftSoundMapping, ObservedGift, RealtimeEvent, RecentChannel, RegionalGift, RegionalGiftRegion, SaveGiftGoal, SaveLikeGoal, SoundAsset, SupportLevelGrantedEvent, UpdateGiftSoundMapping, UpdateWorkspaceSettings, WorkspaceSettings } from '@tiktok-helper/contracts';
+import { isLivePollState, type CloseLivePoll, type StartLivePoll } from '@tiktok-helper/contracts/live-poll';
 import { appPath, USES_CABINET } from './app-path.js';
 import { AudioOwnership, SoundPlaybackQueue } from './audio/playback.js';
+import { AudioProfileSwitch } from './audio-profiles/AudioProfileSwitch.js';
+import { QuietProfileEditor } from './audio-profiles/QuietProfileEditor.js';
+import { readAudioProfile, resolveAudioProfile, saveAudioProfileMode, saveQuietProfileOptions, type AudioProfileMode, type QuietProfileOptions } from './audio-profiles/model.js';
 import { operatorEventCount } from './event-model.js';
 import { createRealtimeClient, EMPTY_REALTIME_STATE, type RealtimeClient, type RealtimeViewState } from './realtime/client.js';
 import { DEFAULT_SETTINGS } from './settings-model.js';
@@ -16,7 +20,9 @@ import { genericInstallInstructions, type PwaLifecycle, updateBlockedByLive, use
 import { TutorialGuide } from './tutorial/TutorialGuide.js';
 import { LiveFeeds } from './LiveFeeds.js';
 import { GiftGoalPanel } from './gift-goal/GiftGoalPanel.js';
+import { StreamOverlayControls } from './gift-goal-overlay/GiftGoalOverlayControls.js';
 import { LiveActivityPanel } from './live-activity/LiveActivityPanel.js';
+import { LivePollPanel } from './live-poll/LivePollPanel.js';
 import { CatalogGiftImage } from './gifts/CatalogGiftImage.js';
 import { RegionalGiftCatalog } from './gifts/RegionalGiftCatalog.js';
 import './live-view.css';
@@ -24,7 +30,7 @@ import './live-view.css';
 const STATE_COPY = { stopped: 'Остановлен', connecting: 'Подключаемся…', live: 'В эфире', reconnecting: 'Восстанавливаем связь…', offline: 'Аккаунт сейчас не в эфире', failed: 'Не удалось подключиться' } as const;
 const CONNECTION_NOTICE = { live: 'Эфир подключён — принимаем чат и подарки', reconnecting: 'Связь прервалась — подключаемся снова…', offline: 'Эфир завершён или аккаунт сейчас не в эфире', failed: 'Не удалось подключиться к эфиру' } as const;
 const LIVE_VIEW_DUPLICATE_NOTICES = new Set([
-  'Готово к работе', 'Звук и озвучивание включены в этой вкладке', ...Object.values(CONNECTION_NOTICE),
+  'Готово к работе', 'Звук и озвучивание включены в этой вкладке', 'Звук включён в тихом профиле', ...Object.values(CONNECTION_NOTICE),
 ]);
 type SessionState = { status: 'loading' } | { status: 'anonymous'; loginFailed?: boolean } | { status: 'error' } | { status: 'authenticated'; principal: AuthPrincipal; mode: 'local' | 'vline' };
 const AUTH_ERROR_COPY: Record<string, string> = {
@@ -77,7 +83,9 @@ export function App() {
   if (sessionState.status === 'loading') content = <AccessScreen title="Проверяем вход…" message="Подготавливаем ваше рабочее место." />;
   else if (sessionState.status === 'anonymous') content = <LoginScreen authError={entry.authError} loginFailed={sessionState.loginFailed} />;
   else if (sessionState.status === 'error') content = <AccessScreen title="Сервис входа недоступен" message="Обновите страницу через минуту. Настройки и звуки останутся на месте." retry />;
-  else content = <AuthenticatedApp principal={sessionState.principal} authMode={sessionState.mode} onLoggedOut={onLoggedOut} pwa={pwa} onLiveSessionActiveChange={setLiveSessionActive} />;
+  else content = <AuthenticatedApp key={`${sessionState.mode}:${sessionState.principal.userId}`}
+    principal={sessionState.principal} authMode={sessionState.mode} onLoggedOut={onLoggedOut} pwa={pwa}
+    onLiveSessionActiveChange={setLiveSessionActive} />;
 
   return <>{content}<PwaNotices pwa={pwa} liveSessionActive={liveSessionActive} /></>;
 }
@@ -128,6 +136,8 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   const workspacePath = appPath(`api/workspaces/${encodeURIComponent(workspaceId)}`);
   const currentWorkspace = useRef(workspaceId);
   const [settings, setSettings] = useState<UpdateWorkspaceSettings>(DEFAULT_SETTINGS);
+  const [audioProfile, setAudioProfile] = useState(() => readAudioProfile(workspaceId));
+  const audioOutput = useMemo(() => resolveAudioProfile(settings, audioProfile), [settings, audioProfile]);
   const [notice, setNotice] = useState('Загружаем рабочее место…');
   const [accessWarning, setAccessWarning] = useState<string | null>(null);
   const [realtime, setRealtime] = useState<RealtimeViewState>(EMPTY_REALTIME_STATE);
@@ -159,7 +169,8 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   const returnFocus = useRef<'entry' | 'mapping' | null>(null);
   const mappingInput = useRef<HTMLSelectElement | null>(null);
   const soundFileInput = useRef<HTMLInputElement | null>(null);
-  const [player] = useState(() => new SoundPlaybackQueue(undefined, () => setNotice('Браузер не смог воспроизвести звук')));
+  const [player] = useState(() => new SoundPlaybackQueue(undefined, (reason) => setNotice(reason === 'controlled_volume_unavailable'
+    ? 'Браузер не смог ограничить громкость. Этот звук пропущен.' : 'Браузер не смог воспроизвести звук')));
   const speechPolicy = useRef(new SpeechPolicyEngine());
   const [speechSupported] = useState(() => browserSpeechSynthesisSupported());
   const [speechQueue] = useState(() => speechSupported ? new SpeechPlaybackQueue() : null);
@@ -167,13 +178,26 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   const automationRef = useRef<AutomationConfiguration | null>(null);
   const soundsRef = useRef<ReadonlyMap<string, SoundAsset>>(new Map());
   const mappingsRef = useRef<ReadonlyMap<string, GiftSoundMapping>>(new Map());
-  const settingsRef = useRef(settings);
+  const audioOutputRef = useRef(audioOutput);
   const audioEnabledRef = useRef(audioEnabled);
   const soundLibraryRequest = useRef(0);
   useEffect(() => { automationRef.current = automation; }, [automation]);
   useEffect(() => { soundsRef.current = new Map(sounds.map((sound) => [sound.id, sound])); }, [sounds]);
   useEffect(() => { mappingsRef.current = new Map(mappings.map((mapping) => [mapping.giftId, mapping])); }, [mappings]);
-  useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useLayoutEffect(() => {
+    const previous = audioOutputRef.current;
+    audioOutputRef.current = audioOutput;
+    speechQueue?.setVolumeLimit(audioOutput.speechVolumeLimit);
+    const modeChanged = previous.playback.requiresControlledVolume !== audioOutput.playback.requiresControlledVolume;
+    const quietSettingsChanged = audioOutput.playback.requiresControlledVolume && (
+      previous.playback.volumePercent !== audioOutput.playback.volumePercent || previous.speechEnabled !== audioOutput.speechEnabled
+      || previous.speechVolumeLimit !== audioOutput.speechVolumeLimit
+    );
+    if (modeChanged || quietSettingsChanged) {
+      player.stopAll();
+      speechQueue?.stop();
+    }
+  }, [audioOutput, player, speechQueue]);
   useEffect(() => { audioEnabledRef.current = audioEnabled; }, [audioEnabled]);
   useEffect(() => {
     if (authMode !== 'vline') return;
@@ -196,10 +220,11 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }, [onLiveSessionActiveChange, realtime.connectionState]);
 
   const playReaction = useCallback((reaction: ReturnType<SpeechPolicyEngine['evaluateParticipantSeen']>, maxQueueSize: number) => {
-    if (reaction.speech) speechQueue?.enqueue(reaction.speech, maxQueueSize);
+    const output = audioOutputRef.current;
+    if (reaction.speech && output.speechEnabled) speechQueue?.enqueue(reaction.speech, maxQueueSize);
     for (const soundAssetId of reaction.soundAssetIds) {
       const sound = soundsRef.current.get(soundAssetId);
-      if (sound?.status === 'active') player.enqueue(sound, 1, settingsRef.current);
+      if (sound?.status === 'active') player.enqueue(sound, 1, output.playback);
     }
   }, [player, speechQueue]);
 
@@ -219,7 +244,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   const handleGiftGoalReached = useCallback(({ configuration }: GiftGoalState) => {
     if (!audioEnabledRef.current || !configuration?.soundAssetId) return;
     const sound = soundsRef.current.get(configuration.soundAssetId);
-    if (sound?.status === 'active') player.enqueue(sound, 1, settingsRef.current);
+    if (sound?.status === 'active') player.enqueue(sound, 1, audioOutputRef.current.playback);
   }, [player]);
 
   const handleLiveEvent = useCallback((event: RealtimeEvent) => {
@@ -228,7 +253,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     if (event.type === 'gift.received') {
       const mapping = mappingsRef.current.get(event.giftId);
       const sound = mapping?.isEnabled ? soundsRef.current.get(mapping.soundAssetId) : undefined;
-      if (sound?.status === 'active') player.enqueue(sound, event.repeatCount, settingsRef.current);
+      if (sound?.status === 'active') player.enqueue(sound, event.repeatCount, audioOutputRef.current.playback);
       if (config) playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, config), config.policy.maxQueueSize);
       return;
     }
@@ -236,8 +261,10 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     const maxQueue = config.policy.maxQueueSize;
     if (event.speakerContext?.isModerator) playReaction(speechPolicy.current.evaluateParticipantSeen('moderator_seen', event, config), maxQueue);
     if (event.speakerContext?.isGiftGiver) playReaction(speechPolicy.current.evaluateParticipantSeen('donor_seen', event, config), maxQueue);
-    const job = speechPolicy.current.evaluateChat(event, config);
-    if (job) speechQueue?.enqueue(job, maxQueue);
+    if (audioOutputRef.current.speechEnabled) {
+      const job = speechPolicy.current.evaluateChat(event, config);
+      if (job) speechQueue?.enqueue(job, maxQueue);
+    }
   }, [playReaction, player, speechQueue]);
 
   const reloadSoundLibrary = useCallback(async (changedSoundId?: string) => {
@@ -274,6 +301,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
 
   useEffect(() => {
     const controller = new AbortController();
+    const isCurrent = () => !controller.signal.aborted && currentWorkspace.current === workspaceId;
     const soundRequest = soundLibraryRequest.current;
     void Promise.all([
       fetch(`${workspacePath}/settings`, { signal: controller.signal }),
@@ -283,12 +311,13 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       fetch(`${workspacePath}/recent-channels`, { signal: controller.signal }),
       fetch(`${workspacePath}/automation`, { signal: controller.signal }),
     ]).then(async ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse, recentChannelsResponse, automationResponse]) => {
+      if (!isCurrent()) return;
       if ([settingsResponse, soundsResponse, mappingsResponse, giftsResponse, recentChannelsResponse, automationResponse].some((response) => response.status === 401)) {
         onLoggedOut(); return;
       }
       if (settingsResponse.ok) {
         const loaded = await settingsResponse.json() as WorkspaceSettings;
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         setSettings(loaded);
         setWorkspaceSettingsLoaded(true);
       }
@@ -296,7 +325,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         soundsResponse.ok ? soundsResponse.json() as Promise<SoundAsset[]> : null,
         mappingsResponse.ok ? mappingsResponse.json() as Promise<GiftSoundMapping[]> : null,
       ]);
-      if (controller.signal.aborted) return;
+      if (!isCurrent()) return;
       if (soundRequest === soundLibraryRequest.current) {
         if (loadedSounds) setSounds(loadedSounds);
         if (loadedMappings) setMappings(loadedMappings);
@@ -304,32 +333,51 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       }
       if (giftsResponse.ok) {
         const loaded = await giftsResponse.json() as ObservedGift[];
+        if (!isCurrent()) return;
         setGifts(loaded);
         setGiftSelection((current) => current || loaded[0]?.giftId || '');
       }
-      if (recentChannelsResponse.ok) setRecentChannels(await recentChannelsResponse.json() as RecentChannel[]);
-      if (automationResponse.ok) { setAutomation(await automationResponse.json() as AutomationConfiguration); setAutomationStatus('ready'); }
-      else setAutomationStatus('error');
+      if (recentChannelsResponse.ok) {
+        const loaded = await recentChannelsResponse.json() as RecentChannel[];
+        if (!isCurrent()) return;
+        setRecentChannels(loaded);
+      }
+      if (automationResponse.ok) {
+        const loaded = await automationResponse.json() as AutomationConfiguration;
+        if (!isCurrent()) return;
+        setAutomation(loaded);
+        setAutomationStatus('ready');
+      } else setAutomationStatus('error');
       setWorkspaceReady(true);
       setNotice('Готово к работе');
-    }).catch((error: unknown) => { if (!(error instanceof DOMException && error.name === 'AbortError')) { setAutomationStatus('error'); setNotice('Не удалось загрузить настройки'); } });
+    }).catch(() => {
+      if (isCurrent()) {
+        setAutomationStatus('error');
+        setNotice('Не удалось загрузить настройки');
+      }
+    });
     return () => controller.abort();
-  }, [onLoggedOut, workspacePath]);
+  }, [onLoggedOut, workspaceId, workspacePath]);
 
   useEffect(() => {
     let previous = EMPTY_REALTIME_STATE;
     const controller = new AbortController();
+    const isCurrent = () => !controller.signal.aborted && currentWorkspace.current === workspaceId;
+    function whileCurrent<T>(receive: (value: T) => void) {
+      return (value: T) => { if (isCurrent()) receive(value); };
+    }
     const verifyInterruptedSession = USES_CABINET ? () => {
+      if (!isCurrent()) return;
       void loadSession(controller.signal).then((session) => {
-        if (controller.signal.aborted) return;
+        if (!isCurrent()) return;
         if (!session || session.user.userId !== principal.userId || session.user.isAdmin !== principal.isAdmin ||
             !session.user.workspaces.some((workspace) => workspace.id === workspaceId)) onLoggedOut();
         else setNotice('Соединение с пультом закрыто. Чтобы восстановить его, откройте TikTokHelper из кабинета.');
       }).catch(() => {
-        if (!controller.signal.aborted) setNotice('Не удалось проверить вход. Проверьте доступ в кабинете.');
+        if (isCurrent()) setNotice('Не удалось проверить вход. Проверьте доступ в кабинете.');
       });
     } : undefined;
-    const client = createRealtimeClient(workspaceId, (next) => {
+    const client = createRealtimeClient(workspaceId, whileCurrent((next: RealtimeViewState) => {
       if (next.generation !== previous.generation ||
           (next.connectionId && previous.connectionId && next.connectionId !== previous.connectionId) ||
           next.lastSequence < previous.lastSequence) {
@@ -344,8 +392,8 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       }
       previous = next;
       setRealtime(next);
-    }, undefined, refreshChangedSound, handleSupportLevelGranted, verifyInterruptedSession, handleLiveEvent,
-    principal.isAdmin ? handleGiftCompleted : undefined, principal.isAdmin ? handleGiftGoalReached : undefined, principal.isAdmin);
+    }), undefined, whileCurrent(refreshChangedSound), whileCurrent(handleSupportLevelGranted), verifyInterruptedSession, whileCurrent(handleLiveEvent),
+    whileCurrent(handleGiftCompleted), whileCurrent(handleGiftGoalReached));
     realtimeClient.current = client;
     return () => { controller.abort(); realtimeClient.current = null; client.close(); };
   }, [handleGiftCompleted, handleGiftGoalReached, handleLiveEvent, handleSupportLevelGranted, onLoggedOut, player, principal.isAdmin, principal.userId, refreshChangedSound, speechQueue, workspaceId]);
@@ -451,13 +499,21 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setNotice('Сохраняем настройки…');
+    const client = realtimeClient.current;
     const response = await fetch(`${workspacePath}/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(settings) });
+    if (client !== realtimeClient.current || currentWorkspace.current !== workspaceId) return;
     if (!response.ok) { setNotice('Настройки не сохранились. Проверьте значения.'); return; }
-    setSettings(await response.json() as WorkspaceSettings); setNotice('Настройки сохранены');
+    const saved = await response.json() as WorkspaceSettings;
+    if (client !== realtimeClient.current || currentWorkspace.current !== workspaceId) return;
+    setSettings(saved); setNotice('Настройки сохранены');
   }
   async function connectLive() {
     const username = settings.tiktokUsername.trim(); if (!username) { setNotice('Введите TikTok ID'); return; }
-    setNotice('Ищем активную трансляцию…'); const result = await realtimeClient.current?.connectLive(username);
+    const client = realtimeClient.current;
+    const pendingNotice = 'Ищем активную трансляцию…';
+    setNotice(pendingNotice);
+    const result = await client?.connectLive(username);
+    if (client !== realtimeClient.current || currentWorkspace.current !== workspaceId) return;
     if (result && !result.ok && result.error.code === 'ACCESS_DENIED') {
       setNotice(AUTH_ERROR_COPY[result.error.message] ?? 'Подписка не разрешает новое подключение к эфиру.'); return;
     }
@@ -472,10 +528,18 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         connectionCount: (current.find((item) => item.tiktokUsername === normalized)?.connectionCount ?? 0) + 1,
         lastConnectedAt: now,
       }, ...current.filter((item) => item.tiktokUsername !== normalized)].slice(0, 20));
+      setNotice((current) => current === pendingNotice ? 'Команда принята — подключаемся…' : current);
+      return;
     }
-    setNotice(result?.ok ? 'Команда принята — подключаемся…' : 'Сервер не принял команду подключения');
+    setNotice('Сервер не принял команду подключения');
   }
-  async function disconnectLive() { const result = await realtimeClient.current?.disconnectLive(); setNotice(result?.ok ? 'Подключение остановлено' : 'Не удалось остановить подключение'); }
+  async function disconnectLive() {
+    const client = realtimeClient.current;
+    const result = await client?.disconnectLive();
+    if (client === realtimeClient.current && currentWorkspace.current === workspaceId) {
+      setNotice(result?.ok ? 'Подключение остановлено' : 'Не удалось остановить подключение');
+    }
+  }
 
   async function saveGiftGoal(input: SaveGiftGoal): Promise<void> {
     const client = realtimeClient.current;
@@ -483,7 +547,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    if (client === realtimeClient.current) client?.refreshSnapshot();
+    if (client === realtimeClient.current && currentWorkspace.current === workspaceId) client?.refreshSnapshot();
   }
 
   async function saveLikeGoal(input: SaveLikeGoal): Promise<void> {
@@ -492,26 +556,65 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    if (client === realtimeClient.current) client?.refreshSnapshot();
+    if (client === realtimeClient.current && currentWorkspace.current === workspaceId) client?.refreshSnapshot();
   }
+
+  async function updateLivePoll(method: 'POST' | 'PATCH', input: StartLivePoll | CloseLivePoll, pollId?: string): Promise<void> {
+    const client = realtimeClient.current;
+    const endpoint = workspacePath + '/live-polls' + (pollId ? '/' + encodeURIComponent(pollId) : '');
+    const response = await fetch(endpoint, {
+      method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => null);
+    if (client !== realtimeClient.current || currentWorkspace.current !== workspaceId) return;
+    if (!response?.ok) {
+      client?.refreshSnapshot();
+      if (response?.status === 401) onLoggedOut();
+      if (response?.status === 409) throw new Error('Эфир или голосование изменились. Проверьте состояние и повторите.');
+      if (response?.status === 403 || response?.status === 401) throw new Error('Нет доступа к управлению голосованием.');
+      if (response?.status === 400) throw new Error('Проверьте вопрос и варианты ответа. Варианты должны различаться.');
+      throw new Error('Не удалось подтвердить действие. Проверьте состояние голосования и повторите при необходимости.');
+    }
+    const next: unknown = await response.json().catch(() => null);
+    if (client !== realtimeClient.current || currentWorkspace.current !== workspaceId) return;
+    if (!isLivePollState(next) || next.workspaceId !== workspaceId) {
+      client?.refreshSnapshot();
+      throw new Error('Не удалось получить состояние голосования. Проверьте соединение.');
+    }
+    client?.applyLivePoll(next);
+  }
+
   async function reloadAutomation() {
     setAutomationStatus('loading');
+    const client = realtimeClient.current;
+    const isCurrent = () => client === realtimeClient.current && currentWorkspace.current === workspaceId;
     try {
       const response = await fetch(`${workspacePath}/automation`);
+      if (!isCurrent()) return;
       if (response.status === 401) { onLoggedOut(); return; }
       if (!response.ok) throw new Error();
-      setAutomation(await response.json() as AutomationConfiguration); setAutomationStatus('ready'); setNotice('Настройки озвучивания загружены');
-    } catch { setAutomationStatus('error'); setNotice('Настройки озвучивания пока недоступны'); }
+      const loaded = await response.json() as AutomationConfiguration;
+      if (!isCurrent()) return;
+      setAutomation(loaded); setAutomationStatus('ready'); setNotice('Настройки озвучивания загружены');
+    } catch {
+      if (isCurrent()) {
+        setAutomationStatus('error');
+        setNotice('Настройки озвучивания пока недоступны');
+      }
+    }
   }
   async function enableAudio(): Promise<boolean> {
     ownership.current?.claim();
     const preview = mappedSound?.status === 'active' ? mappedSound : sounds.find((sound) => sound.status === 'active');
-    const audioReady = player.unlock(settings.maxConcurrentSounds, preview?.url);
+    const playback = audioOutputRef.current.playback;
+    const audioReady = player.unlock(playback.maxConcurrentSounds, playback.requiresControlledVolume ? undefined : preview?.url);
     try { speechQueue?.unlock(); } catch { /* A speech failure does not prevent gift sounds. */ }
     try {
       await audioReady;
       audioEnabledRef.current = true;
-      setAudioEnabled(true); setNotice(speechSupported ? 'Звук и озвучивание включены в этой вкладке' : 'Звуки включены, но этот браузер не поддерживает озвучивание текста');
+      setAudioEnabled(true);
+      setNotice(!audioOutputRef.current.speechEnabled ? 'Звук включён в тихом профиле'
+        : speechSupported ? 'Звук и озвучивание включены в этой вкладке' : 'Звуки включены, но этот браузер не поддерживает озвучивание текста');
       return true;
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return false;
@@ -523,7 +626,18 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   function stopAudio() {
     player.stopAll();
     speechQueue?.stop();
-    setNotice('Текущий звук остановлен, очередь очищена. Новые реакции продолжат звучать.');
+    setNotice('Текущий звук остановлен, очередь очищена. Новые реакции используют выбранный профиль.');
+  }
+  function changeAudioProfile(mode: AudioProfileMode) {
+    if (audioProfile.mode === mode) return;
+    setAudioProfile({ ...audioProfile, mode });
+    const saved = saveAudioProfileMode(workspaceId, mode);
+    const name = mode === 'quiet' ? 'Тихий' : 'Обычный';
+    setNotice(saved ? `Профиль «${name}» включён` : `Профиль «${name}» действует до перезагрузки`);
+  }
+  function saveQuietProfile(quiet: QuietProfileOptions) {
+    setAudioProfile({ ...audioProfile, quiet });
+    setNotice(saveQuietProfileOptions(workspaceId, quiet) ? 'Тихий профиль сохранён' : 'Настройки тихого профиля действуют до перезагрузки');
   }
   async function saveMapping(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -558,12 +672,21 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
   }
   function previewSoundById(soundId: string) {
     const sound = sounds.find((item) => item.id === soundId); if (!sound || sound.status !== 'active') return;
+    const { volumePercent, requiresControlledVolume } = audioOutputRef.current.playback;
+    if (requiresControlledVolume && volumePercent === 0) {
+      setNotice('В тихом профиле текущая громкость звука 0%.');
+      return;
+    }
+    if (requiresControlledVolume && player.busy) {
+      setNotice('Дождитесь окончания звука или очистите очередь.');
+      return;
+    }
     ownership.current?.claim();
-    void player.preview(sound, settings.volumePercent).then(() => {
+    void player.preview(sound, volumePercent, requiresControlledVolume).then(() => {
       audioEnabledRef.current = true;
       setAudioEnabled(true); setNotice('Проверочный звук воспроизводится');
     }).catch((error: unknown) => {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      if (!requiresControlledVolume && !(error instanceof DOMException && error.name === 'AbortError')) {
         audioEnabledRef.current = false;
         setAudioEnabled(false);
       }
@@ -640,8 +763,10 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     setGiftSelection(''); setSoundSelection(null); setRegionalChoice(null);
     soundsRef.current = new Map(); mappingsRef.current = new Map(); automationRef.current = null;
     speechPolicy.current.reset(); player.stopAll(); speechQueue?.stop();
+    setSettings(DEFAULT_SETTINGS);
     setRealtime(EMPTY_REALTIME_STATE);
     setSounds([]); setMappings([]); setGifts([]); setRecentChannels([]); setAutomation(null); setAutomationStatus('loading');
+    setAudioProfile(readAudioProfile(nextWorkspaceId));
     setWorkspaceId(nextWorkspaceId);
   }
 
@@ -680,6 +805,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
           returnFocus.current = 'entry';
           setLiveOnly(false);
         }}>К пульту</button>
+        <AudioProfileSwitch mode={audioProfile.mode} onChange={changeAudioProfile} />
       </div>
     </header> : null}
     <p className="notice" role="status" hidden={liveOnly && LIVE_VIEW_DUPLICATE_NOTICES.has(notice)}>{notice}</p>
@@ -690,19 +816,24 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
       <div className="actions">
         <button type="button" onClick={() => void connectLive()} disabled={!realtime.isTransportConnected}>Подключить эфир</button>
         <button type="button" className="secondary" onClick={() => void disconnectLive()}>Остановить</button>
-        {principal.isAdmin ? <button ref={liveEntry} type="button" className="quiet live-view-entry" onClick={() => {
+        <button ref={liveEntry} type="button" className="quiet live-view-entry" onClick={() => {
           consoleScroll.current = window.scrollY;
           setLiveOnly(true);
-        }}>Только эфир</button> : null}
+        }}>Только эфир</button>
+        <AudioProfileSwitch mode={audioProfile.mode} onChange={changeAudioProfile} />
       </div>
       <div className="connection-facts"><span>Браузер <b>{realtime.isTransportConnected ? 'на связи' : 'без связи'}</b></span><span>Чат и подарки <b>{operatorEventCount(realtime.events)}</b></span></div>
     </section>
-    {principal.isAdmin ? <LiveActivityPanel key={`activity:${workspaceId}`} state={realtime.liveActivity} isCurrent={liveStateKnown}
+    <LiveActivityPanel key={`activity:${workspaceId}`} state={realtime.liveActivity} isCurrent={liveStateKnown}
       isLive={realtime.connectionState === 'live'} liveOnly={liveOnly} onSave={saveLikeGoal}
-      onRetry={() => realtimeClient.current?.refreshSnapshot()} /> : null}
-    {principal.isAdmin ? <GiftGoalPanel key={`gift-goal:${workspaceId}`} state={realtime.giftGoal} isCurrent={liveStateKnown}
+      onRetry={() => realtimeClient.current?.refreshSnapshot()} />
+    <GiftGoalPanel key={`gift-goal:${workspaceId}`} state={realtime.giftGoal} isCurrent={liveStateKnown}
       liveOnly={liveOnly} gifts={observedGifts} sounds={sounds} error={liveStateKnown && !realtime.giftGoal}
-      onRetry={() => realtimeClient.current?.refreshSnapshot()} onSave={saveGiftGoal} onPreviewSound={previewSoundById} /> : null}
+      onRetry={() => realtimeClient.current?.refreshSnapshot()} onSave={saveGiftGoal} onPreviewSound={previewSoundById} />
+    <LivePollPanel key={`poll:${workspaceId}:${realtime.connectionId ?? ''}`} state={realtime.livePoll}
+      isCurrent={liveStateKnown && realtime.livePoll !== null} isLive={realtime.connectionState === 'live'} liveOnly={liveOnly}
+      onStart={(input) => updateLivePoll('POST', input)} onClose={(id) => updateLivePoll('PATCH', { status: 'closed' }, id)} />
+    <div hidden={liveOnly}><StreamOverlayControls workspaceId={workspaceId} /></div>
     <LiveFeeds key={`${workspaceId}:${realtime.generation}:${realtime.connectionId ?? ''}`} chat={chatEvents} gifts={giftEvents} mappings={mappingByGift}
       liveOnly={liveOnly} liveActive={liveActive} onConfigureGift={selectGiftForMapping} />
     <div hidden={liveOnly}>
@@ -766,17 +897,26 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
     {automationStatus === 'error' ? <AutomationStatus status="error" onRetry={() => void reloadAutomation()} /> : null}
     {automationStatus === 'ready' && automation ? <AutomationEditor key={workspaceId} workspaceId={workspaceId}
       configuration={automation} sounds={sounds} speechSupported={speechSupported} speechQueue={speechQueue}
-      giftReactionCatalog={principal.isAdmin ? observedGifts : undefined} giftReactionCheckDisabledReason={reactionCheckDisabled}
+      giftReactionCatalog={observedGifts} giftReactionCheckDisabledReason={reactionCheckDisabled}
       onCheckGiftReaction={(ruleId, trigger) => reactionCheck.current?.openGiftRule(ruleId, trigger)}
-      onConfigurationChange={setAutomation} onPreviewSound={previewSoundById} onNotice={setNotice} /> : null}
+      onConfigurationChange={(next) => { if (currentWorkspace.current === workspaceId) setAutomation(next); }}
+      onPreviewSound={previewSoundById} onNotice={(message) => { if (currentWorkspace.current === workspaceId) setNotice(message); }} /> : null}
     <section className="control-grid" aria-label="Настройки звука">
-      <div className="control-card audio-card"><p className="section-kicker">Эта вкладка</p><h2>Звук</h2><p>{audioEnabled ? (speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.') : 'Браузеру нужно разрешить звук одним нажатием.'}</p>{audioEnabled ? <small>{audioCacheStatus === 'warming' ? `Подготавливаем используемые звуки: ${warmSounds.length}` : audioCacheStatus === 'fallback' ? 'Часть звуков будет загружаться обычным способом' : `Используемые звуки готовы: ${warmSounds.length}`}</small> : null}<div className="actions"><button type="button" disabled={!workspaceReady} onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : workspaceReady ? 'Включить звук' : 'Загружаем звуки…'}</button><button type="button" className="danger" onClick={stopAudio}>Стоп / очистить очередь</button></div></div>
+      <div className="control-card audio-card">
+        <p className="section-kicker">Эта вкладка</p><h2>Звук</h2>
+        <p>{!audioEnabled ? 'Браузеру нужно разрешить звук одним нажатием.'
+          : !audioOutput.speechEnabled ? 'Озвучивание чата и реакций выключено в тихом профиле.'
+          : speechSupported ? 'Подарки и разрешённые сообщения озвучиваются здесь.' : 'Звуки работают, синтез речи в этом браузере недоступен.'}</p>
+        {audioEnabled ? <small>{audioCacheStatus === 'warming' ? `Подготавливаем используемые звуки: ${warmSounds.length}` : audioCacheStatus === 'fallback' ? 'Часть звуков будет загружаться обычным способом' : `Используемые звуки готовы: ${warmSounds.length}`}</small> : null}
+        <div className="actions"><button type="button" disabled={!workspaceReady} onClick={() => void enableAudio()}>{audioEnabled ? 'Звук включён' : workspaceReady ? 'Включить звук' : 'Загружаем звуки…'}</button><button type="button" className="danger" onClick={stopAudio}>Стоп / очистить очередь</button></div>
+        <QuietProfileEditor key={workspaceId} value={audioProfile.quiet} onSave={saveQuietProfile} />
+      </div>
       <form className="control-card mapping-card" onSubmit={(event) => void saveMapping(event)}>
         <p className="section-kicker">Реакция на подарок</p>
         <h2>Привязка звука</h2>
         <label>Подарок
           <select ref={mappingInput} value={giftId} onChange={(event) => changeMappingGift(event.target.value)}>
-            <option value="" disabled>{mappingGifts.length ? 'Выберите подарок' : principal.isAdmin ? 'Откройте каталог подарков' : 'Сначала дождитесь подарка в эфире'}</option>
+            <option value="" disabled>{mappingGifts.length ? 'Выберите подарок' : 'В каталоге пока нет доступных подарков'}</option>
             {mappingGifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}
           </select>
         </label>
@@ -801,12 +941,12 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
           <button type="button" className="secondary" disabled={!selectedSoundId} onClick={previewSound}>Прослушать</button>
           <button type="submit" disabled={!giftId || !selectedSoundId}>Сохранить привязку</button>
         </div>
-        {principal.isAdmin ? <div className="reaction-check-entry">
+        <div className="reaction-check-entry">
           <ReactionCheck key={workspaceId} ref={reactionCheck} gift={selectedGift} gifts={observedGifts}
-            savedMapping={savedMapping} sounds={soundById} settings={settings}
+            savedMapping={savedMapping} sounds={soundById} audioOutput={audioOutput}
             automation={automation} disabledReason={reactionCheckDisabled} audioEnabled={audioEnabled}
             onEnableAudio={enableAudio} player={player} speechQueue={speechQueue} />
-        </div> : null}
+        </div>
         <p className="helper">В базе подарков: {observedGifts.length}. Сохранено привязок: {mappings.length}</p>
       </form>
       <form className="control-card settings-card" onSubmit={(event) => void saveSettings(event)}><p className="section-kicker">Поведение серии</p><h2>Наложение</h2><label>Режим<select value={settings.playbackMode} onChange={(event) => setSettings((current) => ({ ...current, playbackMode: event.target.value as UpdateWorkspaceSettings['playbackMode'] }))}><option value="controlled_overlap">Умеренное наложение</option><option value="sequential">Последовательно</option><option value="strong_overlap">Сильное наложение</option></select></label><label>Перекрытие звука <output>{settings.overlapPercent}%</output><input type="range" min="0" max="100" value={settings.overlapPercent} onChange={(event) => setSettings((current) => ({ ...current, overlapPercent: event.target.valueAsNumber }))} /></label><div className="two-fields"><label>Одновременно<input type="number" min="1" max="32" value={settings.maxConcurrentSounds} onChange={(event) => setSettings((current) => ({ ...current, maxConcurrentSounds: event.target.valueAsNumber }))} /></label><label>Громкость <output>{settings.volumePercent}%</output><input type="range" min="0" max="100" value={settings.volumePercent} onChange={(event) => setSettings((current) => ({ ...current, volumePercent: event.target.valueAsNumber }))} /></label></div><button type="submit">Сохранить настройки</button></form>

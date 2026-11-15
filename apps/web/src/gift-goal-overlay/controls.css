@@ -1,0 +1,31 @@
+.stream-overlay-settings { min-width: 0; }
+
+.stream-overlay-settings > summary {
+  min-height: 2.75rem;
+  padding-block: .65rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.stream-overlay-controls {
+  display: grid;
+  gap: .55rem;
+  min-width: 0;
+  padding-block: .2rem .25rem;
+}
+
+.stream-overlay-controls .actions { gap: .5rem; }
+.stream-overlay-controls [aria-disabled="true"] { opacity: .7; cursor: progress; }
+
+.stream-overlay-hint, .stream-overlay-error {
+  margin: 0;
+  color: var(--muted);
+  font-size: .85rem;
+}
+
+.stream-overlay-error {
+  color: #ff9db6;
+}
+
+.stream-overlay-field { display: grid; gap: .35rem; min-width: 0; }
+.stream-overlay-field :is(input, select) { width: 100%; min-width: 0; }

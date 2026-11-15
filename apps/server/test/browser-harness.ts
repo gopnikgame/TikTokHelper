@@ -11,6 +11,7 @@ import type { AuthRepository } from '../src/auth/repository.js';
 import { AuthService } from '../src/auth/service.js';
 import type { GiftGoalRepository } from '../src/gift-goals/repository.js';
 import { GiftGoalRuntime } from '../src/gift-goals/runtime.js';
+import { StreamOverlayRuntime } from '../src/overlays/live-snapshots.js';
 import type { LikeGoalRepository } from '../src/like-goals/repository.js';
 import { attachRealtimeServer, type RealtimeServer } from '../src/realtime/server.js';
 import { TikTokSessionManager } from '../src/tiktok/session-manager.js';
@@ -18,31 +19,54 @@ import type { ConnectorStep } from './helpers/scripted-connector.js';
 import { ScriptedConnector } from './helpers/scripted-connector.js';
 
 const workspaceId = 'browser-test';
+const otherPollWorkspaceId = 'browser-poll-other';
 const port = Number(process.env.BROWSER_HARNESS_PORT ?? 4177);
 const host = '127.0.0.1';
 const sourceRevision = 'browser-harness';
 const soundId = '17efb17e-6289-4a33-9c7f-b88eb770d36b';
 const levelId = '2d616882-aa64-48c3-988f-c67d0730df48';
 const now = '2026-09-17T12:00:00.000Z';
-const giftRuleScenario = process.env.BROWSER_HARNESS_GIFT_RULES === '1';
-const giftGoalScenario = process.env.BROWSER_HARNESS_GIFT_GOAL === '1';
+const memberScenario = process.env.BROWSER_HARNESS_WORKSPACE_MEMBERS === '1';
+const giftRuleScenario = memberScenario || process.env.BROWSER_HARNESS_GIFT_RULES === '1';
+const giftGoalOverlayScenario = memberScenario || process.env.BROWSER_HARNESS_GIFT_GOAL_OVERLAY === '1';
+const giftGoalScenario = giftGoalOverlayScenario || process.env.BROWSER_HARNESS_GIFT_GOAL === '1';
 const activityScenario = process.env.BROWSER_HARNESS_LIVE_ACTIVITY === '1';
+const audioProfileScenario = memberScenario || process.env.BROWSER_HARNESS_AUDIO_PROFILES === '1';
+const livePollScenario = process.env.BROWSER_HARNESS_LIVE_POLLS === '1';
+const adminScenario = !memberScenario && (giftRuleScenario || giftGoalScenario || activityScenario || audioProfileScenario || livePollScenario);
 let connectorNumber = 0;
 const connectors: ScriptedConnector[] = [];
 let accessExpired = false;
 const fixturePrincipal = {
-  userId: '123e4567-e89b-42d3-a456-426614174000', displayName: 'Тестовый пользователь', isAdmin: giftRuleScenario || giftGoalScenario || activityScenario,
-  workspaces: [{ id: workspaceId, displayName: 'Тестовый эфир' }],
+  userId: '123e4567-e89b-42d3-a456-426614174000', displayName: 'Тестовый пользователь', isAdmin: adminScenario,
+  workspaces: [
+    { id: workspaceId, displayName: 'Тестовый эфир' },
+    ...(livePollScenario && !memberScenario ? [{ id: otherPollWorkspaceId, displayName: 'Другое тестовое рабочее место' }] : []),
+  ],
 };
+const secondMember = {
+  userId: '123e4567-e89b-42d3-a456-426614174001', displayName: 'Второй тестовый пользователь', isAdmin: false,
+  workspaces: [{ id: otherPollWorkspaceId, displayName: 'Другой эфир' }],
+};
+function fixtureUser(cookie?: string) {
+  if (!memberScenario) return fixturePrincipal;
+  const member = cookie?.split(/;\s*/).find((part) => part.startsWith('fixture-member='));
+  if (member === 'fixture-member=one') return fixturePrincipal;
+  if (member === 'fixture-member=two') return secondMember;
+  return null;
+}
 const fixtureAccess = async () => accessExpired
   ? { allowed: false as const, reason: 'subscription_expired' as const, validUntil: null }
   : { allowed: true as const, reason: 'active_subscription' as const, validUntil: 1_800_000_000_000 };
-const fixtureAuth = giftGoalScenario || activityScenario ? Object.assign(new AuthService({} as AuthRepository, {
+const fixtureAuth = giftGoalScenario || activityScenario || audioProfileScenario || livePollScenario ? Object.assign(new AuthService({} as AuthRepository, {
   exchange: async () => { throw new Error('No identity exchange in the browser fixture'); },
 }, {
   bridgeAuthorizeUrl: 'https://cabinet.example.test/', clientId: 'fixture', redirectUri: `http://${host}:${port}/auth/callback`,
 }), {
-  resolveCookie: async () => ({ principal: fixturePrincipal, sessionId: 'fixture', identitySubject: 'fixture' }),
+  resolveCookie: async (cookie?: string) => {
+    const principal = fixtureUser(cookie);
+    return principal ? { principal, sessionId: principal.userId, identitySubject: principal.userId } : null;
+  },
   checkEntitlement: fixtureAccess,
 }) : undefined;
 
@@ -65,6 +89,7 @@ function rawGift(id: string, repeatCount: number, repeatEnd: boolean, groupId = 
 }
 
 function connectorSteps(index: number): ConnectorStep[] {
+  if (audioProfileScenario || livePollScenario || giftGoalOverlayScenario) return [];
   if (activityScenario) {
     const follow = { common: { msgId: '7484000000000000023' }, user: { nickname: 'Тестовый подписчик' } };
     const share = { common: { msgId: '7484000000000000024' }, user: { nickname: 'Тестовый зритель' } };
@@ -137,7 +162,8 @@ const goalRepository: GiftGoalRepository = {
     return saved;
   },
 };
-const giftGoals = new GiftGoalRuntime(goalRepository, (id) => manager.status(id), (update) => realtimeRef.current?.publishGiftGoal(update));
+const giftGoals = new GiftGoalRuntime(goalRepository, (id) => manager.status(id), (update) => realtimeRef.current?.publishGiftGoal(update),
+  async (giftId) => giftId === '5655' ? 'Rose' : null);
 const likeConfigurations = new Map<string, LikeGoalConfiguration>();
 const likeGoalRepository: LikeGoalRepository = {
   async get(id) { return likeConfigurations.get(id) ?? { targetCount: null, revision: 0 }; },
@@ -159,14 +185,17 @@ const manager: TikTokSessionManager = new TikTokSessionManager(
   },
   (currentWorkspaceId, event) => {
     realtimeRef.current?.publish(currentWorkspaceId, event);
-    if (event.type === 'connection.state') giftGoals.trackConnection(currentWorkspaceId, event);
+    if (event.type === 'connection.state') {
+      giftGoals.trackConnection(currentWorkspaceId, event);
+      if (event.state !== 'live') streamOverlays.clearLastGift(currentWorkspaceId);
+    }
   },
   undefined,
   () => undefined,
   () => undefined,
-  (_currentWorkspaceId, _streamId, gift: GiftEvent) => {
-    realtimeRef.current?.publishSupportLevelGranted(workspaceId, {
-      eventId: `${gift.eventId}:level`, workspaceId,
+  (currentWorkspaceId, _streamId, gift: GiftEvent) => {
+    realtimeRef.current?.publishSupportLevelGranted(currentWorkspaceId, {
+      eventId: `${gift.eventId}:level`, workspaceId: currentWorkspaceId,
       senderDisplayName: gift.senderDisplayName, senderUsername: gift.senderUsername,
       levelId, levelName: 'Голос эфира', thresholdPoints: 100,
       pointsAdded: (gift.diamondCount ?? 0) * gift.repeatCount,
@@ -179,11 +208,16 @@ const manager: TikTokSessionManager = new TikTokSessionManager(
     speechLevels: roles.isGiftGiver ? [{ levelId, levelName: 'Голос эфира', cooldownSeconds: 5, expiresAt: null }] : [],
   }),
   undefined,
-  (event) => realtimeRef.current?.publishGiftCompleted(event),
+  (event) => {
+    realtimeRef.current?.publishGiftCompleted(event);
+    streamOverlays.observeCompletedGift(event);
+  },
   (id, connectionId, gift, identityKey) => giftGoals.observe(id, connectionId, gift, identityKey),
   (id) => realtimeRef.current?.scheduleLiveActivity(id),
+  (id) => realtimeRef.current?.scheduleLivePoll(id),
 );
 
+const streamOverlays = new StreamOverlayRuntime(manager);
 const app = buildApp({
   logger: false,
   tiktokManager: manager,
@@ -191,12 +225,18 @@ const app = buildApp({
   ...(giftGoalScenario ? {
     giftGoalRepository: goalRepository,
     onGiftGoalChanged: (id, configuration) => giftGoals.configure(id, configuration),
+    overlaySnapshots: {
+      'gift-goal': (id) => giftGoals.overlaySnapshot(id),
+      'last-gift': (id) => streamOverlays.lastGiftSnapshot(id),
+      'like-goal': (id) => streamOverlays.likeGoalSnapshot(id),
+      'live-poll': (id) => streamOverlays.pollSnapshot(id),
+    },
   } : {}),
-  ...(activityScenario ? {
+  ...(activityScenario || giftGoalOverlayScenario ? {
     likeGoalRepository,
     onLikeGoalChanged: (id, configuration) => manager.setLikeGoal(id, configuration),
   } : {}),
-  staticRoot: resolve(import.meta.dirname, '../../web/dist'),
+  staticRoot: process.env.BROWSER_HARNESS_WEB_ROOT ?? resolve(import.meta.dirname, '../../web/dist'),
 });
 
 const automation: AutomationConfiguration = {
@@ -233,8 +273,62 @@ if (!fixtureAuth) {
   app.get('/api/auth/access', fixtureAccess);
 }
 app.post('/fixture/expire-access', async () => { accessExpired = true; return { status: 'expired' }; });
+if (audioProfileScenario) {
+  let eventNumber = 0;
+  app.post<{ Body: { kind?: unknown } }>('/fixture/audio-profile-event', async ({ body }, reply) => {
+    const kind = body?.kind;
+    if (kind !== 'gift' && kind !== 'chat') return reply.code(400).send();
+    const snapshot = manager.status(workspaceId);
+    const connector = connectors.at(-1);
+    if (!connector || snapshot.state !== 'live') return reply.code(409).send();
+    const id = ++eventNumber;
+    if (kind === 'gift') connector.emit('gift', rawGift(`profile-gift-${id}`, 3, true, String(1_000_000 + id)));
+    else connector.emit('chat', rawChat(`profile-chat-${id}`, `Тестовое сообщение ${id}`, { moderator: true }));
+    return { id, connectionId: snapshot.connectionId, generation: snapshot.generation, connectorNumber };
+  });
+}
+if (livePollScenario || giftGoalOverlayScenario) {
+  let eventNumber = 0;
+  app.post<{ Body: { kind?: unknown; viewer?: unknown; message?: unknown; historical?: unknown } }>('/fixture/live-poll-event', async ({ body }, reply) => {
+    const snapshot = manager.status(workspaceId);
+    const connector = connectors.at(-1);
+    if (!connector || snapshot.state !== 'live') return reply.code(409).send();
+    if (body?.kind === 'reconnect') {
+      connector.emit('disconnected', { code: 1006, reason: 'scripted reconnect' });
+    } else {
+      if (body?.kind !== 'chat' || typeof body.viewer !== 'number' || !Number.isInteger(body.viewer)
+        || body.viewer < 1 || body.viewer > 10 || typeof body.message !== 'string' || body.message.length > 80) return reply.code(400).send();
+      const author = rawChat('poll-viewer-' + body.viewer, body.message);
+      connector.emit('chat', { ...author, common: { msgId: 'poll-event-' + (++eventNumber) } }, body.historical === true);
+    }
+    return { connectionId: snapshot.connectionId, generation: snapshot.generation, connectorNumber };
+  });
+}
+if (giftGoalOverlayScenario) {
+  let giftNumber = 0;
+  let previousGift: ReturnType<typeof rawGift> | undefined;
+  app.post<{ Body: { kind?: unknown; count?: unknown } }>('/fixture/gift-goal-overlay-event', async ({ body }, reply) => {
+    const connector = connectors.at(-1);
+    if (!connector || manager.status(workspaceId).state !== 'live') return reply.code(409).send();
+    if (body?.kind === 'likes' && typeof body.count === 'number' && Number.isSafeInteger(body.count) && body.count > 0) {
+      connector.emit('like', { total: String(body.count) });
+      return { status: 'emitted' };
+    }
+    if (body?.kind === 'gift' && typeof body.count === 'number'
+      && Number.isInteger(body.count) && body.count > 0 && body.count <= 100) {
+      const id = ++giftNumber;
+      previousGift = rawGift('overlay-gift-' + id, body.count, true, String(1_000_000 + id));
+    } else if (body?.kind !== 'duplicate') return reply.code(400).send();
+    if (!previousGift) return reply.code(409).send();
+    connector.emit('gift', previousGift);
+    return { status: 'emitted' };
+  });
+}
 
-app.get('/api/workspaces/:workspaceId/settings', async () => settings);
+app.get<{ Params: { workspaceId: string } }>('/api/workspaces/:workspaceId/settings', async ({ params }) => ({
+  ...settings, workspaceId: params.workspaceId,
+  tiktokUsername: params.workspaceId === otherPollWorkspaceId ? 'fixture_second_streamer' : settings.tiktokUsername,
+}));
 app.put('/api/workspaces/:workspaceId/settings', async (request) => ({ ...settings, ...(request.body as object), revision: 2 }));
 app.get('/api/workspaces/:workspaceId/sounds', async () => [{
   id: soundId, displayName: 'Тестовый сигнал', url: '/fixture.wav', contentSha256: '08662970568d4e2cf49988067bee006f7e8ded8c4cd93f4aa6ef4211b891d8af',
@@ -249,18 +343,24 @@ app.get('/api/workspaces/:workspaceId/gifts', async () => [{
   firstSeenAt: now, lastSeenAt: now,
 }]);
 app.get('/api/workspaces/:workspaceId/recent-channels', async () => [{ tiktokUsername: 'fixture_streamer', connectionCount: 1, lastConnectedAt: now }]);
-app.get('/api/workspaces/:workspaceId/automation', async () => automation);
+app.get<{ Params: { workspaceId: string } }>('/api/workspaces/:workspaceId/automation', async ({ params }) => (
+  memberScenario && params.workspaceId === otherPollWorkspaceId
+    ? { policy: { ...automation.policy, workspaceId: params.workspaceId }, supportLevels: [], eventReactions: [] }
+    : automation
+));
 app.get('/fixture-emote.svg', async (_request, reply) => reply.type('image/svg+xml').send('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="#ff2d68"/></svg>'));
 app.get('/fixture-gift.svg', async (_request, reply) => reply.type('image/svg+xml').send('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><path d="M32 56S6 42 6 22C6 8 24 4 32 17 40 4 58 8 58 22c0 20-26 34-26 34" fill="#ff2d68"/></svg>'));
 app.get('/fixture.wav', async (_request, reply) => reply.type('audio/wav').send(Buffer.from('524946462c00000057415645666d74201000000001000100401f0000401f00000100080064617461080000008080808080808080', 'hex')));
 
 realtimeRef.current = attachRealtimeServer(app, manager, {
-  ...(fixturePrincipal.isAdmin ? { authenticate: () => fixturePrincipal } : {}),
+  ...(fixturePrincipal.isAdmin || memberScenario ? { authenticate: (headers) => fixtureUser(headers.cookie) } : {}),
   ...(giftGoalScenario ? { giftGoals: {
     prepare: (id) => giftGoals.prepare(id, true),
     snapshot: (id) => giftGoals.snapshot(id),
   } } : {}),
-  authorizeWorkspace: (requestedWorkspaceId) => requestedWorkspaceId === workspaceId,
+  authorizeWorkspace: (requestedWorkspaceId, principal) => memberScenario
+    ? (principal?.workspaces.some(({ id }) => id === requestedWorkspaceId) ?? false)
+    : requestedWorkspaceId === workspaceId || (livePollScenario && requestedWorkspaceId === otherPollWorkspaceId),
   authorizeLiveConnect: async () => accessExpired
     ? { ok: false, error: { code: 'ACCESS_DENIED', message: 'subscription_expired' } }
     : { ok: true },

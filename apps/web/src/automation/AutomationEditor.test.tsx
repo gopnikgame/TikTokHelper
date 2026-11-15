@@ -18,7 +18,7 @@ const configuration = (name?: string): AutomationConfiguration => ({
   eventReactions: [],
 });
 
-const renderEditor = (config: AutomationConfiguration, gifts?: ObservedGift[], disabledReason?: string) => renderToStaticMarkup(<AutomationEditor
+const renderEditor = (config: AutomationConfiguration, gifts: ObservedGift[] = [], disabledReason?: string) => renderToStaticMarkup(<AutomationEditor
   workspaceId="primary" configuration={config} sounds={[]} speechSupported={false} speechQueue={null}
   giftReactionCatalog={gifts} giftReactionCheckDisabledReason={disabledReason} onCheckGiftReaction={() => undefined}
   onConfigurationChange={() => undefined} onPreviewSound={() => undefined} onNotice={() => undefined}
@@ -52,7 +52,7 @@ describe('automation editor states', () => {
     expect(renderEditor(configuration(name))).toContain(name);
   });
 
-  it('shows saved conditions and a test entry to the administrator for a disabled gift reaction', () => {
+  it('shows saved conditions and a test entry for a disabled gift reaction', () => {
     const config = { ...configuration(), eventReactions: [giftRule] };
     const html = renderEditor(config, [{
       giftId: '5655', giftName: 'Rose', imageUrl: null, diamondCount: 1,
@@ -66,13 +66,14 @@ describe('automation editor states', () => {
     expect(html).toContain('Проверка доступна после эфира');
   });
 
-  it('hides experimental gift rules from the ordinary editor even if they are in the response', () => {
+  it('keeps gift rules and their test available with an empty catalog', () => {
     const config = { ...configuration(), eventReactions: [giftRule, {
       ...giftRule, id: '38b2fb16-6c3c-42ae-8b2c-f868730b865b', name: 'Вход модератора', eventType: 'moderator_seen' as const,
     }] };
     const html = renderEditor(config);
     expect(html).toContain('Вход модератора');
-    expect(html).not.toContain('Любимые розы');
-    expect(html).not.toContain('Проверить правило');
+    expect(html).toContain('Любимые розы');
+    expect(html).toContain('Подарок · ID 5655');
+    expect(html).toContain('Проверить правило');
   });
 });

@@ -1,4 +1,5 @@
-import type { AutomationConfiguration, GiftSoundMapping, ObservedGift, SoundAsset, UpdateWorkspaceSettings } from '@tiktok-helper/contracts';
+import type { AutomationConfiguration, GiftSoundMapping, ObservedGift, SoundAsset } from '@tiktok-helper/contracts';
+import type { PlaybackSettings } from '../audio/playback.js';
 import { evaluateGiftReaction, findGiftReaction, giftTotalPoints, SpeechPolicyEngine, type GiftReactionInput, type SpeechJob } from '../speech/policy.js';
 
 export type ReactionCheckAction =
@@ -6,7 +7,7 @@ export type ReactionCheckAction =
   | { type: 'speech'; job: SpeechJob }
   | { type: 'skipped'; label: string; reason: string };
 
-export function validPlaybackSettings(settings: UpdateWorkspaceSettings): boolean {
+export function validPlaybackSettings(settings: PlaybackSettings): boolean {
   return Number.isInteger(settings.maxConcurrentSounds) && settings.maxConcurrentSounds >= 1 && settings.maxConcurrentSounds <= 32
     && Number.isInteger(settings.overlapPercent) && settings.overlapPercent >= 0 && settings.overlapPercent <= 100
     && Number.isInteger(settings.volumePercent) && settings.volumePercent >= 0 && settings.volumePercent <= 100;

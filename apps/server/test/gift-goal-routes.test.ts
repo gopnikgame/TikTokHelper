@@ -15,7 +15,7 @@ const admin = { cookie: 'fixture-role=admin' };
 const member = { cookie: 'fixture-role=member' };
 const goal: SaveGiftGoal = { giftId: '5655', targetCount: 100, soundAssetId: null, isEnabled: true };
 
-function setup() {
+function setup(withAuth = true) {
   const authService = new AuthService({} as AuthRepository, { exchange: async () => { throw new Error('not used'); } }, {
     bridgeAuthorizeUrl: 'https://cabinet.example.test/login', clientId: 'fixture',
     redirectUri: 'https://helper.example.test/auth/callback',
@@ -40,44 +40,54 @@ function setup() {
     }),
   };
   const onChanged = vi.fn();
-  const app = buildApp({ logger: false, authService, giftGoalRepository: repository, onGiftGoalChanged: onChanged });
+  const app = buildApp({
+    logger: false, authService: withAuth ? authService : undefined,
+    giftGoalRepository: repository, onGiftGoalChanged: onChanged,
+  });
   apps.add(app);
   return { app, repository, onChanged };
 }
 
 describe('gift goal HTTP routes', () => {
-  it('requires an administrator with access to the requested workspace', async () => {
+  it('rejects guests and members of another workspace', async () => {
     const { app, repository, onChanged } = setup();
-    expect((await app.inject({ url: primary })).statusCode).toBe(401);
-    expect((await app.inject({ url: primary, headers: member })).statusCode).toBe(403);
-    expect((await app.inject({ method: 'PUT', url: primary, headers: member, payload: goal })).statusCode).toBe(403);
-    expect((await app.inject({ url: secondary, headers: admin })).statusCode).toBe(403);
-    expect((await app.inject({ method: 'PUT', url: secondary, headers: admin, payload: goal })).statusCode).toBe(403);
+    for (const [url, headers, status] of [[primary, {}, 401], [secondary, member, 403], [secondary, admin, 403]] as const) {
+      expect((await app.inject({ url, headers })).statusCode).toBe(status);
+      expect((await app.inject({ method: 'PUT', url, headers, payload: goal })).statusCode).toBe(status);
+    }
     expect(repository.get).not.toHaveBeenCalled();
     expect(repository.save).not.toHaveBeenCalled();
     expect(onChanged).not.toHaveBeenCalled();
   });
 
-  it('returns a nullable configuration and notifies only after a successful save', async () => {
+  it('requires configured authentication or an explicit local workspace', async () => {
+    const { app, repository } = setup(false);
+    expect((await app.inject({ url: primary, headers: member })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'PUT', url: primary, headers: member, payload: goal })).statusCode).toBe(401);
+    expect(repository.get).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it('lets the workspace member read and save the goal and notifies after a successful save', async () => {
     const { app, repository, onChanged } = setup();
-    const empty = await app.inject({ url: primary, headers: admin });
+    const empty = await app.inject({ url: primary, headers: member });
     expect(empty.statusCode).toBe(200);
     expect(empty.headers['cache-control']).toBe('no-store');
     expect(empty.json()).toBeNull();
 
-    const rejected = await app.inject({ method: 'PUT', url: primary, headers: admin, payload: { ...goal, giftId: 'unknown' } });
+    const rejected = await app.inject({ method: 'PUT', url: primary, headers: member, payload: { ...goal, giftId: 'unknown' } });
     expect(rejected.statusCode).toBe(422);
     expect(rejected.json()).toMatchObject({ error: { code: 'GIFT_GOAL_ASSET_UNAVAILABLE' } });
     expect(onChanged).not.toHaveBeenCalled();
 
-    const response = await app.inject({ method: 'PUT', url: primary, headers: admin, payload: goal });
+    const response = await app.inject({ method: 'PUT', url: primary, headers: member, payload: goal });
     const saved = { ...goal, revision: 1 };
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('no-store');
     expect(response.json()).toEqual(saved);
     expect(repository.save).toHaveBeenLastCalledWith('primary', goal);
     expect(onChanged).toHaveBeenCalledExactlyOnceWith('primary', saved);
-    expect((await app.inject({ url: primary, headers: admin })).json()).toEqual(saved);
+    expect((await app.inject({ url: primary, headers: member })).json()).toEqual(saved);
   });
 
   it('rejects ambiguous JSON inputs and out-of-range targets', async () => {

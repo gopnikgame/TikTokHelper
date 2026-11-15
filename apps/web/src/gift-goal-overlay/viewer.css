@@ -1,0 +1,130 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI Variable", "Trebuchet MS", sans-serif;
+}
+
+html, body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  padding: clamp(.25rem, 2vmin, 1rem);
+}
+
+.goal-overlay {
+  box-sizing: border-box;
+  display: grid;
+  gap: clamp(.35rem, 1.5vmin, .55rem);
+  width: min(100%, 34rem);
+  padding: clamp(.65rem, 3.25vmin, 1.45rem);
+  border: 1px solid #414954;
+  border-radius: .95rem;
+  background: #151b24;
+  color: #f3f6fa;
+  overflow-wrap: anywhere;
+}
+
+.goal-overlay[hidden], .goal-overlay [hidden] {
+  display: none;
+}
+
+.overlay-fields {
+  display: grid;
+  gap: inherit;
+  min-width: 0;
+}
+
+.goal-overlay h1, .goal-overlay p {
+  margin: 0;
+}
+
+.goal-overlay h1 {
+  color: #d8e1eb;
+  font-size: clamp(.87rem, 3.7vmin, 1.15rem);
+  font-weight: 650;
+}
+
+.goal-overlay-name {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: clamp(1rem, 4.3vmin, 1.45rem);
+  font-weight: 650;
+}
+
+.goal-overlay-count {
+  color: #70f3f3;
+  font-size: clamp(1.3rem, 6vmin, 2.5rem);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.goal-overlay progress {
+  width: 100%;
+  height: .65rem;
+  appearance: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 1rem;
+  background: #383f4d;
+}
+
+.goal-overlay progress::-webkit-progress-bar { background: #383f4d; }
+.goal-overlay progress::-webkit-progress-value { border-radius: 1rem; background: #70f3f3; }
+.goal-overlay progress::-moz-progress-bar { border-radius: 1rem; background: #70f3f3; }
+
+.goal-overlay-completed {
+  color: #81f5cf;
+  font-size: clamp(.9rem, 3.7vmin, 1.15rem);
+  font-weight: 700;
+}
+
+.poll-overlay-hint {
+  color: #d8e1eb;
+  font-size: clamp(.82rem, 3.4vmin, 1rem);
+}
+
+.poll-overlay-options {
+  display: grid;
+  gap: .3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: clamp(.87rem, 3.7vmin, 1.12rem);
+}
+
+.poll-overlay-options li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .55rem;
+  padding: .35rem .55rem;
+  border-radius: .4rem;
+  background: #222b37;
+}
+
+.poll-overlay-answer {
+  display: flex;
+  align-items: baseline;
+  gap: .45rem;
+  min-width: 0;
+}
+
+.poll-overlay-command, .poll-overlay-votes {
+  color: #70f3f3;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.poll-overlay-command {
+  flex: none;
+}
+
+.poll-overlay-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

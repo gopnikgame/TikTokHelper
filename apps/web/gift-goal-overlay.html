@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="robots" content="noindex, nofollow" />
+    <link rel="icon" href="data:," />
+    <title>Цель по подаркам</title>
+  </head>
+  <body>
+    <main class="goal-overlay" id="gift-goal-overlay" aria-labelledby="gift-goal-title" hidden>
+      <h1 id="gift-goal-title">Цель по подаркам</h1>
+      <div class="overlay-fields" id="goal-overlay-fields">
+        <p class="goal-overlay-name" id="gift-goal-name" dir="auto" hidden></p>
+        <p class="goal-overlay-count" id="gift-goal-count" aria-live="polite"></p>
+        <progress id="gift-goal-progress" aria-labelledby="gift-goal-title" value="0" max="1"></progress>
+        <p class="goal-overlay-completed" id="gift-goal-completed" role="status" hidden>Цель достигнута</p>
+      </div>
+      <div class="overlay-fields" id="poll-overlay-fields" hidden>
+        <p class="goal-overlay-name" id="live-poll-question" dir="auto"></p>
+        <p class="poll-overlay-hint" id="live-poll-hint" hidden>Напишите в чат команду рядом с ответом.</p>
+        <p class="goal-overlay-completed" id="live-poll-results" role="status" hidden>Итоги голосования</p>
+        <ol class="poll-overlay-options" id="live-poll-options" aria-label="Варианты ответов и число голосов"></ol>
+      </div>
+    </main>
+    <script type="module" src="/src/gift-goal-overlay/viewer.ts"></script>
+  </body>
+</html>

@@ -26,9 +26,9 @@ function missing(reply: FastifyReply, requestId: string): FastifyReply {
   } } satisfies ApiErrorResponse);
 }
 
-function forbidden(reply: FastifyReply, requestId: string): FastifyReply {
-  return reply.code(403).send({ error: {
-    code: 'FORBIDDEN', message: 'Administrator permission required', requestId,
+function unauthenticated(reply: FastifyReply, requestId: string): FastifyReply {
+  return reply.code(401).send({ error: {
+    code: 'UNAUTHENTICATED', message: 'Authentication required', requestId,
   } } satisfies ApiErrorResponse);
 }
 
@@ -49,7 +49,7 @@ export const automationRoutes: FastifyPluginAsync<AutomationRoutesOptions> = asy
     schema: { params: workspaceParamsSchema },
   }, async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    return options.repository.get(request.params.workspaceId, request.authPrincipal?.isAdmin === true);
+    return options.repository.get(request.params.workspaceId, Boolean(request.authPrincipal));
   });
 
   app.put<{ Params: WorkspaceParams; Body: UpdateWorkspaceSpeechPolicy; Reply: WorkspaceSpeechPolicy }>(
@@ -88,8 +88,8 @@ export const automationRoutes: FastifyPluginAsync<AutomationRoutesOptions> = asy
     '/api/workspaces/:workspaceId/automation/event-reactions',
     { schema: { params: workspaceParamsSchema, body: saveEventReactionSchema }, preValidation: validateGiftFilterTypes },
     async (request, reply) => {
-      const allowGiftReactions = request.authPrincipal?.isAdmin === true;
-      if (request.body.eventType === 'gift_completed' && !allowGiftReactions) return forbidden(reply, request.id);
+      const allowGiftReactions = Boolean(request.authPrincipal);
+      if (request.body.eventType === 'gift_completed' && !allowGiftReactions) return unauthenticated(reply, request.id);
       const item = await options.repository.createEventReaction(request.params.workspaceId, request.body, allowGiftReactions);
       return item ? reply.code(201).send(item) : missing(reply, request.id);
     },
@@ -98,8 +98,8 @@ export const automationRoutes: FastifyPluginAsync<AutomationRoutesOptions> = asy
     '/api/workspaces/:workspaceId/automation/event-reactions/:itemId',
     { schema: { params: automationItemParamsSchema, body: saveEventReactionSchema }, preValidation: validateGiftFilterTypes },
     async (request, reply) => {
-      const allowGiftReactions = request.authPrincipal?.isAdmin === true;
-      if (request.body.eventType === 'gift_completed' && !allowGiftReactions) return forbidden(reply, request.id);
+      const allowGiftReactions = Boolean(request.authPrincipal);
+      if (request.body.eventType === 'gift_completed' && !allowGiftReactions) return unauthenticated(reply, request.id);
       const item = await options.repository.updateEventReaction(request.params.workspaceId, request.params.itemId, request.body, allowGiftReactions);
       return item ?? missing(reply, request.id);
     },
@@ -109,7 +109,7 @@ export const automationRoutes: FastifyPluginAsync<AutomationRoutesOptions> = asy
     { schema: { params: automationItemParamsSchema, body: moveEventReactionSchema } },
     async (request, reply) => {
       const moved = await options.repository.moveEventReaction(
-        request.params.workspaceId, request.params.itemId, request.body.direction, request.authPrincipal?.isAdmin === true,
+        request.params.workspaceId, request.params.itemId, request.body.direction, Boolean(request.authPrincipal),
       );
       return moved ? reply.code(204).send() : missing(reply, request.id);
     },
@@ -118,7 +118,7 @@ export const automationRoutes: FastifyPluginAsync<AutomationRoutesOptions> = asy
     schema: { params: automationItemParamsSchema },
   }, async (request, reply) => {
     const deleted = await options.repository.deleteEventReaction(
-      request.params.workspaceId, request.params.itemId, request.authPrincipal?.isAdmin === true,
+      request.params.workspaceId, request.params.itemId, Boolean(request.authPrincipal),
     );
     return deleted ? reply.code(204).send() : missing(reply, request.id);
   });

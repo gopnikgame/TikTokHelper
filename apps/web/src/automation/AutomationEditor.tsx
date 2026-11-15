@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useId, useMemo, useState } from 'react';
+import { type FormEvent, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type {
   AutomationConfiguration, EventReaction, ObservedGift, ReactionEventType, SaveEventReaction, SaveSupportLevel,
   SoundAsset, SupportLevel, TemplateVariable, UpdateWorkspaceSpeechPolicy,
@@ -39,7 +39,7 @@ interface Props {
   sounds: SoundAsset[];
   speechSupported: boolean;
   speechQueue: SpeechPlaybackQueue | null;
-  giftReactionCatalog?: ObservedGift[];
+  giftReactionCatalog: readonly ObservedGift[];
   giftReactionCheckDisabledReason?: string | null;
   onCheckGiftReaction?(ruleId: string, trigger: HTMLButtonElement): void;
   onConfigurationChange(configuration: AutomationConfiguration): void;
@@ -103,7 +103,7 @@ function LevelForm({ initial, sounds, busy, onSave, onCancel }: { initial: SaveS
 }
 
 function GiftReactionPicker({ catalog, value, onChange }: {
-  catalog: ObservedGift[]; value: string | null; onChange(value: string | null): void;
+  catalog: readonly ObservedGift[]; value: string | null; onChange(value: string | null): void;
 }) {
   const [query, setQuery] = useState('');
   const search = query.trim().toLocaleLowerCase();
@@ -122,7 +122,7 @@ function GiftReactionPicker({ catalog, value, onChange }: {
         {gifts.map((gift) => <option key={gift.giftId} value={gift.giftId}>{gift.giftName} · ID {gift.giftId}</option>)}
       </select></label>
     </div>
-    {!catalog.length ? <small className="rule-field-hint">Каталог пополнится, когда в эфире появятся подарки.</small>
+    {!catalog.length ? <small className="rule-field-hint">В каталоге пока нет подарков.</small>
       : matchingGifts.length === 0 ? <small className="rule-field-hint" role="status">Подарки по запросу не найдены. Измените поиск.</small> : null}
     {selected ? <div className="gift-reaction-selected">
       {selected.imageUrl ? <img src={selected.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" /> : null}
@@ -135,7 +135,7 @@ function GiftReactionPicker({ catalog, value, onChange }: {
 
 function ReactionForm({ initial, levels, sounds, giftReactionCatalog, busy, onSave, onCancel }: {
   initial: SaveEventReaction; levels: SupportLevel[]; sounds: SoundAsset[];
-  giftReactionCatalog?: ObservedGift[]; busy: boolean;
+  giftReactionCatalog: readonly ObservedGift[]; busy: boolean;
   onSave(value: SaveEventReaction): void; onCancel(): void;
 }) {
   const [draft, setDraft] = useState(initial);
@@ -160,11 +160,10 @@ function ReactionForm({ initial, levels, sounds, giftReactionCatalog, busy, onSa
   }}>
     <label>Название реакции<input required maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
     <label>Когда срабатывать<select value={draft.eventType} onChange={(event) => changeType(event.target.value as ReactionEventType)}>
-      {Object.entries(EVENT_LABELS).filter(([value]) => value !== 'gift_completed' || giftReactionCatalog)
-        .map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      {Object.entries(EVENT_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
     </select></label>
     {draft.eventType === 'support_level_reached' ? <label>Для какого уровня<select value={draft.supportLevelId ?? ''} onChange={(event) => setDraft({ ...draft, supportLevelId: event.target.value || null })}><option value="">Для любого уровня</option>{levels.map((level) => <option key={level.id} value={level.id}>{level.name}</option>)}</select></label> : null}
-    {giftRule && giftReactionCatalog ? <>
+    {giftRule ? <>
       <GiftReactionPicker catalog={giftReactionCatalog} value={draft.giftId ?? null}
         onChange={(giftId) => setDraft({ ...draft, giftId })} />
       <div className="two-fields">
@@ -213,6 +212,7 @@ export function AutomationEditor(props: Props) {
   const [editingLevel, setEditingLevel] = useState<string | 'new' | null>(null);
   const [editingReaction, setEditingReaction] = useState<string | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
+  const mounted = useRef(true);
   const [voices, setVoices] = useState<SpeechVoiceLike[]>(() => speechQueue?.voices ?? []);
   const checkHintId = useId();
   const storageKey = `tiktok-helper.speech-device.v1.${workspaceId}`;
@@ -221,10 +221,14 @@ export function AutomationEditor(props: Props) {
     catch { return { voiceName: '', rate: 1, volume: 1 }; }
   });
   const activeSounds = useMemo(() => new Map(sounds.filter((sound) => sound.status === 'active').map((sound) => [sound.id, sound])), [sounds]);
-  const giftById = useMemo(() => new Map(giftReactionCatalog?.map((gift) => [gift.giftId, gift])), [giftReactionCatalog]);
-  const reactions = configuration.eventReactions.filter((reaction) => reaction.eventType !== 'gift_completed' || giftReactionCatalog !== undefined);
+  const giftById = useMemo(() => new Map(giftReactionCatalog.map((gift) => [gift.giftId, gift])), [giftReactionCatalog]);
+  const reactions = configuration.eventReactions;
   const hasGiftReactions = reactions.some((reaction) => reaction.eventType === 'gift_completed');
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   useEffect(() => { speechQueue?.setPreferences(preferences); localStorage.setItem(storageKey, JSON.stringify(preferences)); }, [preferences, speechQueue, storageKey]);
   useEffect(() => {
     if (!speechSupported) return;
@@ -236,13 +240,21 @@ export function AutomationEditor(props: Props) {
   const endpoint = appPath(`api/workspaces/${encodeURIComponent(workspaceId)}/automation`);
   async function refresh() {
     const next = await readJson<AutomationConfiguration>(await fetch(endpoint));
+    if (!mounted.current) return;
     onConfigurationChange(next); setPolicy({ ...next.policy });
   }
   async function run(action: () => Promise<void>, success: string) {
     setBusy(true);
-    try { await action(); await refresh(); onNotice(success); }
-    catch { onNotice('Не удалось сохранить правило. Проверьте поля и попробуйте ещё раз.'); }
-    finally { setBusy(false); }
+    try {
+      await action();
+      if (!mounted.current) return;
+      await refresh();
+      if (mounted.current) onNotice(success);
+    } catch {
+      if (mounted.current) onNotice('Не удалось сохранить правило. Проверьте поля и попробуйте ещё раз.');
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
   }
   async function savePolicy(event: FormEvent) {
     event.preventDefault(); await run(async () => { await readJson(await fetch(`${endpoint}/policy`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(policy) })); }, 'Правила озвучивания сохранены');
@@ -273,12 +285,13 @@ export function AutomationEditor(props: Props) {
         appPath(`api/workspaces/${encodeURIComponent(workspaceId)}/supporters/statistics`),
         { method: 'DELETE' },
       ));
+      if (!mounted.current) return;
       onNotice(result.deletedSupporters > 0
         ? `Статистика сброшена: удалено донатеров — ${result.deletedSupporters}`
         : 'Статистика уже была пустой');
     } catch {
-      onNotice('Не удалось сбросить статистику донатеров. Попробуйте ещё раз.');
-    } finally { setBusy(false); }
+      if (mounted.current) onNotice('Не удалось сбросить статистику донатеров. Попробуйте ещё раз.');
+    } finally { if (mounted.current) setBusy(false); }
   }
   async function move<T extends SupportLevel | EventReaction>(kind: 'support-levels' | 'event-reactions', items: T[], index: number, direction: -1 | 1) {
     const other = items[index + direction]; const item = items[index]; if (!item || !other) return;

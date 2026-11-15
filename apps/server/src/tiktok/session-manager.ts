@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { ChatSpeakerContext, ConnectionStateEvent, GiftCompletedEvent, GiftEvent, LikeGoalConfiguration, LiveActivityState } from '@tiktok-helper/contracts';
+import type {
+  ChatSpeakerContext, ConnectionStateEvent, GiftCompletedEvent, GiftEvent, LikeGoalConfiguration, LiveActivityState,
+  LivePollState, StartLivePoll,
+} from '@tiktok-helper/contracts';
 import { GiftStreakTracker } from './gift-streaks.js';
 import { LiveActivity, normalizeLiveActivity, PendingLiveActivity, type ActivitySample } from './live-activity.js';
+import { LivePollTracker } from './live-poll.js';
 import { messageRoomId, normalizeChat, normalizeGift, tiktokRoomId } from './normalizer.js';
 import {
   LIVE_ACTIVITY_EVENTS, type GiftAccounting, type LiveConnector, type LiveConnectorFactory, type LiveConnectionState,
@@ -31,6 +35,7 @@ interface Session {
   seenChatIds: Set<string>;
   gifts: GiftStreakTracker;
   activity: LiveActivity;
+  poll: LivePollTracker;
   roomId?: string;
   connectionId: string;
   streamId: string;
@@ -66,7 +71,7 @@ function createStreamId(roomId: string | undefined): string {
 
 export interface TikTokDiagnostic {
   event: 'connect_failed' | 'connector_error' | 'disconnected' | 'gift_intake_full' | 'gift_accounting_failed' | 'gift_completion_failed'
-    | 'gift_observer_failed' | 'live_activity_observer_failed';
+    | 'gift_observer_failed' | 'live_activity_observer_failed' | 'live_poll_observer_failed';
   errorName?: string;
   code?: string | number;
   statusCode?: number;
@@ -106,6 +111,7 @@ export class TikTokSessionManager {
     private readonly giftCompleted?: (event: GiftCompletedEvent, streakable: boolean) => void | Promise<void>,
     private readonly giftAccepted?: (workspaceId: string, connectionId: string, gift: GiftEvent, identityKey: string) => void,
     private readonly liveActivityChanged?: (workspaceId: string) => void,
+    private readonly livePollChanged?: (workspaceId: string) => void,
   ) {}
 
   async start(workspaceId: string, username: string): Promise<LiveSessionSnapshot> {
@@ -122,6 +128,7 @@ export class TikTokSessionManager {
       sequence: 0, state: 'stopped', stopped: false, reconnectAttempt: 0,
       tiktokUsername: normalizedUsername, seenChatIds: new Set(), gifts: new GiftStreakTracker(),
       activity: new LiveActivity(this.#likeGoals.get(workspaceId)),
+      poll: new LivePollTracker(),
       connectionId: randomUUID(), streamId: randomUUID(), prepared: false, giftOverflow: false,
       disconnecting: previousStop.then(() => undefined),
     };
@@ -158,6 +165,26 @@ export class TikTokSessionManager {
     const session = this.#sessions.get(workspaceId);
     const activity = session?.activity ?? new LiveActivity(this.#likeGoals.get(workspaceId));
     return activity.snapshot(workspaceId, session?.generation ?? 0, session?.connectionId ?? null);
+  }
+
+  getLivePoll(workspaceId: string): LivePollState {
+    const session = this.#sessions.get(workspaceId);
+    return session ? session.poll.snapshot(workspaceId, session.generation, session.connectionId)
+      : { workspaceId, generation: 0, connectionId: null, revision: 0, poll: null };
+  }
+
+  startLivePoll(workspaceId: string, input: StartLivePoll): LivePollState | undefined {
+    const session = this.#sessions.get(workspaceId);
+    if (session?.state !== 'live' || session.connectionId !== input.connectionId || !session.poll.start(input)) return undefined;
+    this.#notifyLivePoll(workspaceId);
+    return this.getLivePoll(workspaceId);
+  }
+
+  closeLivePoll(workspaceId: string, pollId: string): LivePollState | undefined {
+    const result = this.#sessions.get(workspaceId)?.poll.close(pollId);
+    if (!result) return undefined;
+    if (result === 'updated') this.#notifyLivePoll(workspaceId);
+    return this.getLivePoll(workspaceId);
   }
 
   setLikeGoal(workspaceId: string, configuration: LikeGoalConfiguration): void {
@@ -254,6 +281,7 @@ export class TikTokSessionManager {
           session.seenChatIds.clear();
           session.gifts = new GiftStreakTracker();
           session.activity = new LiveActivity(this.#likeGoals.get(workspaceId));
+          session.poll = new LivePollTracker();
           session.connectionId = randomUUID();
           session.prepared = false;
           this.#transition(workspaceId, session, 'connecting');
@@ -323,21 +351,28 @@ export class TikTokSessionManager {
 
   #onChat(workspaceId: string, session: Session, raw: unknown, historical: boolean): void {
     const event = normalizeChat(raw, session.generation, session.sequence + 1);
-    if (!event || session.seenChatIds.has(event.eventId)) return;
-    session.seenChatIds.add(event.eventId);
-    if (session.seenChatIds.size > 10_000) session.seenChatIds.delete(session.seenChatIds.values().next().value!);
-    session.sequence = event.sequence;
-    const identityKey = this.#workspaceIdentityKey(workspaceId, event.senderIdentityKey);
-    const projectEvent = {
-      ...event,
-      ...(historical ? { historical: true as const } : {}),
-      speakerContext: this.resolveSpeakerContext(workspaceId, identityKey, {
-        isModerator: event.participant?.moderator === true,
-        isGiftGiver: event.participant?.giftGiver === true,
-      }),
-    };
-    delete (projectEvent as Partial<typeof event>).senderIdentityKey;
-    this.sink(workspaceId, projectEvent);
+    if (!event) return;
+    const seen = session.seenChatIds.has(event.eventId);
+    // A fallback ID identifies the text and author, which can recur in later polls.
+    const pollChanged = !historical && (!seen || !event.upstreamEventId) && session.poll.accept(event);
+    if (!seen) {
+      session.seenChatIds.add(event.eventId);
+      if (session.seenChatIds.size > 10_000) session.seenChatIds.delete(session.seenChatIds.values().next().value!);
+      session.sequence = event.sequence;
+      const identityKey = this.#workspaceIdentityKey(workspaceId, event.senderIdentityKey);
+      const projectEvent = {
+        ...event,
+        ...(historical ? { historical: true as const } : {}),
+        speakerContext: this.resolveSpeakerContext(workspaceId, identityKey, {
+          isModerator: event.participant?.moderator === true,
+          isGiftGiver: event.participant?.giftGiver === true,
+        }),
+      };
+      delete (projectEvent as Partial<typeof event>).senderIdentityKey;
+      delete (projectEvent as Partial<typeof event>).upstreamEventId;
+      this.sink(workspaceId, projectEvent);
+    }
+    if (pollChanged) this.#notifyLivePoll(workspaceId);
   }
 
   #onGift(workspaceId: string, session: Session, raw: unknown, historical: boolean): void {
@@ -459,15 +494,22 @@ export class TikTokSessionManager {
     catch (error: unknown) { this.diagnostics(diagnostic(error, 'live_activity_observer_failed')); }
   }
 
+  #notifyLivePoll(workspaceId: string): void {
+    try { this.livePollChanged?.(workspaceId); }
+    catch (error: unknown) { this.diagnostics(diagnostic(error, 'live_poll_observer_failed')); }
+  }
+
   #transition(workspaceId: string, session: Session, state: LiveConnectionState): void {
     if (session.state === state) return;
     session.state = state;
     session.activity.connectionChanged(state === 'live');
+    if (state === 'stopped' || state === 'offline' || state === 'failed') session.poll.close();
     const event: ConnectionStateEvent = {
       type: 'connection.state', generation: session.generation, sequence: ++session.sequence, state, connectionId: session.connectionId,
     };
     this.sink(workspaceId, event);
     this.#notifyLiveActivity(workspaceId);
+    this.#notifyLivePoll(workspaceId);
   }
 
   #emptySnapshot(workspaceId: string): LiveSessionSnapshot {

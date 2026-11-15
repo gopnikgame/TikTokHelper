@@ -12,6 +12,7 @@ import type { AuthPrincipal } from '@tiktok-helper/contracts';
 
 const roomFor = (workspaceId: string, diagnostics: boolean) =>
   `workspace:${workspaceId}:${diagnostics ? 'diagnostics' : 'standard'}`;
+const workspaceRooms = (workspaceId: string) => [roomFor(workspaceId, false), roomFor(workspaceId, true)];
 
 function eventForPrincipal(event: RealtimeEvent, isAdmin: boolean): RealtimeEvent {
   if (isAdmin || event.type !== 'chat.message') return event;
@@ -53,6 +54,7 @@ export interface RealtimeServer {
   publishGiftCompleted(event: GiftCompletedEvent): void;
   publishGiftGoal(update: GiftGoalUpdate): void;
   scheduleLiveActivity(workspaceId: string): void;
+  scheduleLivePoll(workspaceId: string): void;
   close(): Promise<void>;
 }
 
@@ -65,6 +67,7 @@ export function attachRealtimeServer(
   const buffer = new RecentEventBuffer(options.bufferCapacity);
   const commandResults = new Map<string, CommandAcknowledgement>();
   const activityTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const pollTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(app.server, {
     serveClient: false,
     transports: ['websocket'],
@@ -74,6 +77,22 @@ export function attachRealtimeServer(
   const connectedSocketsByUser = new Map<string, number>();
   const presencePayload = () => ({ onlineUsers: connectedSocketsByUser.size });
   const broadcastPresence = () => io.emit('presence:update', presencePayload());
+
+  function scheduleWorkspaceUpdate(
+    workspaceId: string,
+    timers: typeof activityTimers,
+    publish: (rooms: string[]) => void,
+  ): void {
+    const rooms = workspaceRooms(workspaceId);
+    const hasSubscribers = () => rooms.some((room) => io.sockets.adapter.rooms.has(room));
+    if (timers.has(workspaceId) || !hasSubscribers()) return;
+    const timer = setTimeout(() => {
+      timers.delete(workspaceId);
+      if (hasSubscribers()) publish(rooms);
+    }, 500);
+    timers.set(workspaceId, timer);
+    timer.unref();
+  }
 
   if (options.authenticate) {
     io.use(async (socket, next) => {
@@ -134,7 +153,6 @@ export function attachRealtimeServer(
     };
     const isAdministrator = () => (socket.data.authPrincipal as AuthPrincipal | undefined)?.isAdmin === true;
     const prepareGiftGoal = async (workspaceId: string) => {
-      if (!isAdministrator()) return;
       try { await options.giftGoals?.prepare(workspaceId); }
       catch (error: unknown) {
         app.log.warn({ event: 'gift_goal_load_failed', errorName: error instanceof Error ? error.name : 'UnknownError' });
@@ -147,7 +165,7 @@ export function attachRealtimeServer(
       if (!await canAccess(parsed.value.workspaceId)) return acknowledge(forbidden);
       const { workspaceId } = parsed.value;
       const diagnostics = isAdministrator();
-      if (diagnostics && (options.giftGoals || options.prepareLiveActivity)) {
+      if (options.giftGoals || options.prepareLiveActivity) {
         await Promise.all([
           prepareGiftGoal(workspaceId),
           options.prepareLiveActivity?.(workspaceId).catch((error: unknown) => {
@@ -163,8 +181,9 @@ export function attachRealtimeServer(
       const replay = buffer.replay(
         workspaceId, parsed.value.generation ?? 0, parsed.value.lastSequence ?? 0,
       );
-      const giftGoal = diagnostics ? options.giftGoals?.snapshot(workspaceId) : undefined;
-      const liveActivity: LiveActivityState | undefined = diagnostics ? manager.getLiveActivity(workspaceId) : undefined;
+      const giftGoal = options.giftGoals?.snapshot(workspaceId);
+      const liveActivity: LiveActivityState = manager.getLiveActivity(workspaceId);
+      const livePoll = manager.getLivePoll(workspaceId);
       const snapshot: RealtimeSnapshot = {
         workspaceId,
         generation: status.generation,
@@ -174,7 +193,8 @@ export function attachRealtimeServer(
         replay: replay.events.map((event) => eventForPrincipal(event, diagnostics)),
         requiresFullRefresh: replay.requiresFullRefresh,
         ...(giftGoal ? { giftGoal } : {}),
-        ...(liveActivity ? { liveActivity } : {}),
+        liveActivity,
+        livePoll,
       };
       socket.emit('snapshot', snapshot);
       socket.emit('presence:update', presencePayload());
@@ -194,7 +214,7 @@ export function attachRealtimeServer(
       const cached = commandResults.get(commandKey(parsed.value.workspaceId, parsed.value.commandId));
       if (cached) return acknowledge(cached.ok ? { ...cached, duplicate: true } : cached);
       try {
-        if (isAdministrator() && options.giftGoals) await prepareGiftGoal(parsed.value.workspaceId);
+        if (options.giftGoals) await prepareGiftGoal(parsed.value.workspaceId);
         if (!socket.connected) return;
         await manager.start(parsed.value.workspaceId, parsed.value.tiktokUsername);
         const result: CommandAcknowledgement = { ok: true };
@@ -238,30 +258,28 @@ export function attachRealtimeServer(
     publishGiftCompleted(event) {
       const current = manager.status(event.workspaceId);
       if (current.state !== 'live' || event.generation !== current.generation || event.connectionId !== current.connectionId) return;
-      io.to(roomFor(event.workspaceId, true)).emit('gift:completed', event);
+      io.to(workspaceRooms(event.workspaceId)).emit('gift:completed', event);
     },
     publishGiftGoal(update) {
       const { state } = update;
       const current = manager.status(state.workspaceId);
       if (current.generation !== state.generation || (current.connectionId ?? null) !== state.connectionId) return;
       if (update.reached && current.state !== 'live') return;
-      io.to(roomFor(state.workspaceId, true)).emit('gift-goal:update', update);
+      io.to(workspaceRooms(state.workspaceId)).emit('gift-goal:update', update);
     },
     scheduleLiveActivity(workspaceId) {
-      const room = roomFor(workspaceId, true);
-      if (!io.sockets.adapter.rooms.has(room) || activityTimers.has(workspaceId)) return;
-      const timer = setTimeout(() => {
-        activityTimers.delete(workspaceId);
-        if (io.sockets.adapter.rooms.has(room)) {
-          io.to(room).emit('live-activity:update', manager.getLiveActivity(workspaceId));
-        }
-      }, 500);
-      activityTimers.set(workspaceId, timer);
-      timer.unref();
+      scheduleWorkspaceUpdate(workspaceId, activityTimers,
+        (rooms) => io.to(rooms).emit('live-activity:update', manager.getLiveActivity(workspaceId)));
+    },
+    scheduleLivePoll(workspaceId) {
+      scheduleWorkspaceUpdate(workspaceId, pollTimers,
+        (rooms) => io.to(rooms).emit('live-poll:update', manager.getLivePoll(workspaceId)));
     },
     async close() {
-      for (const timer of activityTimers.values()) clearTimeout(timer);
-      activityTimers.clear();
+      for (const timers of [activityTimers, pollTimers]) {
+        for (const timer of timers.values()) clearTimeout(timer);
+        timers.clear();
+      }
       io.local.disconnectSockets(true);
     },
   };

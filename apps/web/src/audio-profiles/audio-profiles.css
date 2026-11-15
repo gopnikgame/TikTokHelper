@@ -1,0 +1,87 @@
+.audio-profile-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .25rem;
+  width: max-content;
+  max-width: 100%;
+  padding: .25rem;
+  border: 1px solid var(--line);
+  border-radius: .75rem;
+  background: var(--panel);
+}
+
+.audio-profile-switch > button.quiet {
+  min-width: 0;
+  padding-inline: .65rem;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  outline-offset: 1px;
+}
+
+.audio-profile-switch > button[aria-pressed="true"] {
+  border-color: #0b766c;
+  background: #0d332f;
+  color: var(--cyan);
+}
+
+.quiet-profile-editor {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.quiet-profile-editor > summary {
+  min-height: 2.75rem;
+  padding-block: .7rem;
+  color: var(--ink);
+  font-size: .9rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.quiet-profile-editor > form {
+  display: grid;
+  gap: .5rem;
+  padding-top: .5rem;
+}
+
+.quiet-profile-volume-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .35rem .75rem;
+}
+
+.quiet-profile-volume-label > span {
+  color: var(--cyan);
+  font-family: Consolas, monospace;
+}
+
+.quiet-profile-volume > input {
+  padding-inline: 0;
+  accent-color: var(--cyan);
+}
+
+.quiet-profile-editor .quiet-profile-speech {
+  gap: .65rem;
+  min-height: 2.75rem;
+}
+
+.quiet-profile-editor p {
+  margin: 0 0 .25rem;
+  color: var(--muted);
+  font-size: .8rem;
+  line-height: 1.45;
+}
+
+.quiet-profile-editor button {
+  justify-self: start;
+}
+
+@media (max-width: 520px) {
+  .live-view-actions > .audio-profile-switch {
+    grid-column: 1 / -1;
+  }
+}

@@ -64,13 +64,6 @@ function firstImageUrl(...values: unknown[]): string | undefined {
   return undefined;
 }
 
-function eventId(raw: UnknownRecord, parts: string[]): string {
-  const common = record(raw.common);
-  const supplied = text(common?.msgId) ?? text(raw.msgId);
-  if (supplied) return supplied;
-  return createHash('sha256').update(parts.join('\u001f')).digest('hex').slice(0, 40);
-}
-
 function sender(raw: UnknownRecord): { displayName: string; username: string } | undefined {
   const user = record(raw.user);
   const username = text(user?.uniqueId) ?? text(user?.displayId) ?? text(user?.idStr) ?? text(user?.id);
@@ -118,7 +111,10 @@ function mentionedUsernames(raw: UnknownRecord): string[] {
   }))].slice(0, 20);
 }
 
-export interface NormalizedChat extends ChatEvent { senderIdentityKey: string }
+export interface NormalizedChat extends ChatEvent {
+  senderIdentityKey: string;
+  upstreamEventId?: string;
+}
 
 export function normalizeChat(rawValue: unknown, generation: number, sequence: number): NormalizedChat | undefined {
   const raw = record(rawValue);
@@ -132,9 +128,12 @@ export function normalizeChat(rawValue: unknown, generation: number, sequence: n
   const user = record(raw.user);
   const identitySource = text(user?.secUid) ?? author.username.toLocaleLowerCase('en-US');
   const senderIdentityKey = createHash('sha256').update(identitySource).digest('hex');
+  const suppliedEventId = text(record(raw.common)?.msgId) ?? text(raw.msgId);
+  const upstreamEventId = suppliedEventId && suppliedEventId !== '0' ? suppliedEventId : undefined;
   return {
     type: 'chat.message', generation, sequence,
-    eventId: eventId(raw, ['chat', author.username, comment]),
+    eventId: suppliedEventId ?? createHash('sha256').update(['chat', author.username, comment].join('\u001f')).digest('hex').slice(0, 40),
+    ...(upstreamEventId ? { upstreamEventId } : {}),
     senderDisplayName: author.displayName, senderUsername: author.username, senderIdentityKey, text: comment,
     ...(emotes.length > 0 ? { emotes } : {}),
     participant: participantDiagnostic(raw),

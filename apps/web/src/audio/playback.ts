@@ -5,6 +5,7 @@ export interface PlaybackSettings {
   maxConcurrentSounds: number;
   overlapPercent: number;
   playbackMode: PlaybackMode;
+  requiresControlledVolume?: boolean;
   volumePercent: number;
 }
 
@@ -21,6 +22,7 @@ export interface AudioLike {
 }
 
 type PlaybackResult = 'ended' | 'failed';
+type PlaybackErrorReason = 'controlled_volume_unavailable';
 interface Job {
   sound: SoundAsset;
   settings: PlaybackSettings;
@@ -49,7 +51,7 @@ export class SoundPlaybackQueue {
 
   constructor(
     private readonly createAudio: (url: string) => AudioLike = (url) => new Audio(url),
-    private readonly onError: () => void = () => undefined,
+    private readonly onError: (reason?: PlaybackErrorReason) => void = () => undefined,
     private readonly managed: ManagedAudioPlayback | undefined = typeof AudioContext === 'undefined' ? undefined : new ManagedAudioPlayback(),
   ) {}
 
@@ -101,14 +103,18 @@ export class SoundPlaybackQueue {
     if (this.#unlocked.length === 0 && !ready) throw new Error('audio playback was not unlocked');
   }
 
-  async preview(sound: SoundAsset, volumePercent: number): Promise<void> {
+  async preview(sound: SoundAsset, volumePercent: number, requiresControlledVolume = false): Promise<void> {
+    if (requiresControlledVolume && volumePercent <= 0) throw new Error('Audio is muted');
     this.#interruptPreview();
     const epoch = this.#epoch;
     if (this.managed) {
       this.#preparingPreviews += 1;
       try {
-        const handle = await this.managed.play(sound, volumePercent,
-          () => this.#managedActive.delete(handle), () => epoch === this.#epoch);
+        if (requiresControlledVolume) await this.managed.enable();
+        const handle = await this.managed.play(sound, volumePercent, () => {
+          this.#managedActive.delete(handle);
+          this.#pump();
+        }, () => epoch === this.#epoch);
         if (epoch !== this.#epoch) {
           handle.stop();
           throw new DOMException('Audio playback cancelled', 'AbortError');
@@ -117,10 +123,16 @@ export class SoundPlaybackQueue {
         return;
       } catch {
         if (epoch !== this.#epoch) throw new DOMException('Audio playback cancelled', 'AbortError');
-        // Fall through to the media element.
       } finally {
-        if (epoch === this.#epoch) this.#preparingPreviews -= 1;
+        if (epoch === this.#epoch) {
+          this.#preparingPreviews -= 1;
+          this.#pump();
+        }
       }
+    }
+    if (requiresControlledVolume) {
+      this.onError('controlled_volume_unavailable');
+      throw new Error('Controlled audio volume is unavailable');
     }
     const audio = this.createAudio(sound.url);
     audio.volume = volumePercent / 100;
@@ -144,6 +156,7 @@ export class SoundPlaybackQueue {
   }
 
   enqueue(sound: SoundAsset, count: number, settings: PlaybackSettings, onResult?: Job['onResult']): void {
+    if (settings.requiresControlledVolume && settings.volumePercent <= 0) return;
     const safeCount = Math.min(5_000, Math.max(0, Math.trunc(count)));
     if (safeCount > 0) this.#interruptPreview();
     for (let index = 0; index < safeCount; index += 1) this.#queue.push({ sound, settings, onResult });
@@ -173,11 +186,12 @@ export class SoundPlaybackQueue {
   #pump(): void {
     if (this.#starting || this.#launchTimer || this.#queue.length === 0) return;
     const next = this.#queue[0];
-    if (!next || this.active >= next.settings.maxConcurrentSounds) return;
+    if (!next || this.active >= next.settings.maxConcurrentSounds
+      || (next.settings.requiresControlledVolume && this.#preparingPreviews > 0)) return;
     this.#queue.shift();
     this.#starting = true;
+    const epoch = this.#epoch;
     if (this.managed) {
-      const epoch = this.#epoch;
       let handle: ManagedPlaybackHandle | undefined;
       let ended = false;
       void this.managed.play(next.sound, next.settings.volumePercent, () => {
@@ -196,11 +210,26 @@ export class SoundPlaybackQueue {
         }
         this.#pump();
       }, () => {
-        if (epoch === this.#epoch) this.#startMedia(next);
+        if (epoch !== this.#epoch) return;
+        if (next.settings.requiresControlledVolume) this.#failControlled(next);
+        else this.#startMedia(next);
+      });
+      return;
+    }
+    if (next.settings.requiresControlledVolume) {
+      queueMicrotask(() => {
+        if (epoch === this.#epoch) this.#failControlled(next);
       });
       return;
     }
     this.#startMedia(next);
+  }
+
+  #failControlled(next: Job): void {
+    this.#starting = false;
+    this.onError('controlled_volume_unavailable');
+    next.onResult?.('failed');
+    this.#pump();
   }
 
   #startMedia(next: Job): void {

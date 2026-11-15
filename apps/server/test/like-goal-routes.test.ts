@@ -16,7 +16,7 @@ const member = { cookie: 'fixture-role=member' };
 const goal = { targetCount: 100 };
 const disabled = { targetCount: null, revision: 0 };
 
-function setup() {
+function setup(withAuth = true) {
   const authService = new AuthService({} as AuthRepository, { exchange: async () => { throw new Error('not used'); } }, {
     bridgeAuthorizeUrl: 'https://cabinet.example.test/login', clientId: 'fixture',
     redirectUri: 'https://helper.example.test/auth/callback',
@@ -44,33 +44,43 @@ function setup() {
     }),
   };
   const onChanged = vi.fn();
-  const app = buildApp({ logger: false, authService, likeGoalRepository: repository, onLikeGoalChanged: onChanged });
+  const app = buildApp({
+    logger: false, authService: withAuth ? authService : undefined,
+    likeGoalRepository: repository, onLikeGoalChanged: onChanged,
+  });
   apps.add(app);
   return { app, repository, onChanged };
 }
 
 describe('like goal HTTP routes', () => {
-  it('requires an administrator with access to the requested workspace', async () => {
+  it('rejects guests and members of another workspace', async () => {
     const { app, repository, onChanged } = setup();
-    expect((await app.inject({ url: primary })).statusCode).toBe(401);
-    expect((await app.inject({ url: primary, headers: member })).statusCode).toBe(403);
-    expect((await app.inject({ method: 'PUT', url: primary, headers: member, payload: goal })).statusCode).toBe(403);
-    expect((await app.inject({ url: secondary, headers: admin })).statusCode).toBe(403);
-    expect((await app.inject({ method: 'PUT', url: secondary, headers: admin, payload: goal })).statusCode).toBe(403);
+    for (const [url, headers, status] of [[primary, {}, 401], [secondary, member, 403], [secondary, admin, 403]] as const) {
+      expect((await app.inject({ url, headers })).statusCode).toBe(status);
+      expect((await app.inject({ method: 'PUT', url, headers, payload: goal })).statusCode).toBe(status);
+    }
     expect(repository.get).not.toHaveBeenCalled();
     expect(repository.save).not.toHaveBeenCalled();
     expect(onChanged).not.toHaveBeenCalled();
   });
 
-  it('serves the initial goal and synchronizes saved and disabled configurations', async () => {
+  it('requires configured authentication or an explicit local workspace', async () => {
+    const { app, repository } = setup(false);
+    expect((await app.inject({ url: primary, headers: member })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'PUT', url: primary, headers: member, payload: goal })).statusCode).toBe(401);
+    expect(repository.get).not.toHaveBeenCalled();
+    expect(repository.save).not.toHaveBeenCalled();
+  });
+
+  it('lets the workspace member read, save and disable the goal', async () => {
     const { app, onChanged } = setup();
-    const initial = await app.inject({ url: primary, headers: admin });
+    const initial = await app.inject({ url: primary, headers: member });
     expect(initial.statusCode).toBe(200);
     expect(initial.headers['cache-control']).toBe('no-store');
     expect(initial.json()).toEqual(disabled);
 
     const maximum = { targetCount: LIKE_GOAL_MAX_TARGET };
-    const save = (payload: object) => app.inject({ method: 'PUT', url: primary, headers: admin, payload });
+    const save = (payload: object) => app.inject({ method: 'PUT', url: primary, headers: member, payload });
     const first = await save(maximum);
     expect(first.statusCode).toBe(200);
     expect(first.headers['cache-control']).toBe('no-store');
@@ -82,7 +92,7 @@ describe('like goal HTTP routes', () => {
     expect(stopped.statusCode).toBe(200);
     expect(stopped.json()).toEqual({ targetCount: null, revision: 2 });
     expect(onChanged).toHaveBeenLastCalledWith('primary', stopped.json());
-    expect((await app.inject({ url: primary, headers: admin })).json()).toEqual(stopped.json());
+    expect((await app.inject({ url: primary, headers: member })).json()).toEqual(stopped.json());
   });
 
   it('rejects ambiguous or extraneous JSON and out-of-range targets', async () => {

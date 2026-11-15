@@ -2,6 +2,7 @@ import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv';
 import type { GiftCompletedEvent } from './gift-completion.js';
 import type { GiftGoalState, GiftGoalUpdate } from './gift-goal.js';
 import type { LiveActivityState } from './live-activity.js';
+import type { LivePollState } from './live-poll.js';
 
 const identifierPattern = '^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$';
 const commandIdPattern = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
@@ -197,6 +198,7 @@ export interface RealtimeSnapshot {
   requiresFullRefresh: boolean;
   giftGoal?: GiftGoalState;
   liveActivity?: LiveActivityState;
+  livePoll?: LivePollState;
 }
 export interface ServerToClientEvents {
   snapshot: (snapshot: RealtimeSnapshot) => void;
@@ -206,5 +208,6 @@ export interface ServerToClientEvents {
   'gift:completed': (event: GiftCompletedEvent) => void;
   'gift-goal:update': (update: GiftGoalUpdate) => void;
   'live-activity:update': (state: LiveActivityState) => void;
+  'live-poll:update': (state: LivePollState) => void;
   'sound-library:changed': (payload: { soundId: string }) => void;
 }

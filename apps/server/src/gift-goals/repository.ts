@@ -17,12 +17,19 @@ const projection = {
   revision: giftGoalSettings.revision,
 };
 
-export function createGiftGoalRepository(db: Database): GiftGoalRepository {
+export function createGiftGoalRepository(db: Database): GiftGoalRepository & {
+  getGiftName(giftId: string): Promise<string | null>;
+} {
   return {
     async get(workspaceId) {
       const [row] = await db.select(projection).from(giftGoalSettings)
         .where(eq(giftGoalSettings.workspaceId, workspaceId)).limit(1);
       return row ?? null;
+    },
+
+    async getGiftName(giftId) {
+      const [gift] = await db.select({ name: giftCatalog.giftName }).from(giftCatalog).where(eq(giftCatalog.giftId, giftId)).limit(1);
+      return gift?.name.trim() || null;
     },
 
     async save(workspaceId, input) {

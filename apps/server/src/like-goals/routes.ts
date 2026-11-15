@@ -28,9 +28,9 @@ const endpoint = '/api/workspaces/:workspaceId/like-goal';
 export const likeGoalRoutes: FastifyPluginAsync<LikeGoalRoutesOptions> = async (app, options) => {
   app.addHook('onRequest', async (_request, reply) => { reply.header('cache-control', 'no-store'); });
   app.addHook('preHandler', async (request, reply) => {
-    if (request.authPrincipal?.isAdmin === true) return;
-    await reply.code(403).send({
-      error: { code: 'FORBIDDEN', message: 'Administrator permission required', requestId: request.id },
+    if (request.authPrincipal) return;
+    await reply.code(401).send({
+      error: { code: 'UNAUTHENTICATED', message: 'Authentication required', requestId: request.id },
     } satisfies ApiErrorResponse);
   });
 

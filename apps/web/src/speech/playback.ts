@@ -26,6 +26,7 @@ export class SpeechPlaybackQueue {
   #isPreview = false;
   #preview: { queue: SpeechPlaybackQueue; onInterrupted: () => void } | undefined;
   #preferences: SpeechPlaybackPreferences = { voiceName: '', rate: 1, volume: 1 };
+  #volumeLimit = 1;
 
   constructor(
     private readonly synthesis: SpeechSynthesisLike = window.speechSynthesis as unknown as SpeechSynthesisLike,
@@ -46,6 +47,7 @@ export class SpeechPlaybackQueue {
     const preview = new SpeechPlaybackQueue(this.synthesis, this.createUtterance);
     preview.#isPreview = true;
     preview.setPreferences(this.#preferences);
+    preview.setVolumeLimit(this.#volumeLimit);
     this.#preview = { queue: preview, onInterrupted };
     return preview;
   }
@@ -68,6 +70,10 @@ export class SpeechPlaybackQueue {
       rate: Math.min(2, Math.max(.5, preferences.rate)),
       volume: Math.min(1, Math.max(0, preferences.volume)),
     };
+  }
+
+  setVolumeLimit(limit: number): void {
+    this.#volumeLimit = Number.isFinite(limit) ? Math.min(1, Math.max(0, limit)) : 0;
   }
 
   unlock(): void {
@@ -135,7 +141,7 @@ export class SpeechPlaybackQueue {
       const voices = this.voices;
       utterance.lang = job.language;
       utterance.rate = this.#preferences.rate;
-      utterance.volume = this.#preferences.volume;
+      utterance.volume = Math.min(this.#preferences.volume, this.#volumeLimit);
       utterance.voice = voices.find((voice) => voice.name === this.#preferences.voiceName)
         ?? voices.find((voice) => voice.lang.toLocaleLowerCase() === requested)
         ?? voices.find((voice) => voice.lang.toLocaleLowerCase().split('-')[0] === requested.split('-')[0])

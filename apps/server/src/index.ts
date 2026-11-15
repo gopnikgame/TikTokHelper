@@ -17,6 +17,7 @@ import { fetchRegionalGifts } from './gifts/regional-provider.js';
 import { createGiftGoalRepository } from './gift-goals/repository.js';
 import { createLikeGoalRepository } from './like-goals/repository.js';
 import { GiftGoalRuntime } from './gift-goals/runtime.js';
+import { StreamOverlayRuntime } from './overlays/live-snapshots.js';
 import { createRecentChannelRepository } from './channels/repository.js';
 import { createAuthRepository } from './auth/repository.js';
 import { HttpIdentityBridge } from './auth/bridge-client.js';
@@ -73,6 +74,7 @@ const giftGoals = new GiftGoalRuntime(
   giftGoalRepository,
   (id): LiveSessionSnapshot => tiktokManager.status(id),
   (update) => realtimeRef.current?.publishGiftGoal(update),
+  (giftId) => giftGoalRepository.getGiftName(giftId),
 );
 const tiktokManager: TikTokSessionManager = new TikTokSessionManager(createTikTokConnector, (workspaceId, event) => {
   if (event.type === 'gift.received') {
@@ -84,7 +86,10 @@ const tiktokManager: TikTokSessionManager = new TikTokSessionManager(createTikTo
     });
   }
   realtimeRef.current?.publish(workspaceId, event);
-  if (event.type === 'connection.state') giftGoals.trackConnection(workspaceId, event);
+  if (event.type === 'connection.state') {
+    giftGoals.trackConnection(workspaceId, event);
+    if (event.state !== 'live') streamOverlays.clearLastGift(workspaceId);
+  }
 }, undefined, (entry) => process.stderr.write(`${JSON.stringify({ level: 'error', component: 'tiktok', ...entry })}\n`), (workspaceId, username) => {
   void recentChannelRepository.record(workspaceId, username).catch((error: unknown) => {
     process.stderr.write(`${JSON.stringify({
@@ -131,8 +136,11 @@ supporterRepository.rememberHistoricalStreak, async (event, streakable) => {
   // Ordinary gifts have already been claimed by processGift. Finals with no increment need their own claim.
   if (streakable && !await supporterRepository.claimGiftCompletion(event.workspaceId, event.eventId)) return;
   realtimeRef.current?.publishGiftCompleted(event);
+  streamOverlays.observeCompletedGift(event);
 }, (workspaceId, connectionId, gift, identityKey) => giftGoals.observe(workspaceId, connectionId, gift, identityKey),
-(id) => realtimeRef.current?.scheduleLiveActivity(id));
+(id) => realtimeRef.current?.scheduleLiveActivity(id),
+(id) => realtimeRef.current?.scheduleLivePoll(id));
+const streamOverlays = new StreamOverlayRuntime(tiktokManager);
 const app = buildApp({
   readinessCheck: async () => {
     try { await db.execute(sql`select 1`); return true; } catch { return false; }
@@ -142,6 +150,12 @@ const app = buildApp({
   giftCatalogRepository,
   regionalGiftCatalog,
   giftGoalRepository,
+  overlaySnapshots: {
+    'gift-goal': (id) => giftGoals.overlaySnapshot(id),
+    'last-gift': (id) => streamOverlays.lastGiftSnapshot(id),
+    'like-goal': (id) => streamOverlays.likeGoalSnapshot(id),
+    'live-poll': (id) => streamOverlays.pollSnapshot(id),
+  },
   likeGoalRepository,
   recentChannelRepository,
   automationRepository,

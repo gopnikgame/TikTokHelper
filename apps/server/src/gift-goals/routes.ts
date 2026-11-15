@@ -29,8 +29,8 @@ const endpoint = '/api/workspaces/:workspaceId/gift-goal';
 export const giftGoalRoutes: FastifyPluginAsync<GiftGoalRoutesOptions> = async (app, options) => {
   app.addHook('onRequest', async (_request, reply) => { reply.header('cache-control', 'no-store'); });
   app.addHook('preHandler', async (request, reply) => {
-    if (request.authPrincipal?.isAdmin === true) return;
-    await respondError(reply, 403, 'FORBIDDEN', 'Administrator permission required', request.id);
+    if (request.authPrincipal) return;
+    await respondError(reply, 401, 'UNAUTHENTICATED', 'Authentication required', request.id);
   });
 
   app.get<{ Params: WorkspaceParams; Reply: GiftGoalConfiguration | null | ApiErrorResponse }>(endpoint,

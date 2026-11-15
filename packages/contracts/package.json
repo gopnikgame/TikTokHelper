@@ -20,9 +20,21 @@
       "types": "./dist/gift-goal.d.ts",
       "default": "./dist/gift-goal.js"
     },
+    "./gift-goal-overlay": {
+      "types": "./dist/overlays.d.ts",
+      "default": "./dist/overlays.js"
+    },
+    "./overlays": {
+      "types": "./dist/overlays.d.ts",
+      "default": "./dist/overlays.js"
+    },
     "./live-activity": {
       "types": "./dist/live-activity.d.ts",
       "default": "./dist/live-activity.js"
+    },
+    "./live-poll": {
+      "types": "./dist/live-poll.d.ts",
+      "default": "./dist/live-poll.js"
     },
     "./regional-gifts": {
       "types": "./dist/regional-gifts.d.ts",

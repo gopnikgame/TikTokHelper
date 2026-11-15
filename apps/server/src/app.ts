@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import fastifyStatic from '@fastify/static';
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import {
-  apiErrorSchema, authSessionSchema, healthResponseSchema, readinessResponseSchema,
+  apiErrorSchema, authSessionSchema, GIFT_GOAL_OVERLAY_TOKEN_HEADER, healthResponseSchema, readinessResponseSchema, STREAM_OVERLAY_KINDS,
   type ApiErrorResponse, type AuthSessionResponse, type GiftGoalConfiguration, type HealthResponse, type LikeGoalConfiguration, type ReadinessResponse,
+  type StreamOverlayKind, type StreamOverlaySnapshotByKind,
 } from '@tiktok-helper/contracts';
 import { settingsRoutes } from './settings/routes.js';
 import type { SettingsRepository } from './settings/repository.js';
@@ -13,12 +14,14 @@ import type { SoundRepository } from './sounds/repository.js';
 import type { SoundUploadStore } from './sounds/upload.js';
 import { tiktokRoutes } from './tiktok/routes.js';
 import type { TikTokSessionManager } from './tiktok/session-manager.js';
+import { livePollRoutes } from './live-polls/routes.js';
 import { giftRoutes } from './gifts/routes.js';
 import type { GiftCatalogRepository } from './gifts/repository.js';
 import { regionalGiftRoutes } from './gifts/regional-routes.js';
 import type { RegionalGiftCatalogReader } from './gifts/regional-catalog.js';
 import { giftGoalRoutes } from './gift-goals/routes.js';
 import type { GiftGoalRepository } from './gift-goals/repository.js';
+import { overlayRoutes } from './overlays/routes.js';
 import { likeGoalRoutes } from './like-goals/routes.js';
 import type { LikeGoalRepository } from './like-goals/repository.js';
 import { recentChannelRoutes } from './channels/routes.js';
@@ -39,6 +42,10 @@ declare module 'fastify' {
 }
 
 export type ReadinessCheck = () => boolean | Promise<boolean>;
+type OverlaySnapshotReaders = {
+  [Kind in StreamOverlayKind]?: (workspaceId: string) => StreamOverlaySnapshotByKind[Kind] | null;
+};
+
 export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   readinessCheck?: ReadinessCheck;
@@ -47,6 +54,7 @@ export interface BuildAppOptions {
   giftCatalogRepository?: GiftCatalogRepository;
   regionalGiftCatalog?: RegionalGiftCatalogReader;
   giftGoalRepository?: GiftGoalRepository;
+  overlaySnapshots?: OverlaySnapshotReaders;
   likeGoalRepository?: LikeGoalRepository;
   recentChannelRepository?: RecentChannelRepository;
   automationRepository?: AutomationRepository;
@@ -68,6 +76,7 @@ export interface BuildAppOptions {
 
 export const LOG_REDACTION_PATHS = [
   'req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]',
+  'req.headers["' + GIFT_GOAL_OVERLAY_TOKEN_HEADER + '"]',
   'authorization', 'cookie', 'password', 'secret', 'token', 'chatText',
   '*.authorization', '*.cookie', '*.password', '*.secret', '*.token', '*.chatText',
 ] as const;
@@ -119,6 +128,12 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
+    if (request.routeOptions.url === '/gift-goal-overlay.html') {
+      reply.header('cache-control', 'no-store').header('referrer-policy', 'no-referrer')
+        .header('x-robots-tag', 'noindex, nofollow').header('x-content-type-options', 'nosniff')
+        .header('content-security-policy',
+          "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'");
+    }
     if (options.authService?.integrated) {
       reply.header('x-robots-tag', 'noindex, nofollow').header('x-content-type-options', 'nosniff');
       if (request.url.startsWith('/api/') || reply.statusCode >= 400) reply.header('cache-control', 'no-store');
@@ -126,6 +141,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   });
 
   app.addHook('onResponse', async (request, reply) => {
+    if (request.routeOptions.url?.startsWith('/api/overlays/') && reply.statusCode === 200) return;
     request.log.info({
       event: 'http_request_completed', method: request.method, requestId: request.id,
       responseTimeMs: reply.elapsedTime, route: request.routeOptions.url, statusCode: reply.statusCode,
@@ -174,48 +190,46 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
       : reply.code(503).send({ status: 'not_ready' });
   });
 
-  if (options.authService) {
-    const authService = options.authService;
+  const { authService, localWorkspaceId } = options;
+  const standalonePrincipal = !authService && localWorkspaceId ? localPrincipal(localWorkspaceId) : null;
+  if (authService) {
     if (authService.integrated) app.addHook('onRequest', async (request, reply) => {
       if (request.routeOptions.url?.startsWith('/api/') && !['GET', 'HEAD', 'OPTIONS'].includes(request.method) &&
           request.headers.origin !== authService.publicOrigin) {
         return reply.code(403).send(errorResponse('FORBIDDEN', 'Request origin denied', request.id));
       }
     });
-    app.register(authRoutes, { service: authService, localWorkspaceId: options.localWorkspaceId });
+    app.register(authRoutes, { service: authService, localWorkspaceId });
+  } else if (standalonePrincipal) {
+    app.get<{ Reply: AuthSessionResponse }>('/api/auth/session', {
+      schema: { response: { 200: authSessionSchema } },
+    }, async (_request, reply) => {
+      reply.header('cache-control', 'no-store');
+      return { authenticated: true, mode: 'local', user: standalonePrincipal };
+    });
+  }
+  if (authService || standalonePrincipal) {
     app.addHook('preHandler', async (request, reply) => {
       const route = request.routeOptions.url ?? '';
       const protectedRoute = route.startsWith('/api/workspaces/') || route.startsWith('/api/live/');
       if (!protectedRoute) return;
-      const active = await resolveAccessPrincipal(request.headers, authService, options.localWorkspaceId);
-      if (!active) {
+      const active = authService ? await resolveAccessPrincipal(request.headers, authService, localWorkspaceId) : null;
+      const principal = active?.principal ?? standalonePrincipal;
+      if (!principal) {
         return reply.code(401).send(errorResponse('UNAUTHENTICATED', 'Authentication required', request.id));
       }
       const params = request.params as { workspaceId?: unknown };
       const body = request.body as { workspaceId?: unknown } | undefined;
       const workspaceId = typeof params.workspaceId === 'string' ? params.workspaceId : body?.workspaceId;
-      if (typeof workspaceId !== 'string' || !active.principal.workspaces.some((workspace) => workspace.id === workspaceId)) {
+      if (typeof workspaceId !== 'string' || !principal.workspaces.some((workspace) => workspace.id === workspaceId)) {
         return reply.code(403).send(errorResponse('FORBIDDEN', 'Workspace access denied', request.id));
       }
-      if (route === '/api/live/connect' && request.method === 'POST') {
+      if (authService && route === '/api/live/connect' && request.method === 'POST') {
         const access = await authorizeLiveConnect(authService, active);
         if (!access.ok) return reply.code(access.error.code === 'ACCESS_UNAVAILABLE' ? 503 : 403)
           .send(errorResponse(access.error.code, access.error.message, request.id));
       }
-      request.authPrincipal = active.principal;
-    });
-  } else if (options.localWorkspaceId) {
-    app.get<{ Reply: AuthSessionResponse }>('/api/auth/session', {
-      schema: { response: { 200: authSessionSchema } },
-    }, async (_request, reply) => {
-      reply.header('cache-control', 'no-store');
-      return {
-        authenticated: true,
-        mode: 'local',
-        user: {
-          ...localPrincipal(options.localWorkspaceId!),
-        },
-      };
+      request.authPrincipal = principal;
     });
   }
 
@@ -225,6 +239,7 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.tiktokManager) {
     app.register(tiktokRoutes, { manager: options.tiktokManager });
+    app.register(livePollRoutes, { manager: options.tiktokManager });
     app.addHook('onClose', async () => options.tiktokManager?.close());
   }
 
@@ -245,6 +260,11 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.giftGoalRepository) {
     app.register(giftGoalRoutes, { repository: options.giftGoalRepository, onChanged: options.onGiftGoalChanged });
+  }
+
+  for (const kind of STREAM_OVERLAY_KINDS) {
+    const snapshot = options.overlaySnapshots?.[kind];
+    if (snapshot) app.register(overlayRoutes, { kind, snapshot });
   }
 
   if (options.likeGoalRepository) {

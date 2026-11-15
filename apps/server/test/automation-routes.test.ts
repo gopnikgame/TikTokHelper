@@ -101,6 +101,8 @@ const giftPayload = {
   ...eventPayload, name: 'Розы', eventType: 'gift_completed', giftId: 'fixture-rose',
   minimumGiftPoints: 500, speechTemplate: '{user}, спасибо за {count} подарков {gift}!',
 } satisfies SaveEventReaction;
+const endpoint = '/api/workspaces/primary/automation';
+const reactions = `${endpoint}/event-reactions`;
 
 describe('workspace automation API', () => {
   it('starts silent and round-trips workspace-scoped support levels', async () => {
@@ -137,66 +139,84 @@ describe('workspace automation API', () => {
     expect(response.json()).toMatchObject({ isEnabled: false, speechTemplate: null, soundAssetId: null });
   });
 
-  it('exposes and changes completion rules only for an administrator in the workspace', async () => {
+  it('lets a same-origin workspace member list, create, sort, update and delete gift completion rules', async () => {
     configurations.clear();
-    const authService = new AuthService({} as AuthRepository, { exchange: async () => { throw new Error('not used'); } }, {
-      bridgeAuthorizeUrl: 'https://cabinet.example.test/login', clientId: 'fixture',
-      redirectUri: 'https://helper.example.test/auth/callback',
+    const origin = 'https://helper.example.test';
+    const member = { origin, cookie: 'fixture-role=member' };
+    const authService = new AuthService({} as AuthRepository, {
+      exchange: async () => { throw new Error('not used'); },
+      checkSession: async () => true,
+      checkAccess: async () => ({ allowed: true, reason: 'active_subscription', validUntil: null }),
+    }, {
+      basePath: '/tiktokhelper/', bridgeAuthorizeUrl: 'https://cabinet.example.test/login', clientId: 'fixture',
+      redirectUri: `${origin}/tiktokhelper/auth/callback`,
     });
     vi.spyOn(authService, 'resolveCookie').mockImplementation(async (cookie) => {
-      const isAdmin = cookie === 'fixture-role=admin';
-      if (!isAdmin && cookie !== 'fixture-role=member') return null;
+      if (cookie !== member.cookie) return null;
       return {
         sessionId: 'fixture-session', identitySubject: 'fixture', principal: {
-          userId: 'fixture-user', displayName: 'Тестовый пользователь', isAdmin,
+          userId: 'fixture-user', displayName: 'Тестовый пользователь', isAdmin: false,
           workspaces: [{ id: 'primary', displayName: 'Тестовый эфир' }],
         },
       };
     });
     const app = buildApp({ logger: false, authService, automationRepository: repository }); apps.add(app);
-    const admin = { cookie: 'fixture-role=admin' };
-    const member = { cookie: 'fixture-role=member' };
-    const endpoint = '/api/workspaces/primary/automation';
-    const reactions = `${endpoint}/event-reactions`;
-    expect((await app.inject({ method: 'GET', url: endpoint })).statusCode).toBe(401);
-    expect((await app.inject({ method: 'POST', url: reactions, headers: member, payload: giftPayload })).statusCode).toBe(403);
+    expect((await app.inject({ url: endpoint })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'POST', url: reactions, headers: { origin }, payload: giftPayload })).statusCode).toBe(401);
+    expect((await app.inject({
+      method: 'POST', url: reactions, headers: { ...member, origin: 'https://elsewhere.example.test' }, payload: giftPayload,
+    })).statusCode).toBe(403);
 
     const standard = await app.inject({ method: 'POST', url: reactions, headers: member, payload: eventPayload });
     expect(standard.statusCode).toBe(201);
-    expect((await app.inject({
-      method: 'PUT', url: `${reactions}/${standard.json<EventReaction>().id}`, headers: member, payload: giftPayload,
-    })).statusCode).toBe(403);
-
-    const created = await app.inject({ method: 'POST', url: reactions, headers: admin, payload: giftPayload });
+    const created = await app.inject({ method: 'POST', url: reactions, headers: member, payload: giftPayload });
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject(giftPayload);
     const id = created.json<EventReaction>().id;
     const itemUrl = `${reactions}/${id}`;
-    const adminConfiguration = await app.inject({ method: 'GET', url: endpoint, headers: admin });
-    expect(adminConfiguration.headers['cache-control']).toBe('no-store');
-    expect(adminConfiguration.json<AutomationConfiguration>().eventReactions).toHaveLength(2);
-    expect((await app.inject({ method: 'GET', url: endpoint, headers: member })).json<AutomationConfiguration>()
-      .eventReactions).toEqual([standard.json<EventReaction>()]);
-    expect((await app.inject({ method: 'PUT', url: itemUrl, headers: member, payload: eventPayload })).statusCode).toBe(404);
-    expect((await app.inject({ method: 'DELETE', url: itemUrl, headers: member })).statusCode).toBe(404);
     const move = `${itemUrl}/move`;
-    expect((await app.inject({ method: 'POST', url: move, headers: member, payload: { direction: 'up' } })).statusCode).toBe(404);
-    expect((await app.inject({
-      method: 'POST', url: move.replace('/primary/', '/other/'), headers: admin, payload: { direction: 'up' },
-    })).statusCode).toBe(403);
-    expect((await app.inject({ method: 'POST', url: move, headers: admin, payload: { direction: 'left' } })).statusCode).toBe(400);
-    expect((await app.inject({ method: 'POST', url: move, headers: admin, payload: { direction: 'up' } })).statusCode).toBe(204);
-    expect((await app.inject({ method: 'GET', url: endpoint, headers: admin })).json<AutomationConfiguration>()
+    const memberConfiguration = await app.inject({ url: endpoint, headers: member });
+    expect(memberConfiguration.statusCode).toBe(200);
+    expect(memberConfiguration.headers['cache-control']).toBe('no-store');
+    expect(memberConfiguration.json<AutomationConfiguration>().eventReactions).toEqual([standard.json(), created.json()]);
+    for (const request of [
+      { method: 'GET', url: endpoint },
+      { method: 'POST', url: reactions, payload: giftPayload },
+      { method: 'PUT', url: itemUrl, payload: giftPayload },
+      { method: 'POST', url: move, payload: { direction: 'up' } },
+      { method: 'DELETE', url: itemUrl },
+    ] as const) {
+      const url = request.url.replace('/primary/', '/other/');
+      expect((await app.inject({ ...request, url, headers: member })).statusCode).toBe(403);
+    }
+    expect((await app.inject({ method: 'POST', url: move, headers: member, payload: { direction: 'left' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: move, headers: member, payload: { direction: 'up' } })).statusCode).toBe(204);
+    expect((await app.inject({ url: endpoint, headers: member })).json<AutomationConfiguration>()
       .eventReactions.map((reaction) => reaction.id)).toEqual([id, standard.json<EventReaction>().id]);
-    expect((await app.inject({
-      method: 'PUT', url: itemUrl.replace('/primary/', '/other/'), headers: admin, payload: giftPayload,
-    })).statusCode).toBe(403);
     const updated = await app.inject({
-      method: 'PUT', url: itemUrl, headers: admin, payload: { ...giftPayload, minimumGiftPoints: 0 },
+      method: 'PUT', url: itemUrl, headers: member, payload: { ...giftPayload, minimumGiftPoints: 0 },
     });
     expect(updated.statusCode).toBe(200);
     expect(updated.json()).toMatchObject({ minimumGiftPoints: 0 });
-    expect((await app.inject({ method: 'DELETE', url: itemUrl, headers: admin })).statusCode).toBe(204);
+    expect((await app.inject({ method: 'DELETE', url: itemUrl, headers: member })).statusCode).toBe(204);
+    expect((await app.inject({ url: endpoint, headers: member })).json<AutomationConfiguration>()
+      .eventReactions).toEqual([standard.json()]);
+  });
+
+  it('keeps gift completion rules private when neither authentication nor a local workspace is configured', async () => {
+    configurations.clear();
+    const storedGift = await repository.createEventReaction('primary', giftPayload, true);
+    const app = buildApp({ logger: false, automationRepository: repository }); apps.add(app);
+    const itemUrl = `${reactions}/${storedGift!.id}`;
+    const standard = await app.inject({ method: 'POST', url: reactions, payload: eventPayload });
+    expect(standard.statusCode).toBe(201);
+    expect((await app.inject({ url: endpoint })).json<AutomationConfiguration>().eventReactions).toEqual([standard.json()]);
+    expect((await app.inject({ method: 'POST', url: reactions, payload: giftPayload })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'PUT', url: itemUrl, payload: giftPayload })).statusCode).toBe(401);
+    expect((await app.inject({ method: 'PUT', url: itemUrl, payload: eventPayload })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: `${itemUrl}/move`, payload: { direction: 'down' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'DELETE', url: itemUrl })).statusCode).toBe(404);
+    expect((await repository.get('primary', true)).eventReactions).toEqual([storedGift, standard.json()]);
   });
 
   it('rejects ambiguous gift filters and templates at the HTTP boundary', async () => {

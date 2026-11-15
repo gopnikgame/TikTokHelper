@@ -46,10 +46,11 @@ async function setup(
   const events: Parameters<ReturnType<typeof attachRealtimeServer>['publish']>[] = [];
   let publish: ReturnType<typeof attachRealtimeServer>['publish'] = () => undefined;
   let publishActivity = (_id: string): void => { void _id; };
+  let publishPoll = (_id: string): void => { void _id; };
   const manager = new TikTokSessionManager(connectorFactory ?? (() => connector), (workspaceId, event) => {
     events.push([workspaceId, event]); publish(workspaceId, event);
   }, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-  (id) => publishActivity(id));
+  (id) => publishActivity(id), (id) => publishPoll(id));
   const app = buildApp({ logger: false, tiktokManager: manager });
   apps.add(app);
   const realtime = attachRealtimeServer(app, manager, {
@@ -59,6 +60,7 @@ async function setup(
   });
   publish = realtime.publish;
   publishActivity = realtime.scheduleLiveActivity;
+  publishPoll = realtime.scheduleLivePoll;
   app.addHook('preClose', async () => realtime.close());
   const address = await app.listen({ host: '127.0.0.1', port: 0 });
   const client: Socket<ServerToClientEvents, ClientToServerEvents> = createClient(address, {
@@ -78,6 +80,40 @@ function subscribe(
   return new Promise((resolve) => client.emit('workspace:subscribe', {
     commandId: randomUUID(), workspaceId,
   }, resolve));
+}
+
+function connectOperator(address: string, cookie: string): Socket<ServerToClientEvents, ClientToServerEvents> {
+  const socket: Socket<ServerToClientEvents, ClientToServerEvents> = createClient(address, {
+    transports: ['websocket'], forceNew: true, extraHeaders: { cookie },
+  });
+  clients.add(socket);
+  return socket;
+}
+
+async function readSnapshot(client: Socket<ServerToClientEvents, ClientToServerEvents>, workspaceId: string) {
+  const snapshot = new Promise<Parameters<ServerToClientEvents['snapshot']>[0]>((resolve) => client.once('snapshot', resolve));
+  expect(await subscribe(client, workspaceId)).toEqual({ ok: true });
+  return snapshot;
+}
+
+const hasWorkspace: NonNullable<RealtimeServerOptions['authorizeWorkspace']> =
+  (id, principal) => principal?.workspaces.some((workspace) => workspace.id === id) ?? false;
+
+function workspaceAuthentication(): NonNullable<RealtimeServerOptions['authenticate']> {
+  const operator = (id: string, isAdmin: boolean): AuthPrincipal => ({
+    userId: randomUUID(), displayName: 'Fixture', isAdmin, workspaces: [{ id, displayName: id }],
+  });
+  const admin = operator('primary', true);
+  const member = operator('primary', false);
+  const other = operator('elsewhere', false);
+  return (headers) => {
+    switch (headers.cookie) {
+      case 'role=admin': return admin;
+      case 'role=standard': return member;
+      case 'role=other': return other;
+      default: return null;
+    }
+  };
 }
 
 describe('realtime server', () => {
@@ -175,6 +211,7 @@ describe('realtime server', () => {
       senderDisplayName: 'Viewer', senderUsername: 'viewer', text: 'Hello', language: 'ru',
       speakerContext: { isModerator: true, isGiftGiver: false, speechLevels: [] },
     });
+    expect((await readSnapshot(member.client, 'mine')).replay).toEqual([await memberEvent]);
 
     const adminPrincipal = { userId: randomUUID(), displayName: 'Admin', isAdmin: true, workspaces: [{ id: 'mine', displayName: 'Мой эфир' }] };
     const admin = await setup(
@@ -185,6 +222,7 @@ describe('realtime server', () => {
     const adminEvent = new Promise<unknown>((resolve) => admin.client.once('event', resolve));
     admin.realtime.publish('mine', diagnosticEvent);
     await expect(adminEvent).resolves.toEqual(diagnosticEvent);
+    expect((await readSnapshot(admin.client, 'mine')).replay).toEqual([diagnosticEvent]);
   });
 
   it('publishes declarative level grants only to the matching workspace room', async () => {
@@ -202,26 +240,12 @@ describe('realtime server', () => {
     await expect(received).resolves.toEqual(event);
   });
 
-  it('delivers gift completion to the current workspace admin only, outside the replay', async () => {
-    const principal: AuthPrincipal = {
-      userId: randomUUID(), displayName: 'Admin', isAdmin: true,
-      workspaces: [{ id: 'primary', displayName: 'Primary' }, { id: 'other', displayName: 'Other' }],
-    };
-    const { client, address, manager, realtime } = await setup(
-      (workspaceId, user) => user?.workspaces.some((workspace) => workspace.id === workspaceId) ?? false,
-      (headers) => headers.cookie === 'role=standard' ? { ...principal, userId: randomUUID(), isAdmin: false } : principal,
-    );
-    const additionalClient = async (workspaceId: string, cookie?: string) => {
-      const socket: Socket<ServerToClientEvents, ClientToServerEvents> = createClient(address, {
-        transports: ['websocket'], forceNew: true, ...(cookie ? { extraHeaders: { cookie } } : {}),
-      });
-      clients.add(socket);
-      expect(await subscribe(socket, workspaceId)).toEqual({ ok: true });
-      return socket;
-    };
-    const standard = await additionalClient('primary', 'role=standard');
-    const other = await additionalClient('other');
-    expect(await subscribe(client, 'primary')).toEqual({ ok: true });
+  it('delivers gift completion to both operator roles in its workspace, outside the replay', async () => {
+    const { client, address, manager, realtime } = await setup(hasWorkspace, workspaceAuthentication(), 'role=admin');
+    const standard = connectOperator(address, 'role=standard');
+    const other = connectOperator(address, 'role=other');
+    expect(await subscribe(other, 'primary')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+    await Promise.all([readSnapshot(client, 'primary'), readSnapshot(standard, 'primary'), readSnapshot(other, 'elsewhere')]);
 
     const live = await manager.start('primary', 'fixture_streamer');
     const completion: GiftCompletedEvent = {
@@ -229,105 +253,102 @@ describe('realtime server', () => {
       giftId: '5655', giftName: 'Rose', repeatCount: 3, diamondCount: 100,
       senderDisplayName: 'Viewer', senderUsername: 'viewer',
     };
-    const unexpected = vi.fn();
-    standard.on('gift:completed', unexpected);
-    other.on('gift:completed', unexpected);
-    const accepted = vi.fn();
-    client.on('gift:completed', accepted);
+    const adminEvents = vi.fn();
+    const memberEvents = vi.fn();
+    const otherEvents = vi.fn();
+    client.on('gift:completed', adminEvents);
+    standard.on('gift:completed', memberEvents);
+    other.on('gift:completed', otherEvents);
     realtime.publishGiftCompleted({ ...completion, generation: 0 });
     realtime.publishGiftCompleted({ ...completion, connectionId: randomUUID() });
     realtime.publishGiftCompleted(completion);
     await manager.stop('primary');
     realtime.publishGiftCompleted(completion);
-    for (const [socket, workspace] of [[client, 'primary'], [standard, 'primary'], [other, 'other']] as const) {
-      const snapshot = new Promise<Parameters<ServerToClientEvents['snapshot']>[0]>((resolve) => socket.once('snapshot', resolve));
-      await subscribe(socket, workspace);
-      expect((await snapshot).replay.every((event) => event.type === 'connection.state')).toBe(true);
+    for (const [socket, workspace] of [[client, 'primary'], [standard, 'primary'], [other, 'elsewhere']] as const) {
+      expect((await readSnapshot(socket, workspace)).replay.every((event) => event.type === 'connection.state')).toBe(true);
     }
-    expect(accepted).toHaveBeenCalledExactlyOnceWith(completion);
-    expect(unexpected).not.toHaveBeenCalled();
+    expect(adminEvents).toHaveBeenCalledExactlyOnceWith(completion);
+    expect(memberEvents).toHaveBeenCalledExactlyOnceWith(completion);
+    expect(otherEvents).not.toHaveBeenCalled();
   });
 
-  it('recovers gift goals on an admin snapshot and keeps progress and milestone inside that workspace', async () => {
-    const workspaces = ['primary', 'other'].map((id) => ({ id, displayName: id }));
+  it('prepares gift goals for both operator roles and keeps progress and milestone inside that workspace', async () => {
     const configuration = { giftId: '5655', targetCount: 2, soundAssetId: null, isEnabled: true, revision: 1 };
     const loadGoal = vi.fn(async () => configuration);
     const goals: GiftGoalRuntime = new GiftGoalRuntime({ get: loadGoal }, (id) => manager.status(id), (update) => realtime.publishGiftGoal(update));
     const { client, address, manager, realtime } = await setup(
-      (id, principal) => principal?.workspaces.some((workspace) => workspace.id === id) ?? false,
-      (headers) => ({ userId: randomUUID(), displayName: 'Fixture', isAdmin: headers.cookie !== 'role=standard', workspaces }),
-      undefined, undefined, undefined, undefined, { prepare: (id) => goals.prepare(id, true), snapshot: (id) => goals.snapshot(id) },
+      hasWorkspace, workspaceAuthentication(), 'role=admin', undefined, undefined, undefined,
+      { prepare: (id) => goals.prepare(id, true), snapshot: (id) => goals.snapshot(id) },
     );
-    const subscribeAndRead = async (socket: typeof client, id: string) => {
-      const pending = new Promise<Parameters<ServerToClientEvents['snapshot']>[0]>((resolve) => socket.once('snapshot', resolve));
-      expect(await subscribe(socket, id)).toEqual({ ok: true });
-      return pending;
-    };
-    const standard: typeof client = createClient(address, { transports: ['websocket'], forceNew: true, extraHeaders: { cookie: 'role=standard' } });
-    const other: typeof client = createClient(address, { transports: ['websocket'], forceNew: true });
-    clients.add(standard); clients.add(other);
-    expect((await subscribeAndRead(standard, 'primary')).giftGoal).toBeUndefined();
+    const standard = connectOperator(address, 'role=standard');
+    const other = connectOperator(address, 'role=other');
+    expect(await subscribe(other, 'primary')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
     expect(loadGoal).not.toHaveBeenCalled();
-    expect((await subscribeAndRead(other, 'other')).giftGoal).toMatchObject({ workspaceId: 'other', progress: 0 });
-    expect((await subscribeAndRead(client, 'primary')).giftGoal).toMatchObject({ workspaceId: 'primary', progress: 0 });
+    expect(await new Promise<CommandAcknowledgement>((resolve) => standard.emit('live:connect', {
+      commandId: randomUUID(), workspaceId: 'primary', tiktokUsername: 'fixture_streamer',
+    }, resolve))).toEqual({ ok: true });
+    expect(loadGoal).toHaveBeenCalledExactlyOnceWith('primary');
+    expect((await readSnapshot(standard, 'primary')).giftGoal).toMatchObject({ workspaceId: 'primary', progress: 0, configuration });
+    expect((await readSnapshot(other, 'elsewhere')).giftGoal).toMatchObject({ workspaceId: 'elsewhere', progress: 0 });
+    expect((await readSnapshot(client, 'primary')).giftGoal).toMatchObject({ workspaceId: 'primary', progress: 0 });
 
-    const live = await manager.start('primary', 'fixture_streamer');
+    const live = manager.status('primary');
     const connectionId = live.connectionId!;
     goals.trackConnection('primary', { type: 'connection.state', state: 'live', generation: live.generation, sequence: live.lastSequence, connectionId });
     const adminUpdates = vi.fn();
-    const privateUpdates = vi.fn();
+    const memberUpdates = vi.fn();
+    const otherUpdates = vi.fn();
     client.on('gift-goal:update', adminUpdates);
-    standard.on('gift-goal:update', privateUpdates);
-    other.on('gift-goal:update', privateUpdates);
+    standard.on('gift-goal:update', memberUpdates);
+    other.on('gift-goal:update', otherUpdates);
     const gift = {
       type: 'gift.received' as const, eventId: 'fixture-one', generation: live.generation, sequence: live.lastSequence + 1,
       giftId: '5655', giftName: 'Rose', senderDisplayName: 'Даритель', senderUsername: 'viewer', diamondCount: 100, repeatCount: 3,
     };
     goals.observe('primary', connectionId, gift, 'fixture-private');
     goals.observe('primary', connectionId, gift, 'fixture-private');
-    const recovered = await subscribeAndRead(client, 'primary');
+    const recovered = await readSnapshot(client, 'primary');
     expect(recovered.giftGoal).toMatchObject({ progress: 3, topDonors: [{ displayName: 'Даритель', points: 300 }] });
     expect(recovered).not.toHaveProperty('reached');
     expect(recovered.replay.every((event) => event.type === 'connection.state')).toBe(true);
-    expect((await subscribeAndRead(standard, 'primary')).giftGoal).toBeUndefined();
-    expect((await subscribeAndRead(other, 'other')).giftGoal).toMatchObject({ progress: 0, topDonors: [] });
-    expect(adminUpdates.mock.calls.filter(([update]) => update.reached === true)).toHaveLength(1);
-    expect(privateUpdates).not.toHaveBeenCalled();
+    expect((await readSnapshot(standard, 'primary')).giftGoal).toEqual(recovered.giftGoal);
+    expect(JSON.stringify(recovered.giftGoal)).not.toContain('fixture-private');
+    expect((await readSnapshot(other, 'elsewhere')).giftGoal).toMatchObject({ progress: 0, topDonors: [] });
+    for (const updates of [adminUpdates, memberUpdates]) {
+      const milestones = updates.mock.calls.flatMap(([update]) => update.reached === true ? [update] : []);
+      expect(milestones).toEqual([{ state: recovered.giftGoal, reached: true }]);
+    }
+    expect(otherUpdates).not.toHaveBeenCalled();
     goals.close();
   });
 
-  it('sends coalesced activity and its recoverable summary only to the matching admin room', async () => {
-    const workspaces = ['primary', 'elsewhere'].map((id) => ({ id, displayName: id }));
-    const activityPrepared = vi.fn(async (_id: string) => { void _id; });
+  it('sends coalesced activity with a single regular subscriber and recovers it after reconnect', async () => {
+    const activityPrepared = vi.fn(async (id: string): Promise<void> => {
+      if (id === 'primary') manager.setLikeGoal(id, { targetCount: 25, revision: 1 });
+    });
     let liveConnector: ScriptedConnector | undefined;
     const { client, address, manager } = await setup(
-      (id, principal) => principal?.workspaces.some(({ id: allowedId }) => allowedId === id) ?? false,
-      (headers) => ({ userId: randomUUID(), displayName: 'Fixture', isAdmin: headers.cookie !== 'role=standard', workspaces }),
-      undefined, undefined, () => {
+      hasWorkspace, workspaceAuthentication(), 'role=admin', undefined, () => {
         const connector = new ScriptedConnector([], '7484000000000000001');
         liveConnector = connector;
         return connector;
       }, undefined, undefined, activityPrepared,
     );
-    async function readSnapshot(socket: typeof client, workspace: string) {
-      const next = new Promise<Parameters<ServerToClientEvents['snapshot']>[0]>((resolve) => socket.once('snapshot', resolve));
-      expect(await subscribe(socket, workspace)).toEqual({ ok: true });
-      return next;
-    }
-    const standard: typeof client = createClient(address, { transports: ['websocket'], forceNew: true, extraHeaders: { cookie: 'role=standard' } });
-    const other: typeof client = createClient(address, { transports: ['websocket'], forceNew: true });
-    clients.add(standard); clients.add(other);
-    expect((await readSnapshot(standard, 'primary')).liveActivity).toBeUndefined();
+    const standard = connectOperator(address, 'role=standard');
+    const other = connectOperator(address, 'role=other');
+    expect(await subscribe(other, 'primary')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
     expect(activityPrepared).not.toHaveBeenCalled();
+    expect((await readSnapshot(standard, 'primary')).liveActivity).toMatchObject({
+      workspaceId: 'primary', viewers: null, likeGoal: { targetCount: 25, baselineLikes: null },
+    });
     expect((await readSnapshot(other, 'elsewhere')).liveActivity).toMatchObject({ workspaceId: 'elsewhere', viewers: null, totalLikes: null });
-    expect((await readSnapshot(client, 'primary')).liveActivity).toMatchObject({ workspaceId: 'primary', viewers: null });
-    expect(activityPrepared.mock.calls).toEqual([['elsewhere'], ['primary']]);
+    expect(activityPrepared.mock.calls).toEqual([['primary'], ['elsewhere']]);
 
-    const privateUpdates = vi.fn();
-    standard.on('live-activity:update', privateUpdates);
-    other.on('live-activity:update', privateUpdates);
-    const next = new Promise<Parameters<ServerToClientEvents['live-activity:update']>[0]>((resolve) => client.once('live-activity:update', resolve));
-    manager.setLikeGoal('primary', { targetCount: 25, revision: 1 });
+    const otherUpdates = vi.fn();
+    const memberUpdates = vi.fn();
+    other.on('live-activity:update', otherUpdates);
+    standard.on('live-activity:update', memberUpdates);
+    const next = new Promise<Parameters<ServerToClientEvents['live-activity:update']>[0]>((resolve) => standard.once('live-activity:update', resolve));
     await manager.start('primary', 'fixture_streamer');
     liveConnector!.emit('roomUser', { total: '81', totalUser: '903' });
     liveConnector!.emit('like', { total: '120', count: 90 });
@@ -339,13 +360,72 @@ describe('realtime server', () => {
       likeGoal: { targetCount: 25, baselineLikes: 120 }, recentActions: [{ kind: 'share', displayName: 'Зритель' }],
     });
 
-    const recovered = await readSnapshot(client, 'primary');
+    standard.disconnect();
+    standard.connect();
+    const recovered = await readSnapshot(standard, 'primary');
     expect(recovered.liveActivity).toEqual(manager.getLiveActivity('primary'));
     expect(recovered.replay.every((event) => event.type === 'connection.state')).toBe(true);
     expect(JSON.stringify(recovered.liveActivity)).not.toContain('fixture-private');
-    expect((await readSnapshot(standard, 'primary')).liveActivity).toBeUndefined();
+    expect((await readSnapshot(client, 'primary')).liveActivity).toEqual(recovered.liveActivity);
     expect((await readSnapshot(other, 'elsewhere')).liveActivity).toMatchObject({ totalLikes: null, recentActions: [] });
-    expect(privateUpdates).not.toHaveBeenCalled();
+    expect(memberUpdates).toHaveBeenCalledExactlyOnceWith(recovered.liveActivity);
+    expect(otherUpdates).not.toHaveBeenCalled();
+  });
+
+  it('recovers live poll results and sends coalesced updates to both roles in the matching workspace', async () => {
+    let liveConnector: ScriptedConnector | undefined;
+    const { client, address, manager } = await setup(
+      hasWorkspace, workspaceAuthentication(), 'role=admin', undefined, () => {
+        const connector = new ScriptedConnector([], '7484000000000000001');
+        liveConnector = connector;
+        return connector;
+      },
+    );
+    const standard = connectOperator(address, 'role=standard');
+    const other = connectOperator(address, 'role=other');
+    const otherUpdates = vi.fn();
+    const memberUpdates = vi.fn();
+    standard.on('live-poll:update', memberUpdates);
+    other.on('live-poll:update', otherUpdates);
+    expect(await subscribe(other, 'primary')).toMatchObject({ ok: false, error: { code: 'FORBIDDEN' } });
+    expect((await readSnapshot(standard, 'primary')).livePoll).toMatchObject({ workspaceId: 'primary', poll: null });
+    expect((await readSnapshot(other, 'elsewhere')).livePoll).toMatchObject({ workspaceId: 'elsewhere', poll: null });
+    expect((await readSnapshot(client, 'primary')).livePoll).toEqual(manager.getLivePoll('primary'));
+
+    const adminUpdates = vi.fn();
+    client.on('live-poll:update', adminUpdates);
+    const nextPoll = (socket: typeof client) => new Promise<Parameters<ServerToClientEvents['live-poll:update']>[0]>((resolve) => socket.once('live-poll:update', resolve));
+    const update = Promise.all([nextPoll(client), nextPoll(standard)]);
+    const { connectionId } = await manager.start('primary', 'fixture_streamer');
+    const started = manager.startLivePoll('primary', {
+      connectionId: connectionId!, previousPollId: null, question: 'Какой режим?', options: ['Обычный', 'Тихий'],
+    });
+    liveConnector!.emit('chat', {
+      common: { msgId: 'fixture-vote' }, user: { uniqueId: 'fixture_viewer', secUid: 'fixture-private' }, comment: '!2',
+    });
+    manager.closeLivePoll('primary', started!.poll!.id);
+    const [adminPoll, operatorPoll] = await update;
+    expect(adminPoll).toMatchObject({
+      workspaceId: 'primary', connectionId, poll: {
+        status: 'closed', options: [{ label: 'Обычный', votes: 0 }, { label: 'Тихий', votes: 1 }],
+      },
+    });
+    expect(operatorPoll).toEqual(adminPoll);
+    const recovered = await readSnapshot(client, 'primary');
+    expect(recovered.livePoll).toEqual(manager.getLivePoll('primary'));
+    const serializedPoll = JSON.stringify((await readSnapshot(standard, 'primary')).livePoll);
+    expect(serializedPoll).toBe(JSON.stringify(recovered.livePoll));
+    expect(serializedPoll).not.toContain('fixture-private');
+    expect(serializedPoll).not.toContain('fixture_viewer');
+
+    const reset = Promise.all([nextPoll(client), nextPoll(standard)]);
+    const newStream = await manager.start('primary', 'fixture_next_streamer');
+    for (const snapshot of await reset) expect(snapshot).toMatchObject({ connectionId: newStream.connectionId, poll: null });
+    expect((await readSnapshot(standard, 'primary')).livePoll).toEqual(manager.getLivePoll('primary'));
+    expect((await readSnapshot(other, 'elsewhere')).livePoll).toMatchObject({ workspaceId: 'elsewhere', poll: null });
+    expect(adminUpdates).toHaveBeenCalledTimes(2);
+    expect(memberUpdates).toHaveBeenCalledTimes(2);
+    expect(otherUpdates).not.toHaveBeenCalled();
   });
 
   it('rejects unauthorized and malformed subscriptions', async () => {

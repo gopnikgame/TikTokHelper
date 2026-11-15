@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -24,6 +25,14 @@ if (base !== '/' && base !== '/tiktokhelper/') throw new Error('Invalid TIKTOK_H
 export default defineConfig({
   base,
   plugins: [react(), serviceWorkerPlugin()],
+  build: {
+    rolldownOptions: {
+      input: [
+        fileURLToPath(new URL('./index.html', import.meta.url)),
+        fileURLToPath(new URL('./gift-goal-overlay.html', import.meta.url)),
+      ],
+    },
+  },
   server: {
     proxy: {
       [`^${base}(api/|auth/|socket\\.io/|sounds/|media/sounds/|tts-assets/)`]: {

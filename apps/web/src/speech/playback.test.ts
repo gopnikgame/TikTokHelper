@@ -54,11 +54,28 @@ describe('browser speech queue', () => {
     expect(spoken[0]).toMatchObject({ voice: { name: 'English' }, rate: 1.4, volume: .6 });
   });
 
-  it('snapshots device settings for preview and does not cancel the synth while idle', () => {
+  it('caps voice volume without changing preferences', () => {
+    const { queue, spoken } = setup();
+    const preferences = { voiceName: 'English', rate: 1.4, volume: .6 };
+    queue.setPreferences(preferences);
+    queue.setVolumeLimit(.25);
+    queue.enqueue({ id: 'quiet', text: 'Quiet', language: 'en', priority: 'normal' }, 5);
+    expect(spoken[0]).toMatchObject({ voice: { name: 'English' }, rate: 1.4, volume: .25 });
+    expect(queue.preferences).toEqual(preferences);
+    spoken[0]!.onend?.();
+
+    queue.setVolumeLimit(1);
+    queue.enqueue({ id: 'normal', text: 'Normal', language: 'en', priority: 'normal' }, 5);
+    expect(spoken[1]).toMatchObject({ voice: { name: 'English' }, rate: 1.4, volume: .6 });
+  });
+
+  it('snapshots device settings and the volume cap for preview and leaves the synth alone while idle', () => {
     const { queue, synthesis, spoken } = setup();
     queue.setPreferences({ voiceName: 'Russian', rate: 1.4, volume: .6 });
+    queue.setVolumeLimit(.3);
     const preview = queue.createPreviewQueue();
     queue.setPreferences({ voiceName: 'English', rate: 2, volume: 0 });
+    queue.setVolumeLimit(1);
     const onResult = vi.fn();
 
     preview.stop();
@@ -66,7 +83,7 @@ describe('browser speech queue', () => {
     expect(preview.preferences).toEqual({ voiceName: 'Russian', rate: 1.4, volume: .6 });
     preview.enqueue({ id: 'preview', text: 'Проверка', language: 'ru', priority: 'normal' }, 5, onResult);
     expect(preview.active).toBe(true);
-    expect(spoken[0]).toMatchObject({ voice: { name: 'Russian' }, rate: 1.4, volume: .6 });
+    expect(spoken[0]).toMatchObject({ voice: { name: 'Russian' }, rate: 1.4, volume: .3 });
     spoken[0]!.onend?.();
     expect(preview.active).toBe(false);
     preview.stop();
