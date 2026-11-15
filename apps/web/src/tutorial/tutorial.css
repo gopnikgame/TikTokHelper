@@ -54,6 +54,7 @@
 }
 
 .tutorial-navigation { display: grid; gap: .75rem; }
+.tutorial-picker { display: none; }
 .tutorial-chapters {
   display: grid;
   gap: .5rem;
@@ -116,6 +117,7 @@ button.tutorial-practice-tab { border-color: #31595b; }
   top: 39%;
   left: 50%;
   transform: translateX(-50%);
+  width: max-content;
   max-width: calc(100% - 1.5rem);
   box-shadow: 0 .25rem 1.25rem #000c;
 }
@@ -150,9 +152,26 @@ button.tutorial-practice-tab { border-color: #31595b; }
   .tutorial-dialog { width: calc(100% - 1rem); max-height: calc(100vh - 1rem); max-height: calc(100dvh - 1rem); }
   .tutorial-dialog-header { padding: .65rem .8rem; }
   .tutorial-layout { grid-template-columns: minmax(0, 1fr); gap: .75rem; padding: .75rem; }
-  .tutorial-navigation { gap: .5rem; }
-  .tutorial-chapters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  button.tutorial-chapter { display: grid; gap: .2rem; height: 100%; min-height: 3.55rem; align-content: center; }
+  .tutorial-picker { position: relative; display: grid; min-width: 0; }
+  .tutorial-picker select {
+    appearance: none;
+    color-scheme: dark;
+    padding-inline-end: 2rem;
+    font-size: 1rem;
+  }
+  .tutorial-picker::after {
+    content: "";
+    position: absolute;
+    inset-inline-end: 1rem;
+    inset-block-end: 1.25rem;
+    width: .45rem;
+    height: .45rem;
+    border-inline-end: 2px solid var(--muted);
+    border-block-end: 2px solid var(--muted);
+    transform: rotate(45deg);
+    pointer-events: none;
+  }
+  .tutorial-chapters, button.tutorial-practice-tab { display: none; }
   .tutorial-panel { padding: .75rem; }
   .tutorial-video-frame { width: min(100%, 18.75rem, 42dvh); }
 }

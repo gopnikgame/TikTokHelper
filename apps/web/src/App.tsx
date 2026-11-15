@@ -777,7 +777,7 @@ function AuthenticatedApp({ principal, authMode, onLoggedOut, pwa, onLiveSession
         <h1>Пульт трансляции</h1>
         <div className="topbar-links">
           <CabinetLink live={liveActive} />
-          <TutorialGuide />
+          <TutorialGuide isAdmin={principal.isAdmin} />
         </div>
       </div>
       <div className="account-area">

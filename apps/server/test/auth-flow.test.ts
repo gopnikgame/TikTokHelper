@@ -60,7 +60,13 @@ const settingsRepository: SettingsRepository = {
 };
 
 const apps = new Set<ReturnType<typeof buildApp>>();
-afterEach(async () => { await Promise.all([...apps].map((app) => app.close())); apps.clear(); });
+const tutorialRoots = new Set<string>();
+afterEach(async () => {
+  await Promise.all([...apps].map((app) => app.close()));
+  apps.clear();
+  await Promise.all([...tutorialRoots].map((root) => rm(root, { recursive: true, force: true })));
+  tutorialRoots.clear();
+});
 
 describe('VLine-backed application sessions', () => {
   it('binds cabinet PKCE state to its browser and revokes HTTP and live socket access with the parent', async () => {
@@ -159,6 +165,50 @@ describe('VLine-backed application sessions', () => {
         method: 'GET', url: `/tts-assets/voices/${voiceId}/../secret`, headers: { cookie: await login(admin) },
       })).statusCode).toBe(404);
     } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  it('protects administrator tutorial media and supports video byte ranges', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'tiktok-helper-tutorial-'));
+    tutorialRoots.add(root);
+    for (const extension of ['mp4', 'ru.vtt', 'webp']) {
+      await writeFile(join(root, `07-regional-gifts.${extension}`), 'Synthetic tutorial content');
+    }
+    const bridge: IdentityBridge = {
+      async exchange() { return { subject: user.identitySubject, displayName: null, authenticatedAt: new Date().toISOString() }; },
+    };
+    const signedIn = async (role: AppUser['globalRole']) => {
+      const service = new AuthService(memoryRepository(role), bridge, {
+        bridgeAuthorizeUrl: 'https://cabinet.example.test/authorize',
+        clientId: 'fixture', redirectUri: 'https://helper.example.test/auth/callback',
+      });
+      const app = buildApp({ logger: false, authService: service, localWorkspaceId: 'primary', adminTutorialRoot: root });
+      apps.add(app);
+      const state = new URL(service.beginLogin()).searchParams.get('state')!;
+      const { token } = await service.completeLogin('c'.repeat(43), state);
+      return { app, cookie: `${service.cookieName}=${token}` };
+    };
+    const admin = await signedIn('admin');
+    const member = await signedIn('user');
+    const prefix = '/api/tutorial/admin/07-regional-gifts';
+    const range = 'bytes=0-11';
+
+    for (const [extension, type] of [['mp4', 'video/mp4'], ['ru.vtt', 'text/vtt'], ['webp', 'image/webp']]) {
+      const url = `${prefix}.${extension}`;
+      expect((await admin.app.inject({ method: 'GET', url })).statusCode).toBe(401);
+      expect((await member.app.inject({ method: 'HEAD', url, headers: { cookie: member.cookie, range } })).statusCode).toBe(403);
+      const response = await admin.app.inject({ method: 'HEAD', url, headers: { cookie: admin.cookie } });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['content-type']).toContain(type);
+      expect(response.headers['cache-control']).toBe('no-store');
+      expect(response.body).toBe('');
+    }
+
+    expect((await admin.app.inject({ url: `${prefix}.mp4`, headers: { 'x-tiktok-local-access': '1', range } })).statusCode).toBe(403);
+    const video = await admin.app.inject({ url: `${prefix}.mp4`, headers: { cookie: admin.cookie, range } });
+    expect(video.statusCode).toBe(206);
+    expect(video.headers['content-range']).toMatch(/^bytes 0-11\/\d+$/);
+    expect(video.headers['cache-control']).toBe('no-store');
+    expect(video.rawPayload).toHaveLength(12);
   });
 
   it('uses a valid VLine session before falling back to trusted local access', async () => {

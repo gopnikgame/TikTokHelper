@@ -7,6 +7,11 @@ the two allowlisted voice directories below `tts-assets/voices/`; Compose mounts
 read-only and the application serves its five allowlisted files only to an authenticated global
 administrator. The route is not enabled without both VLine authentication and `TTS_ASSET_ROOT`.
 
+Package `07-regional-gifts.mp4`, `07-regional-gifts.ru.vtt` and `07-regional-gifts.webp`
+in `apps/server/tutorial/admin/` before building the release. Keep this media in the private
+deployment package. The server serves it to authenticated administrators. The other lessons are
+part of the public Vite build.
+
 ```bash
 export SOURCE_REVISION="$(git rev-parse HEAD)"
 test "$(printf '%s' "$SOURCE_REVISION" | wc -c)" -eq 40

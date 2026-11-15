@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import fastifyStatic from '@fastify/static';
 import Fastify, { LogController, type FastifyInstance, type FastifyServerOptions } from 'fastify';
@@ -64,6 +66,7 @@ export interface BuildAppOptions {
   soundUploadStore?: SoundUploadStore;
   tiktokManager?: TikTokSessionManager;
   staticRoot?: string;
+  adminTutorialRoot?: string;
   authService?: AuthService;
   ttsAssetRoot?: string;
   localWorkspaceId?: string;
@@ -309,6 +312,23 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
 
   if (options.staticRoot) {
     app.register(fastifyStatic, { root: options.staticRoot, wildcard: false });
+  }
+
+  const adminTutorialRoot = options.adminTutorialRoot ?? fileURLToPath(new URL('../tutorial/admin/', import.meta.url));
+  if (authService && existsSync(adminTutorialRoot)) {
+    app.register(async (tutorial) => {
+      tutorial.addHook('onRequest', async (request, reply) => {
+        reply.header('cache-control', 'no-store').header('x-content-type-options', 'nosniff');
+        const active = await resolveAccessPrincipal(request.headers, authService, localWorkspaceId);
+        if (!active) return reply.code(401).send(errorResponse('UNAUTHENTICATED', 'Authentication required', request.id));
+        if (!active.principal.isAdmin) return reply.code(403).send(errorResponse('FORBIDDEN', 'Administrator access required', request.id));
+      });
+      await tutorial.register(fastifyStatic, {
+        root: adminTutorialRoot,
+        prefix: '/api/tutorial/admin/', wildcard: false, decorateReply: false,
+        cacheControl: false, index: false, dotfiles: 'deny',
+      });
+    });
   }
 
   return app;
